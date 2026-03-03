@@ -1,0 +1,337 @@
+name: Deploy Camora ERP
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to deploy (default: latest commit SHA)'
+        required: false
+        type: string
+      rollback:
+        description: 'Rollback to previous deployment'
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: production-deploy-camora
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  AR_REPO: orderapp
+  IMAGE_PREFIX: us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/orderapp
+  DEPLOY_DIR: /home/${{ secrets.VM_SSH_USER }}/apps/camora-erp
+
+jobs:
+  vm-handshake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: VM handshake (SSH preflight)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            set -e
+            echo "VM handshake OK: $(hostname)"
+            echo "SSH connectivity verified"
+
+  test:
+    needs: vm-handshake
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run backend tests
+        working-directory: backend
+        run: mvn verify -B
+
+  build-backend:
+    needs: [vm-handshake, test]
+    if: ${{ !inputs.rollback }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Ensure Artifact Registry repository exists
+        run: |
+          gcloud artifacts repositories describe "${{ env.AR_REPO }}" \
+            --location="${{ env.REGION }}" \
+            --project="${{ env.PROJECT_ID }}" >/dev/null 2>&1 || \
+          gcloud artifacts repositories create "${{ env.AR_REPO }}" \
+            --repository-format=docker \
+            --location="${{ env.REGION }}" \
+            --description="Camora ERP images" \
+            --project="${{ env.PROJECT_ID }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: backend
+          file: backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/camora-erp-backend:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/camora-erp-backend:latest
+          cache-from: type=gha,scope=camora-backend
+          cache-to: type=gha,mode=max,scope=camora-backend
+
+  build-frontend:
+    needs: [vm-handshake, test]
+    if: ${{ !inputs.rollback }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Ensure Artifact Registry repository exists
+        run: |
+          gcloud artifacts repositories describe "${{ env.AR_REPO }}" \
+            --location="${{ env.REGION }}" \
+            --project="${{ env.PROJECT_ID }}" >/dev/null 2>&1 || \
+          gcloud artifacts repositories create "${{ env.AR_REPO }}" \
+            --repository-format=docker \
+            --location="${{ env.REGION }}" \
+            --description="Camora ERP images" \
+            --project="${{ env.PROJECT_ID }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          push: true
+          build-args: |
+            VITE_ROUTER_BASENAME=/camora
+            VITE_API_PREFIX=/camora/api/v1
+            VITE_ASSET_BASE=/camora/
+          tags: |
+            ${{ env.IMAGE_PREFIX }}/camora-erp-frontend:${{ github.sha }}
+            ${{ env.IMAGE_PREFIX }}/camora-erp-frontend:latest
+          cache-from: type=gha,scope=camora-frontend
+          cache-to: type=gha,mode=max,scope=camora-frontend
+
+  deploy:
+    needs: [vm-handshake, test, build-backend, build-frontend]
+    if: ${{ always() && needs.test.result == 'success' && (needs.build-backend.result == 'success' && needs.build-frontend.result == 'success' || inputs.rollback) }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Determine deployment tag
+        id: tag
+        run: |
+          if [ "${{ inputs.rollback }}" == "true" ]; then
+            echo "TAG=rollback" >> $GITHUB_OUTPUT
+            echo "ROLLBACK=true" >> $GITHUB_OUTPUT
+          elif [ -n "${{ inputs.tag }}" ]; then
+            echo "TAG=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+            echo "ROLLBACK=false" >> $GITHUB_OUTPUT
+          else
+            echo "TAG=${{ github.sha }}" >> $GITHUB_OUTPUT
+            echo "ROLLBACK=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload deployment files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: "docker/compose.production.yml"
+          target: ${{ env.DEPLOY_DIR }}
+          overwrite: true
+
+      - name: Deploy to VM
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_TAG: ${{ steps.tag.outputs.TAG }}
+          IS_ROLLBACK: ${{ steps.tag.outputs.ROLLBACK }}
+          GCP_SA_KEY_JSON: ${{ secrets.GCP_SA_KEY }}
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          envs: DEPLOY_TAG,IS_ROLLBACK,GCP_SA_KEY_JSON
+          script: |
+            set -e
+
+            install_docker_if_missing() {
+              if command -v docker >/dev/null 2>&1 && docker --version >/dev/null 2>&1; then
+                if docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
+                  echo "Docker and compose already installed"
+                  return
+                fi
+              fi
+
+              sudo apt-get update -y
+              sudo apt-get install -y ca-certificates curl gnupg lsb-release docker.io
+              if ! sudo apt-get install -y docker-compose-plugin; then
+                sudo apt-get install -y docker-compose || true
+              fi
+              sudo systemctl enable docker || true
+              sudo systemctl start docker || true
+              sudo usermod -aG docker "${USER}" || true
+            }
+
+            resolve_compose_runner() {
+              if $DOCKER compose version >/dev/null 2>&1; then
+                COMPOSE_RUNNER="$DOCKER compose"
+                return
+              fi
+              if command -v docker-compose >/dev/null 2>&1; then
+                if [ "$DOCKER" = "sudo docker" ]; then
+                  COMPOSE_RUNNER="sudo docker-compose"
+                else
+                  COMPOSE_RUNNER="docker-compose"
+                fi
+                return
+              fi
+              echo "ERROR: Neither 'docker compose' nor 'docker-compose' is available on VM."
+              exit 1
+            }
+
+            install_gcloud_if_missing() {
+              if command -v gcloud >/dev/null 2>&1; then
+                return
+              fi
+
+              sudo apt-get update -y
+              sudo apt-get install -y apt-transport-https ca-certificates gnupg curl
+              curl -fsSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+              echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee /etc/apt/sources.list.d/google-cloud-sdk.list > /dev/null
+              sudo apt-get update -y
+              sudo apt-get install -y google-cloud-cli
+            }
+
+            install_docker_if_missing
+            install_gcloud_if_missing
+
+            SA_KEY_PATH="/tmp/camora-github-sa.json"
+            printf '%s' "$GCP_SA_KEY_JSON" > "$SA_KEY_PATH"
+            gcloud auth activate-service-account --key-file="$SA_KEY_PATH" --project="${{ env.PROJECT_ID }}"
+            rm -f "$SA_KEY_PATH"
+
+            DOCKER="docker"
+            if ! docker info >/dev/null 2>&1; then
+              if sudo docker info >/dev/null 2>&1; then
+                DOCKER="sudo docker"
+              else
+                echo "ERROR: Docker is installed but daemon is unavailable."
+                sudo systemctl status docker --no-pager || true
+                exit 1
+              fi
+            fi
+            resolve_compose_runner
+
+            cd "${{ env.DEPLOY_DIR }}"
+            mkdir -p docker backups
+
+            gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+            if [ "$IS_ROLLBACK" == "true" ]; then
+              if [ -f backups/previous-tag ]; then
+                DEPLOY_TAG=$(cat backups/previous-tag)
+              else
+                echo "ERROR: No previous deployment"
+                exit 1
+              fi
+            fi
+
+            if [ -f .current-tag ]; then
+              cp .current-tag backups/previous-tag
+            fi
+            echo "$DEPLOY_TAG" > .current-tag
+
+            echo "Fetching secrets..."
+            gcloud secrets versions access latest --secret="camora-erp-env" --project="${{ env.PROJECT_ID }}" > docker/.env
+            chmod 600 docker/.env
+
+            $DOCKER network create web 2>/dev/null || true
+
+            export TAG="$DEPLOY_TAG"
+            export GCP_PROJECT_ID="${{ env.PROJECT_ID }}"
+
+            $COMPOSE_RUNNER -f docker/compose.production.yml pull
+            $COMPOSE_RUNNER -f docker/compose.production.yml down --timeout 30 || true
+            $COMPOSE_RUNNER -f docker/compose.production.yml up -d
+
+            echo "Waiting for services..."
+            sleep 20
+
+            for attempt in $(seq 1 24); do
+              backend_status=$($DOCKER inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' camora-erp-backend 2>/dev/null || echo missing)
+              frontend_status=$($DOCKER inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' camora-erp-frontend 2>/dev/null || echo missing)
+              if [ "$backend_status" = "healthy" ] && [ "$frontend_status" = "healthy" ]; then
+                echo "Deployment healthy"
+                $COMPOSE_RUNNER -f docker/compose.production.yml ps
+                exit 0
+              fi
+              echo "Health attempt $attempt/24 backend=$backend_status frontend=$frontend_status"
+              sleep 5
+            done
+
+            echo "ERROR: Camora ERP health checks failed"
+            $COMPOSE_RUNNER -f docker/compose.production.yml ps
+            $COMPOSE_RUNNER -f docker/compose.production.yml logs --tail=150
+            exit 1
+
+      - name: Cleanup old images
+        uses: appleboy/ssh-action@v1.0.3
+        if: success()
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            DOCKER="docker"
+            if ! docker info >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+              DOCKER="sudo docker"
+            fi
+            $DOCKER image prune -f
+            for img in camora-erp-backend camora-erp-frontend; do
+              $DOCKER images "us-central1-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/orderapp/$img" --format "{{.ID}} {{.Tag}}" | \
+                grep -v latest | tail -n +4 | awk '{print $1}' | xargs -r $DOCKER rmi || true
+            done

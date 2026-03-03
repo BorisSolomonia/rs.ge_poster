@@ -1,0 +1,12 @@
+{
+  "name": "camora-erp",
+  "private": true,
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "lint": "npm --prefix frontend run lint",
+    "preview": "npm --prefix frontend run preview",
+    "dev:backend": "mvn -f backend/pom.xml spring-boot:run"
+  }
+}

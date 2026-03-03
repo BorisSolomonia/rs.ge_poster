@@ -1,0 +1,10 @@
+spring:
+  config:
+    import: "optional:file:.env[.properties]"
+
+server:
+  port: "${APP_SERVER_PORT:${PORT:8080}}"
+
+camora:
+  api-prefix: "${CAMORA_API_PREFIX:/api/v1}"
+  config-dir: "${CAMORA_CONFIG_DIR:/data/camora}"

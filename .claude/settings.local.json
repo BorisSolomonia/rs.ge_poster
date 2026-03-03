@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(hexdump:*)",
+      "Bash(ls:*)",
+      "Bash(head:*)",
+      "Bash(python3:*)",
+      "Bash(wc:*)",
+      "Bash(file:*)",
+      "Bash(mvn clean package:*)",
+      "Bash(mvn help:evaluate:*)",
+      "Bash(mvn dependency:resolve:*)",
+      "Bash(mvn dependency:tree:*)",
+      "Bash(java -version:*)",
+      "Bash(curl:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(cmd /c \"taskkill /PID 42192 /F\")",
+      "Bash(cmd /c \"taskkill /PID 42192 /F 2>&1\")",
+      "Bash(mvn package:*)",
+      "Bash(cmd /c \"wmic process where \"\"name=''java.exe''\"\" get processid,commandline 2>&1\")",
+      "Bash(cmd /c \"wmic process where \"\"name=''java.exe''\"\" get processid\")",
+      "Bash(cmd /c:*)",
+      "Bash(tasklist:*)",
+      "Bash(powershell -Command:*)",
+      "Bash(npm create vite@latest:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(ping:*)",
+      "Bash(1 curl -s http://localhost:8080/api/v1/supplier-mappings)",
+      "Bash(timeout 8 bash -c \"while ! curl -s http://localhost:5173/ > /dev/null 2>&1; do sleep 1; done; echo ''Frontend ready''\")",
+      "Bash(python -c:*)",
+      "Bash(timeout 20 bash:*)"
+    ]
+  }
+}
