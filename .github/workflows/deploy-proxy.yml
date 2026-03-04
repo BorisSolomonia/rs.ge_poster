@@ -1,0 +1,86 @@
+name: Deploy Shared Proxy
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy-shared-proxy
+  cancel-in-progress: false
+
+env:
+  DEPLOY_DIR: /home/${{ secrets.VM_SSH_USER }}/apps/shared-proxy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Upload proxy files
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          source: "proxy/compose.production.yml,proxy/Caddyfile.production"
+          target: ${{ env.DEPLOY_DIR }}
+          overwrite: true
+
+      - name: Deploy proxy to VM
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_SSH_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            set -e
+
+            DOCKER="docker"
+            if ! docker info >/dev/null 2>&1; then
+              if sudo docker info >/dev/null 2>&1; then
+                DOCKER="sudo docker"
+              else
+                echo "ERROR: Docker daemon is unavailable."
+                exit 1
+              fi
+            fi
+
+            COMPOSE_RUNNER="$DOCKER compose"
+            if ! $DOCKER compose version >/dev/null 2>&1; then
+              if command -v docker-compose >/dev/null 2>&1; then
+                if [ "$DOCKER" = "sudo docker" ]; then
+                  COMPOSE_RUNNER="sudo docker-compose"
+                else
+                  COMPOSE_RUNNER="docker-compose"
+                fi
+              else
+                echo "ERROR: Neither 'docker compose' nor 'docker-compose' is available on VM."
+                exit 1
+              fi
+            fi
+
+            mkdir -p "${{ env.DEPLOY_DIR }}/proxy"
+            cd "${{ env.DEPLOY_DIR }}"
+
+            $DOCKER network create web 2>/dev/null || true
+            $DOCKER volume create caddy_data 2>/dev/null || true
+
+            $COMPOSE_RUNNER -f proxy/compose.production.yml pull
+            $COMPOSE_RUNNER -f proxy/compose.production.yml up -d
+
+            for attempt in $(seq 1 12); do
+              status=$($DOCKER inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' shared-caddy 2>/dev/null || echo missing)
+              if [ "$status" = "healthy" ]; then
+                echo "Shared proxy healthy"
+                $COMPOSE_RUNNER -f proxy/compose.production.yml ps
+                exit 0
+              fi
+              echo "Health attempt $attempt/12 status=$status"
+              sleep 5
+            done
+
+            echo "ERROR: Shared proxy health checks failed"
+            $COMPOSE_RUNNER -f proxy/compose.production.yml ps
+            $COMPOSE_RUNNER -f proxy/compose.production.yml logs --tail=150
+            exit 1

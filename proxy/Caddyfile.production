@@ -1,0 +1,43 @@
+:80 {
+    log {
+        output file /var/log/caddy/access.log {
+            roll_size 10mb
+            roll_keep 5
+        }
+        format json
+    }
+
+    handle_path /camora/api/* {
+        reverse_proxy camora-erp-backend:8080 {
+            health_uri /health
+            health_interval 30s
+        }
+    }
+
+    handle /camora* {
+        reverse_proxy camora-erp-frontend:3000 {
+            health_uri /health
+            health_interval 30s
+        }
+    }
+
+    handle /api/* {
+        reverse_proxy orderapp-backend:8080 {
+            health_uri /actuator/health
+            health_interval 30s
+        }
+    }
+
+    handle /actuator/* {
+        reverse_proxy orderapp-backend:8080
+    }
+
+    respond /health 200
+
+    handle {
+        reverse_proxy orderapp-frontend:3000 {
+            health_uri /api/health
+            health_interval 30s
+        }
+    }
+}

@@ -1,6 +1,6 @@
 # Camora ERP VM Deployment Guide
 
-This deployment mirrors the `Order_app` VM pattern and is intended to run on the same VM and in the same GCP project.
+This deployment now uses a shared-proxy VM layout on the same VM and in the same GCP project.
 
 ## Architecture
 
@@ -8,17 +8,32 @@ This deployment mirrors the `Order_app` VM pattern and is intended to run on the
 - Image registry: Artifact Registry repo `orderapp` in `us-central1`
 - Runtime host: same VM as `Order_app`
 - Runtime orchestrator: Docker Compose with shared external network `web`
-- Public ingress: existing `Order_app` Caddy
+- Public ingress: dedicated shared Caddy stack
 - Public app path: `/camora`
 
-## One-Time VM/Ingress Changes
+## Runtime Layout
 
-Camora does not bind port `80`. It relies on `Order_app`'s Caddy to proxy:
+- `shared-proxy` stack
+  - `shared-caddy`
+- `orderapp` stack
+  - `orderapp-backend`
+  - `orderapp-frontend`
+- `camora-erp` stack
+  - `camora-erp-backend`
+  - `camora-erp-frontend`
+
+Camora does not bind port `80`. The shared proxy routes:
 
 - `/camora/api/*` -> `camora-erp-backend:8080`
 - `/camora*` -> `camora-erp-frontend:3000`
 
-Both apps must stay attached to the same external Docker network `web`.
+Order App routes:
+
+- `/api/*` -> `orderapp-backend:8080`
+- `/actuator/*` -> `orderapp-backend:8080`
+- all other paths -> `orderapp-frontend:3000`
+
+All stacks must stay attached to the same external Docker network `web`.
 
 ## Required GitHub Secrets
 
@@ -26,6 +41,12 @@ Reuse the same secret names as `Order_app`:
 
 - `GCP_PROJECT_ID`
 - `GCP_SA_KEY`
+- `VM_HOST`
+- `VM_SSH_USER`
+- `VM_SSH_KEY`
+
+The shared proxy workflow only needs:
+
 - `VM_HOST`
 - `VM_SSH_USER`
 - `VM_SSH_KEY`
@@ -40,6 +61,17 @@ It should contain the production env file expected by `docker/compose.production
 
 Template is in [docker/.env.example](/C:/Users/Boris/Dell/Projects/APPS/Camora/camora_erp/docker/.env.example).
 
+## Deployment Order
+
+1. Deploy the shared proxy with `.github/workflows/deploy-proxy.yml`
+2. Deploy `Order_app`
+3. Deploy `Camora`
+
+The proxy files live in:
+
+- [proxy/compose.production.yml](/C:/Users/Boris/Dell/Projects/APPS/Camora/camora_erp/proxy/compose.production.yml)
+- [proxy/Caddyfile.production](/C:/Users/Boris/Dell/Projects/APPS/Camora/camora_erp/proxy/Caddyfile.production)
+
 ## Public URL
 
 - `http://<VM_PUBLIC_IP>/camora`
@@ -48,4 +80,4 @@ Template is in [docker/.env.example](/C:/Users/Boris/Dell/Projects/APPS/Camora/c
 
 - Frontend is built with router basename `/camora`
 - API requests are built to `/camora/api/v1`
-- `Order_app` Caddy must strip `/camora` before proxying upstream
+- The proxy handles routing for both apps; app deploys no longer own Caddy

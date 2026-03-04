@@ -1,0 +1,40 @@
+# Shared Proxy Deployment
+# Deploy with: docker compose -f proxy/compose.production.yml up -d
+
+name: shared-proxy
+
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    container_name: shared-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./Caddyfile.production:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    networks:
+      - web
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+    external: true
+  caddy_config:
+  caddy_logs:
+
+networks:
+  web:
+    external: true

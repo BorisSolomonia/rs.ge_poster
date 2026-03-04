@@ -1,6 +1,8 @@
 # Production Deployment - Camora ERP
 # Deploy with: TAG=<commit-sha> docker compose -f docker/compose.production.yml up -d
 
+name: camora-erp
+
 services:
   backend:
     image: us-central1-docker.pkg.dev/${GCP_PROJECT_ID}/orderapp/camora-erp-backend:${TAG}
