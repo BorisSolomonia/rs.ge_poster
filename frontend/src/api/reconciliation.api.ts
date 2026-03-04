@@ -18,8 +18,7 @@ export async function runAnalysis(
 
   const res = await client.post<ApiResponse<ReconciliationResult>>(
     `${BASE}/analyze`,
-    formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } }
+    formData
   )
   if (!res.data.success) throw new Error(res.data.error || 'Analysis failed')
   return res.data.data
@@ -37,8 +36,7 @@ export async function runPurchaseAnalysis(
 
   const res = await client.post<ApiResponse<ReconciliationResult>>(
     `${BASE}/purchase-analyze`,
-    formData,
-    { headers: { 'Content-Type': 'multipart/form-data' } }
+    formData
   )
   if (!res.data.success) throw new Error(res.data.error || 'Purchase analysis failed')
   return res.data.data

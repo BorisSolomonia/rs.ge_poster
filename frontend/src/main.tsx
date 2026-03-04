@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AppLayout from './components/layout/AppLayout'
 import DashboardPage from './pages/DashboardPage'
@@ -26,11 +26,13 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <BrowserRouter basename={env.routerBasename}>
         <Routes>
           <Route element={<AppLayout />}>
+            <Route index element={<DashboardPage />} />
             <Route path={env.routeDashboard} element={<DashboardPage />} />
             <Route path={env.routeReconcile} element={<ReconcilePage />} />
             <Route path={env.routePurchaseReconcile} element={<PurchaseReconcilePage />} />
             <Route path={env.routeSupplierMappings} element={<SupplierMappingPage />} />
             <Route path={env.routeProductMappings} element={<ProductMappingPage />} />
+            <Route path="*" element={<Navigate to={env.routeDashboard} replace />} />
           </Route>
         </Routes>
       </BrowserRouter>
