@@ -11,7 +11,7 @@ This deployment now uses a shared-proxy VM layout on the same VM and in the same
 - Public ingress: dedicated shared Caddy stack
 - Public app path: `/camora`
 
-## Runtime Layout
+## Runtime Layout.
 
 - `shared-proxy` stack
   - `shared-caddy`
