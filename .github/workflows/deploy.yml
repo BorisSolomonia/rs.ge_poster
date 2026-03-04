@@ -294,9 +294,9 @@ jobs:
             export TAG="$DEPLOY_TAG"
             export GCP_PROJECT_ID="${{ env.PROJECT_ID }}"
 
-            $COMPOSE_RUNNER -f docker/compose.production.yml pull
-            $COMPOSE_RUNNER -f docker/compose.production.yml down --timeout 30 || true
-            $COMPOSE_RUNNER -f docker/compose.production.yml up -d
+            $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml pull
+            $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml down --timeout 30 || true
+            $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml up -d
 
             echo "Waiting for services..."
             sleep 20
@@ -306,7 +306,7 @@ jobs:
               frontend_status=$($DOCKER inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' camora-erp-frontend 2>/dev/null || echo missing)
               if [ "$backend_status" = "healthy" ] && [ "$frontend_status" = "healthy" ]; then
                 echo "Deployment healthy"
-                $COMPOSE_RUNNER -f docker/compose.production.yml ps
+                $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml ps
                 exit 0
               fi
               echo "Health attempt $attempt/24 backend=$backend_status frontend=$frontend_status"
@@ -314,8 +314,8 @@ jobs:
             done
 
             echo "ERROR: Camora ERP health checks failed"
-            $COMPOSE_RUNNER -f docker/compose.production.yml ps
-            $COMPOSE_RUNNER -f docker/compose.production.yml logs --tail=150
+            $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml ps
+            $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml logs --tail=150
             exit 1
 
       - name: Cleanup old images

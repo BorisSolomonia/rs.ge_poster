@@ -1,7 +1,5 @@
 # Production Deployment - Camora ERP
-# Deploy with: TAG=<commit-sha> docker compose -f docker/compose.production.yml up -d
-
-name: camora-erp
+# Deploy with: TAG=<commit-sha> docker compose -p camora-erp -f docker/compose.production.yml up -d
 
 services:
   backend:

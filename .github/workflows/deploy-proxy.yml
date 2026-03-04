@@ -66,14 +66,14 @@ jobs:
             $DOCKER network create web 2>/dev/null || true
             $DOCKER volume create caddy_data 2>/dev/null || true
 
-            $COMPOSE_RUNNER -f proxy/compose.production.yml pull
-            $COMPOSE_RUNNER -f proxy/compose.production.yml up -d
+            $COMPOSE_RUNNER -p shared-proxy -f proxy/compose.production.yml pull
+            $COMPOSE_RUNNER -p shared-proxy -f proxy/compose.production.yml up -d
 
             for attempt in $(seq 1 12); do
               status=$($DOCKER inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' shared-caddy 2>/dev/null || echo missing)
               if [ "$status" = "healthy" ]; then
                 echo "Shared proxy healthy"
-                $COMPOSE_RUNNER -f proxy/compose.production.yml ps
+                $COMPOSE_RUNNER -p shared-proxy -f proxy/compose.production.yml ps
                 exit 0
               fi
               echo "Health attempt $attempt/12 status=$status"
@@ -81,6 +81,6 @@ jobs:
             done
 
             echo "ERROR: Shared proxy health checks failed"
-            $COMPOSE_RUNNER -f proxy/compose.production.yml ps
-            $COMPOSE_RUNNER -f proxy/compose.production.yml logs --tail=150
+            $COMPOSE_RUNNER -p shared-proxy -f proxy/compose.production.yml ps
+            $COMPOSE_RUNNER -p shared-proxy -f proxy/compose.production.yml logs --tail=150
             exit 1

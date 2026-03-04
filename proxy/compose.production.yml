@@ -1,7 +1,5 @@
 # Shared Proxy Deployment
-# Deploy with: docker compose -f proxy/compose.production.yml up -d
-
-name: shared-proxy
+# Deploy with: docker compose -p shared-proxy -f proxy/compose.production.yml up -d
 
 services:
   caddy:
