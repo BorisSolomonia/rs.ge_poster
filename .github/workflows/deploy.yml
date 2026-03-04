@@ -306,6 +306,12 @@ jobs:
 
             $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml up -d
 
+            if $DOCKER inspect camora-erp-backend >/dev/null 2>&1; then
+              echo "Fixing /data/camora permissions..."
+              $DOCKER exec -u 0 camora-erp-backend sh -lc "mkdir -p /data/camora && chown -R app:app /data/camora" || true
+              $DOCKER restart camora-erp-backend || true
+            fi
+
             echo "Waiting for services..."
             sleep 20
 
