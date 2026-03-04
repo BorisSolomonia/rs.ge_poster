@@ -2,7 +2,7 @@
 
 This deployment now uses a shared-proxy VM layout on the same VM and in the same GCP project.
 
-## Architecture
+## Architecture.
 
 - CI/CD: GitHub Actions
 - Image registry: Artifact Registry repo `orderapp` in `us-central1`
