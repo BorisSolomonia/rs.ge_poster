@@ -296,6 +296,14 @@ jobs:
 
             $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml pull
             $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml down --timeout 30 || true
+
+            for container in camora-erp-backend camora-erp-frontend; do
+              if $DOCKER inspect "$container" >/dev/null 2>&1; then
+                echo "Removing stale container: $container"
+                $DOCKER rm -f "$container" || true
+              fi
+            done
+
             $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml up -d
 
             echo "Waiting for services..."
