@@ -7,7 +7,8 @@
         format json
     }
 
-    handle_path /camora/api/* {
+    handle /camora/api/* {
+        uri strip_prefix /camora
         reverse_proxy camora-erp-backend:8080 {
             health_uri /health
             health_interval 30s
@@ -18,7 +19,8 @@
         redir /camora/ 308
     }
 
-    handle_path /camora/* {
+    handle /camora/* {
+        uri strip_prefix /camora
         reverse_proxy camora-erp-frontend:3000 {
             health_uri /health
             health_interval 30s
