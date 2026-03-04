@@ -14,7 +14,11 @@
         }
     }
 
-    handle_path /camora* {
+    handle /camora {
+        redir /camora/ 308
+    }
+
+    handle_path /camora/* {
         reverse_proxy camora-erp-frontend:3000 {
             health_uri /health
             health_interval 30s
