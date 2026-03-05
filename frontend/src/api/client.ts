@@ -3,7 +3,6 @@ import { env } from '../env'
 
 export const client = axios.create({
   baseURL: env.apiBaseUrl,
-  headers: { 'Content-Type': 'application/json' },
 })
 
 client.interceptors.response.use(
