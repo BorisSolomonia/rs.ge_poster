@@ -1,6 +1,7 @@
 package ge.camora.erp.model.dto;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 public record SalesAnalysisPeriodRow(
     String key,
@@ -15,6 +16,7 @@ public record SalesAnalysisPeriodRow(
     BigDecimal captureRatio,
     BigDecimal bankMixTbc,
     BigDecimal bankMixBog,
+    List<String> events,
     SalesAnalysisStatus status
 ) {
 }

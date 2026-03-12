@@ -170,6 +170,7 @@ export interface SalesAnalysisPeriodRow {
   captureRatio: number
   bankMixTbc: number
   bankMixBog: number
+  events: string[]
   status: SalesAnalysisStatus
 }
 
@@ -183,7 +184,24 @@ export interface SalesAnalysisResult {
   dateFrom: string
   dateTo: string
   generatedAt: string
+  availableEvents: string[]
   day: SalesAnalysisAggregationBlock
   week: SalesAnalysisAggregationBlock
   month: SalesAnalysisAggregationBlock
+}
+
+export interface SalesProductExclusion {
+  normalizedName: string
+  displayName: string
+  excluded: boolean
+  source: string
+  firstSeen: string
+}
+
+export interface SalesEvent {
+  date: string
+  name: string
+  normalizedName: string
+  createdAt: string
+  updatedAt: string
 }

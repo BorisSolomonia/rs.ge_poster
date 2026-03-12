@@ -91,6 +91,8 @@ public class CamoraProperties {
         private String supplierMappings;
         private String productMappings;
         private String standaloneSuppliers;
+        private String salesProductExclusions;
+        private String salesEvents;
 
         public String getSupplierMappings() {
             return supplierMappings;
@@ -114,6 +116,22 @@ public class CamoraProperties {
 
         public void setStandaloneSuppliers(String standaloneSuppliers) {
             this.standaloneSuppliers = standaloneSuppliers;
+        }
+
+        public String getSalesProductExclusions() {
+            return salesProductExclusions;
+        }
+
+        public void setSalesProductExclusions(String salesProductExclusions) {
+            this.salesProductExclusions = salesProductExclusions;
+        }
+
+        public String getSalesEvents() {
+            return salesEvents;
+        }
+
+        public void setSalesEvents(String salesEvents) {
+            this.salesEvents = salesEvents;
         }
     }
 
@@ -222,6 +240,9 @@ public class CamoraProperties {
     public static class SalesAnalysis {
         private BigDecimal matchThreshold;
         private int weekStartsOnIso;
+        private String exclusionsSeedResource;
+        private int suggestionLimit;
+        private int maxSuggestionDistance;
 
         public BigDecimal getMatchThreshold() {
             return matchThreshold;
@@ -237,6 +258,30 @@ public class CamoraProperties {
 
         public void setWeekStartsOnIso(int weekStartsOnIso) {
             this.weekStartsOnIso = weekStartsOnIso;
+        }
+
+        public String getExclusionsSeedResource() {
+            return exclusionsSeedResource;
+        }
+
+        public void setExclusionsSeedResource(String exclusionsSeedResource) {
+            this.exclusionsSeedResource = exclusionsSeedResource;
+        }
+
+        public int getSuggestionLimit() {
+            return suggestionLimit;
+        }
+
+        public void setSuggestionLimit(int suggestionLimit) {
+            this.suggestionLimit = suggestionLimit;
+        }
+
+        public int getMaxSuggestionDistance() {
+            return maxSuggestionDistance;
+        }
+
+        public void setMaxSuggestionDistance(int maxSuggestionDistance) {
+            this.maxSuggestionDistance = maxSuggestionDistance;
         }
     }
 
@@ -670,6 +715,7 @@ public class CamoraProperties {
     public static class AmountColumns {
         private int date;
         private int amount;
+        private int product = -1;
 
         public int getDate() {
             return date;
@@ -685,6 +731,14 @@ public class CamoraProperties {
 
         public void setAmount(int amount) {
             this.amount = amount;
+        }
+
+        public int getProduct() {
+            return product;
+        }
+
+        public void setProduct(int product) {
+            this.product = product;
         }
     }
 }

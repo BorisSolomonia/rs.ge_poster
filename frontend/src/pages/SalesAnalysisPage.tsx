@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   ArrowDownRight,
@@ -7,10 +7,15 @@ import {
   CalendarRange,
   Landmark,
   Play,
+  Plus,
+  Sparkles,
+  Tags,
+  Trash2,
 } from 'lucide-react'
 import {
   Bar,
   BarChart,
+  Cell,
   CartesianGrid,
   Legend,
   Line,
@@ -21,7 +26,10 @@ import {
   YAxis,
 } from 'recharts'
 import { format } from 'date-fns'
+import { useNavigate } from 'react-router-dom'
+import { deleteSalesEvent, listSalesEvents, suggestSalesEvents, upsertSalesEvent } from '../api/sales-events.api'
 import { runSalesAnalysis } from '../api/sales-analysis.api'
+import { listSalesProducts } from '../api/sales-products.api'
 import FileDropzone from '../components/common/FileDropzone'
 import { getDefaultDateRange, formatGel } from '../components/reconciliation/reconciliation.utils'
 import { env } from '../env'
@@ -32,6 +40,7 @@ import type {
   SalesAnalysisPeriodRow,
   SalesAnalysisResult,
   SalesAnalysisStatus,
+  SalesEvent,
 } from '../types'
 
 const aggregationLabels: Record<SalesAggregation, string> = {
@@ -41,6 +50,8 @@ const aggregationLabels: Record<SalesAggregation, string> = {
 }
 
 export default function SalesAnalysisPage() {
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const defaults = getDefaultDateRange()
   const [salesFile, setSalesFile] = useState<File | null>(null)
   const [tbcFile, setTbcFile] = useState<File | null>(null)
@@ -49,6 +60,9 @@ export default function SalesAnalysisPage() {
   const [dateTo, setDateTo] = useState(defaults.to)
   const [aggregation, setAggregation] = useState<SalesAggregation>('DAY')
   const [lastRunKey, setLastRunKey] = useState<string | null>(null)
+  const [eventDate, setEventDate] = useState(defaults.from)
+  const [eventName, setEventName] = useState('')
+  const [selectedEvents, setSelectedEvents] = useState<string[]>([])
 
   const currentRunKey = useMemo(() => {
     if (!salesFile || !tbcFile || !bogFile) return null
@@ -73,8 +87,49 @@ export default function SalesAnalysisPage() {
     },
   })
 
+  const salesProductsQuery = useQuery({
+    queryKey: ['sales-products', 'excluded-count'],
+    queryFn: () => listSalesProducts(),
+  })
+
+  const salesEventsQuery = useQuery({
+    queryKey: ['sales-events'],
+    queryFn: listSalesEvents,
+  })
+
+  const suggestionsQuery = useQuery({
+    queryKey: ['sales-events', 'suggest', eventName],
+    queryFn: () => suggestSalesEvents(eventName),
+    enabled: eventName.trim().length > 0,
+  })
+
+  const saveEventMutation = useMutation({
+    mutationFn: () => upsertSalesEvent(eventDate, eventName),
+    onSuccess: () => {
+      setEventName('')
+      queryClient.invalidateQueries({ queryKey: ['sales-events'] })
+      if (result) {
+        mutation.mutate()
+      }
+    },
+  })
+
+  const deleteEventMutation = useMutation({
+    mutationFn: () => deleteSalesEvent(eventDate),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sales-events'] })
+      if (result) {
+        mutation.mutate()
+      }
+    },
+  })
+
   const result = mutation.data
-  const activeBlock = result ? getAggregationBlock(result, aggregation) : undefined
+  const baseBlock = result ? getAggregationBlock(result, aggregation) : undefined
+  const activeBlock = useMemo(
+    () => (baseBlock ? filterAggregationBlock(baseBlock, selectedEvents) : undefined),
+    [baseBlock, selectedEvents]
+  )
   const chartData = activeBlock?.periods.map((period) => ({
     period: formatPeriodLabel(period, aggregation),
     sales: period.sales,
@@ -82,7 +137,15 @@ export default function SalesAnalysisPage() {
     bog: period.bogIncome,
     bank: period.bankIncome,
     variance: period.variance,
+    events: period.events,
+    hasEvents: period.events.length > 0,
   })) ?? []
+  const excludedCount = salesProductsQuery.data?.filter((item) => item.excluded).length ?? 0
+  const salesEvents = salesEventsQuery.data ?? []
+  const eventComparison = useMemo(() => {
+    if (!baseBlock) return null
+    return buildEventComparison(baseBlock, selectedEvents)
+  }, [baseBlock, selectedEvents])
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -100,13 +163,22 @@ export default function SalesAnalysisPage() {
             <HeroStat label={env.salesAnalysisAggregationDayLabel} value={result?.day.summary.periodCount ?? 0} />
             <HeroStat label={env.salesAnalysisAggregationWeekLabel} value={result?.week.summary.periodCount ?? 0} />
             <HeroStat label={env.salesAnalysisAggregationMonthLabel} value={result?.month.summary.periodCount ?? 0} />
-            <HeroStat label={env.salesAnalysisCombinedBankColumnLabel} value={result ? formatGel(result.day.summary.totalBankIncome.current) : '--'} />
+            <HeroStat label={env.salesAnalysisExcludedCountLabel} value={excludedCount} />
           </div>
         </div>
       </div>
 
       <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="mb-4 text-base font-semibold text-slate-800">{env.salesAnalysisUploadTitle}</h2>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-slate-800">{env.salesAnalysisUploadTitle}</h2>
+          <button
+            onClick={() => navigate(env.routeSalesProducts)}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+          >
+            <Tags className="h-4 w-4" />
+            {env.salesAnalysisManageProductsLabel}
+          </button>
+        </div>
         <div className="grid gap-4 lg:grid-cols-3">
           <FileDropzone label={env.salesAnalysisSalesLabel} accept={env.salesAnalysisAccept} file={salesFile} onChange={(file) => { setSalesFile(file); mutation.reset() }} />
           <FileDropzone label={env.salesAnalysisTbcLabel} accept={env.salesAnalysisAccept} file={tbcFile} onChange={(file) => { setTbcFile(file); mutation.reset() }} />
@@ -144,6 +216,90 @@ export default function SalesAnalysisPage() {
         )}
       </div>
 
+      <div className="mb-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-emerald-600" />
+            <h2 className="text-base font-semibold text-slate-800">{env.salesAnalysisEventManagerTitle}</h2>
+          </div>
+          <div className="grid gap-4 md:grid-cols-[180px_minmax(0,1fr)_auto_auto]">
+            <DateField label={env.salesAnalysisEventDateLabel} value={eventDate} onChange={setEventDate} />
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">{env.salesAnalysisEventNameLabel}</label>
+              <input
+                list="sales-event-suggestions"
+                value={eventName}
+                onChange={(e) => setEventName(e.target.value)}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+              />
+              <datalist id="sales-event-suggestions">
+                {suggestionsQuery.data?.map((suggestion) => (
+                  <option key={suggestion} value={suggestion} />
+                ))}
+              </datalist>
+            </div>
+            <button
+              onClick={() => saveEventMutation.mutate()}
+              disabled={!eventDate || !eventName.trim() || saveEventMutation.isPending}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" />
+              {env.salesAnalysisEventSaveLabel}
+            </button>
+            <button
+              onClick={() => deleteEventMutation.mutate()}
+              disabled={!eventDate || deleteEventMutation.isPending}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Trash2 className="h-4 w-4" />
+              {env.salesAnalysisEventDeleteLabel}
+            </button>
+          </div>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {salesEvents.length === 0 && (
+              <span className="text-sm text-slate-500">No events saved yet.</span>
+            )}
+            {salesEvents.map((event) => (
+              <span
+                key={`${event.date}:${event.name}`}
+                className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700"
+              >
+                {format(new Date(event.date), 'dd MMM yyyy')}: {event.name}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="mb-4 text-base font-semibold text-slate-800">{env.salesAnalysisEventFilterLabel}</h2>
+          <div className="flex flex-wrap gap-2">
+            {result?.availableEvents.length
+              ? result.availableEvents.map((name) => {
+                  const active = selectedEvents.includes(name)
+                  return (
+                    <button
+                      key={name}
+                      onClick={() =>
+                        setSelectedEvents((current) =>
+                          current.includes(name)
+                            ? current.filter((item) => item !== name)
+                            : [...current, name]
+                        )
+                      }
+                      className={`rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        active ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  )
+                })
+              : <span className="text-sm text-slate-500">No events available in the selected data.</span>}
+          </div>
+        </div>
+      </div>
+
       {activeBlock && (
         <>
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -175,6 +331,16 @@ export default function SalesAnalysisPage() {
             <MetricCard label={env.salesAnalysisAverageBankLabel} metric={activeBlock.summary.averageBankIncome} accent="blue" />
           </div>
 
+          {eventComparison && (
+            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-base font-semibold text-slate-800">{env.salesAnalysisEventCompareTitle}</h2>
+              <div className="grid gap-4 md:grid-cols-2">
+                <ComparisonCard title={env.salesAnalysisSelectedEventsLabel} rows={eventComparison.selected} />
+                <ComparisonCard title={env.salesAnalysisNonEventsLabel} rows={eventComparison.other} />
+              </div>
+            </div>
+          )}
+
           <div className="mb-6 grid gap-6 xl:grid-cols-2">
             <ChartCard title={env.salesAnalysisTrendChartTitle}>
               <ResponsiveContainer width="100%" height={280}>
@@ -182,10 +348,24 @@ export default function SalesAnalysisPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(value: number) => formatGel(value)} />
+                  <Tooltip content={<EventTooltip />} />
                   <Legend />
-                  <Line type="monotone" dataKey="sales" stroke="#059669" strokeWidth={2.5} dot={false} name={env.salesAnalysisSalesLabel} />
-                  <Line type="monotone" dataKey="bank" stroke="#2563eb" strokeWidth={2.5} dot={false} name={env.salesAnalysisCombinedBankColumnLabel} />
+                  <Line
+                    type="monotone"
+                    dataKey="sales"
+                    stroke="#059669"
+                    strokeWidth={2.5}
+                    dot={<EventDot color="#059669" />}
+                    name={env.salesAnalysisSalesLabel}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="bank"
+                    stroke="#2563eb"
+                    strokeWidth={2.5}
+                    dot={<EventDot color="#2563eb" />}
+                    name={env.salesAnalysisCombinedBankColumnLabel}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -196,9 +376,13 @@ export default function SalesAnalysisPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(value: number) => formatGel(value)} />
+                  <Tooltip content={<EventTooltip />} />
                   <Legend />
-                  <Bar dataKey="sales" fill="#059669" radius={[6, 6, 0, 0]} name={env.salesAnalysisSalesLabel} />
+                  <Bar dataKey="sales" fill="#059669" radius={[6, 6, 0, 0]} name={env.salesAnalysisSalesLabel}>
+                    {chartData.map((entry) => (
+                      <Cell key={`${entry.period}:sales`} fill={entry.hasEvents ? '#10b981' : '#059669'} />
+                    ))}
+                  </Bar>
                   <Bar dataKey="tbc" fill="#0f766e" radius={[6, 6, 0, 0]} name={env.salesAnalysisTbcLabel} />
                   <Bar dataKey="bog" fill="#7c3aed" radius={[6, 6, 0, 0]} name={env.salesAnalysisBogLabel} />
                 </BarChart>
@@ -213,8 +397,12 @@ export default function SalesAnalysisPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="period" tick={{ fontSize: 11 }} />
                   <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(value: number) => formatGel(value)} />
-                  <Bar dataKey="variance" radius={[6, 6, 0, 0]} fill="#f59e0b" name={env.salesAnalysisVarianceLabel} />
+                  <Tooltip content={<EventTooltip />} />
+                  <Bar dataKey="variance" radius={[6, 6, 0, 0]} name={env.salesAnalysisVarianceLabel}>
+                    {chartData.map((entry) => (
+                      <Cell key={`${entry.period}:variance`} fill={entry.variance >= 0 ? '#f59e0b' : '#f97316'} />
+                    ))}
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -234,6 +422,7 @@ export default function SalesAnalysisPage() {
                     <HeaderCell>{env.salesAnalysisBogColumnLabel}</HeaderCell>
                     <HeaderCell>{env.salesAnalysisCombinedBankColumnLabel}</HeaderCell>
                     <HeaderCell>{env.salesAnalysisVarianceColumnLabel}</HeaderCell>
+                    <HeaderCell>{env.salesAnalysisEventFilterLabel}</HeaderCell>
                     <HeaderCell>{env.salesAnalysisStatusColumnLabel}</HeaderCell>
                   </tr>
                 </thead>
@@ -246,6 +435,17 @@ export default function SalesAnalysisPage() {
                       <BodyCell>{formatGel(period.bogIncome)}</BodyCell>
                       <BodyCell>{formatGel(period.bankIncome)}</BodyCell>
                       <BodyCell className={period.variance < 0 ? 'text-amber-700' : 'text-emerald-700'}>{formatGel(period.variance)}</BodyCell>
+                      <BodyCell>
+                        <div className="flex flex-wrap gap-1">
+                          {period.events.length
+                            ? period.events.map((event) => (
+                                <span key={`${period.key}:${event}`} className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                                  {event}
+                                </span>
+                              ))
+                            : <span className="text-slate-400">-</span>}
+                        </div>
+                      </BodyCell>
                       <BodyCell><StatusPill status={period.status} /></BodyCell>
                     </tr>
                   ))}
@@ -263,6 +463,82 @@ function getAggregationBlock(result: SalesAnalysisResult, aggregation: SalesAggr
   if (aggregation === 'WEEK') return result.week
   if (aggregation === 'MONTH') return result.month
   return result.day
+}
+
+function filterAggregationBlock(
+  block: SalesAnalysisAggregationBlock,
+  selectedEvents: string[]
+): SalesAnalysisAggregationBlock {
+  if (selectedEvents.length === 0) {
+    return block
+  }
+  const periods = block.periods.filter((period) =>
+    period.events.some((event) => selectedEvents.includes(event))
+  )
+  return {
+    ...block,
+    periods,
+    summary: buildSummaryFromPeriods(periods),
+  }
+}
+
+function buildSummaryFromPeriods(periods: SalesAnalysisPeriodRow[]) {
+  const totalSales = periods.reduce((sum, period) => sum + period.sales, 0)
+  const totalBankIncome = periods.reduce((sum, period) => sum + period.bankIncome, 0)
+  const totalTbcIncome = periods.reduce((sum, period) => sum + period.tbcIncome, 0)
+  const totalBogIncome = periods.reduce((sum, period) => sum + period.bogIncome, 0)
+  const variance = totalBankIncome - totalSales
+  const count = Math.max(periods.length, 1)
+
+  return {
+    periodCount: periods.length,
+    totalSales: metric(totalSales),
+    totalBankIncome: metric(totalBankIncome),
+    totalTbcIncome: metric(totalTbcIncome),
+    totalBogIncome: metric(totalBogIncome),
+    variance: metric(variance),
+    captureRatio: metric(totalSales === 0 ? 0 : totalBankIncome / totalSales),
+    averageSales: metric(totalSales / count),
+    averageBankIncome: metric(totalBankIncome / count),
+  }
+}
+
+function buildEventComparison(block: SalesAnalysisAggregationBlock, selectedEvents: string[]) {
+  const selected = block.periods.filter((period) =>
+    selectedEvents.length === 0
+      ? period.events.length > 0
+      : period.events.some((event) => selectedEvents.includes(event))
+  )
+  const other = block.periods.filter((period) =>
+    selectedEvents.length === 0
+      ? period.events.length === 0
+      : !period.events.some((event) => selectedEvents.includes(event))
+  )
+  return {
+    selected: summarizeRows(selected),
+    other: summarizeRows(other),
+  }
+}
+
+function summarizeRows(rows: SalesAnalysisPeriodRow[]) {
+  const totalSales = rows.reduce((sum, row) => sum + row.sales, 0)
+  const totalBank = rows.reduce((sum, row) => sum + row.bankIncome, 0)
+  return [
+    { label: 'Periods', value: String(rows.length) },
+    { label: env.salesAnalysisTotalSalesLabel, value: formatGel(totalSales) },
+    { label: env.salesAnalysisTotalBankLabel, value: formatGel(totalBank) },
+    { label: env.salesAnalysisVarianceLabel, value: formatGel(totalBank - totalSales) },
+    { label: env.salesAnalysisCaptureRatioLabel, value: `${((totalSales === 0 ? 0 : totalBank / totalSales) * 100).toFixed(2)}%` },
+  ]
+}
+
+function metric(current: number): SalesAnalysisMetric {
+  return {
+    current,
+    previous: 0,
+    delta: current,
+    deltaPercent: 0,
+  }
 }
 
 function formatPeriodLabel(period: SalesAnalysisPeriodRow, aggregation: SalesAggregation) {
@@ -362,4 +638,68 @@ function HeaderCell({ children }: { children: React.ReactNode }) {
 
 function BodyCell({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return <td className={`px-4 py-3 text-slate-700 ${className}`}>{children}</td>
+}
+
+function ComparisonCard({ title, rows }: { title: string; rows: Array<{ label: string; value: string }> }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <h3 className="mb-3 text-sm font-semibold text-slate-800">{title}</h3>
+      <div className="space-y-2">
+        {rows.map((row) => (
+          <div key={row.label} className="flex items-center justify-between gap-4 text-sm">
+            <span className="text-slate-500">{row.label}</span>
+            <span className="font-semibold text-slate-900">{row.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function EventDot(props: { cx?: number; cy?: number; payload?: { hasEvents?: boolean }; color: string }) {
+  const { cx, cy, payload, color } = props
+  if (!payload?.hasEvents || cx == null || cy == null) {
+    return null
+  }
+  return <circle cx={cx} cy={cy} r={5} fill={color} stroke="#0f172a" strokeWidth={2} />
+}
+
+function EventTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean
+  payload?: Array<{ value: number; name: string; payload?: { events?: string[] } }>
+  label?: string
+}) {
+  if (!active || !payload?.length) {
+    return null
+  }
+  const events = payload[0]?.payload?.events ?? []
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+      <p className="mb-2 text-sm font-semibold text-slate-900">{label}</p>
+      <div className="space-y-1 text-xs text-slate-600">
+        {payload.map((entry) => (
+          <div key={entry.name} className="flex items-center justify-between gap-4">
+            <span>{entry.name}</span>
+            <span className="font-semibold text-slate-900">{formatGel(entry.value)}</span>
+          </div>
+        ))}
+        {events.length > 0 && (
+          <div className="border-t border-slate-100 pt-2">
+            <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Events</p>
+            <div className="flex flex-wrap gap-1">
+              {events.map((event) => (
+                <span key={event} className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                  {event}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }

@@ -18,6 +18,8 @@ camora:
     supplier-mappings: "${CAMORA_SUPPLIER_MAPPINGS_FILE:supplier-mappings.json}"
     product-mappings: "${CAMORA_PRODUCT_MAPPINGS_FILE:product-mappings.json}"
     standalone-suppliers: "${CAMORA_STANDALONE_SUPPLIERS_FILE:standalone-suppliers.json}"
+    sales-product-exclusions: "${CAMORA_SALES_PRODUCT_EXCLUSIONS_FILE:sales-product-exclusions.json}"
+    sales-events: "${CAMORA_SALES_EVENTS_FILE:sales-events.json}"
   cors:
     allowed-origin-patterns: "${CAMORA_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}"
     allowed-methods: "${CAMORA_CORS_ALLOWED_METHODS:GET,POST,PUT,PATCH,DELETE,OPTIONS}"
@@ -35,6 +37,9 @@ camora:
   sales-analysis:
     match-threshold: "${CAMORA_SALES_ANALYSIS_MATCH_THRESHOLD:0.01}"
     week-starts-on-iso: "${CAMORA_SALES_ANALYSIS_WEEK_STARTS_ON_ISO:1}"
+    exclusions-seed-resource: "${CAMORA_SALES_ANALYSIS_EXCLUSIONS_SEED_RESOURCE:classpath:seed/sales_product_exclusions.txt}"
+    suggestion-limit: "${CAMORA_SALES_ANALYSIS_SUGGESTION_LIMIT:8}"
+    max-suggestion-distance: "${CAMORA_SALES_ANALYSIS_MAX_SUGGESTION_DISTANCE:4}"
   rsge-api:
     endpoint: "${CAMORA_RSGE_ENDPOINT:https://services.rs.ge/WayBillService/WayBillService.asmx}"
     username: "${CAMORA_RSGE_USERNAME:}"
@@ -87,6 +92,7 @@ camora:
       columns:
         date: "${CAMORA_SALES_COL_DATE:1}"
         amount: "${CAMORA_SALES_COL_AMOUNT:7}"
+        product: "${CAMORA_SALES_COL_PRODUCT:2}"
     tbc:
       sheet-index: "${CAMORA_TBC_SHEET_INDEX:1}"
       skip-header-rows: "${CAMORA_TBC_SKIP_HEADER_ROWS:1}"

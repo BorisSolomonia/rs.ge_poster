@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.config.ProductMapping;
+import ge.camora.erp.model.config.SalesEvent;
+import ge.camora.erp.model.config.SalesProductExclusion;
 import ge.camora.erp.model.config.StandaloneSupplier;
 import ge.camora.erp.model.config.SupplierMapping;
 import ge.camora.erp.model.dto.SupplierMappingStatusView;
@@ -15,8 +17,10 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -39,6 +43,8 @@ public class ConfigStore {
     private List<SupplierMapping>    supplierMappings    = new ArrayList<>();
     private List<ProductMapping>     productMappings     = new ArrayList<>();
     private List<StandaloneSupplier> standaloneSuppliers = new ArrayList<>();
+    private List<SalesProductExclusion> salesProductExclusions = new ArrayList<>();
+    private List<SalesEvent> salesEvents = new ArrayList<>();
 
     public ConfigStore(ObjectMapper objectMapper, CamoraProperties properties) {
         this.objectMapper = objectMapper;
@@ -58,6 +64,10 @@ public class ConfigStore {
         productMappings     = loadJson(configDir.resolve(properties.getConfigFiles().getProductMappings()),
                                       new TypeReference<>() {});
         standaloneSuppliers = loadJson(configDir.resolve(properties.getConfigFiles().getStandaloneSuppliers()),
+                                      new TypeReference<>() {});
+        salesProductExclusions = loadJson(configDir.resolve(properties.getConfigFiles().getSalesProductExclusions()),
+                                      new TypeReference<>() {});
+        salesEvents = loadJson(configDir.resolve(properties.getConfigFiles().getSalesEvents()),
                                       new TypeReference<>() {});
         log.info("ConfigStore loaded: {} supplier mappings, {} product mappings, {} standalone",
                  supplierMappings.size(), productMappings.size(), standaloneSuppliers.size());
@@ -283,6 +293,168 @@ public class ConfigStore {
 
     // ─── PRIVATE ──────────────────────────────────────────────────────────────
 
+    public List<SalesProductExclusion> getSalesProductExclusions() {
+        lock.readLock().lock();
+        try {
+            return salesProductExclusions.stream()
+                .sorted(Comparator.comparing(SalesProductExclusion::getDisplayName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public void registerSalesProduct(String displayName) {
+        String normalizedName = normalizeSalesKey(displayName);
+        if (normalizedName.isBlank()) {
+            return;
+        }
+        lock.writeLock().lock();
+        try {
+            boolean exists = salesProductExclusions.stream()
+                .anyMatch(entry -> entry.getNormalizedName().equals(normalizedName));
+            if (!exists) {
+                salesProductExclusions.add(new SalesProductExclusion(
+                    normalizedName,
+                    displayName.trim(),
+                    false,
+                    "discovered",
+                    LocalDateTime.now()
+                ));
+                persistSalesProductExclusions();
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public SalesProductExclusion upsertSalesProduct(String displayName, boolean excluded, String source) {
+        String normalizedName = normalizeSalesKey(displayName);
+        lock.writeLock().lock();
+        try {
+            for (SalesProductExclusion entry : salesProductExclusions) {
+                if (entry.getNormalizedName().equals(normalizedName)) {
+                    entry.setDisplayName(displayName.trim());
+                    entry.setExcluded(excluded);
+                    entry.setSource(source);
+                    persistSalesProductExclusions();
+                    return entry;
+                }
+            }
+            SalesProductExclusion created = new SalesProductExclusion(
+                normalizedName,
+                displayName.trim(),
+                excluded,
+                source,
+                LocalDateTime.now()
+            );
+            salesProductExclusions.add(created);
+            persistSalesProductExclusions();
+            return created;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void setSalesProductExcluded(String normalizedName, boolean excluded) {
+        lock.writeLock().lock();
+        try {
+            SalesProductExclusion entry = salesProductExclusions.stream()
+                .filter(product -> product.getNormalizedName().equals(normalizedName))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException(
+                    properties.getMessages().getGenericNotFoundPrefix() + normalizedName
+                ));
+            entry.setExcluded(excluded);
+            persistSalesProductExclusions();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public boolean isSalesProductExcluded(String displayName) {
+        String normalizedName = normalizeSalesKey(displayName);
+        lock.readLock().lock();
+        try {
+            return salesProductExclusions.stream()
+                .anyMatch(entry -> entry.getNormalizedName().equals(normalizedName) && entry.isExcluded());
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public List<SalesEvent> getSalesEvents() {
+        lock.readLock().lock();
+        try {
+            return salesEvents.stream()
+                .sorted(Comparator.comparing(SalesEvent::getDate))
+                .toList();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public Optional<SalesEvent> findSalesEventByDate(LocalDate date) {
+        lock.readLock().lock();
+        try {
+            return salesEvents.stream().filter(event -> event.getDate().equals(date)).findFirst();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public SalesEvent upsertSalesEvent(LocalDate date, String name) {
+        String normalizedName = normalizeSalesKey(name);
+        lock.writeLock().lock();
+        try {
+            for (SalesEvent event : salesEvents) {
+                if (event.getDate().equals(date)) {
+                    event.setName(name.trim());
+                    event.setNormalizedName(normalizedName);
+                    event.setUpdatedAt(LocalDateTime.now());
+                    persistSalesEvents();
+                    return event;
+                }
+            }
+
+            SalesEvent created = new SalesEvent(date, name.trim(), normalizedName, LocalDateTime.now(), LocalDateTime.now());
+            salesEvents.add(created);
+            persistSalesEvents();
+            return created;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void deleteSalesEvent(LocalDate date) {
+        lock.writeLock().lock();
+        try {
+            salesEvents.removeIf(event -> event.getDate().equals(date));
+            persistSalesEvents();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public List<String> suggestSalesEventNames(String query, int limit, int maxDistance) {
+        String normalizedQuery = normalizeSalesKey(query);
+        lock.readLock().lock();
+        try {
+            return salesEvents.stream()
+                .map(SalesEvent::getName)
+                .distinct()
+                .sorted((left, right) -> Integer.compare(
+                    suggestionScore(normalizedQuery, normalizeSalesKey(left), maxDistance),
+                    suggestionScore(normalizedQuery, normalizeSalesKey(right), maxDistance)
+                ))
+                .filter(name -> suggestionScore(normalizedQuery, normalizeSalesKey(name), maxDistance) < Integer.MAX_VALUE)
+                .limit(limit)
+                .toList();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
     private void enrichFromRawValue(SupplierMapping mapping) {
         if (mapping.getRsgeRawValue() == null) return;
         var matcher = TAX_ID_PATTERN.matcher(mapping.getRsgeRawValue());
@@ -309,6 +481,14 @@ public class ConfigStore {
         writeJson(configDir.resolve(properties.getConfigFiles().getStandaloneSuppliers()), standaloneSuppliers);
     }
 
+    private void persistSalesProductExclusions() {
+        writeJson(configDir.resolve(properties.getConfigFiles().getSalesProductExclusions()), salesProductExclusions);
+    }
+
+    private void persistSalesEvents() {
+        writeJson(configDir.resolve(properties.getConfigFiles().getSalesEvents()), salesEvents);
+    }
+
     private <T> List<T> loadJson(Path path, TypeReference<List<T>> type) {
         if (!Files.exists(path)) return new ArrayList<>();
         try {
@@ -325,5 +505,49 @@ public class ConfigStore {
         } catch (IOException e) {
             log.error("Failed to write {}: {}", path, e.getMessage(), e);
         }
+    }
+
+    public static String normalizeSalesKey(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim().replaceAll("\\s+", " ").toLowerCase();
+    }
+
+    private int suggestionScore(String query, String candidate, int maxDistance) {
+        if (query.isBlank() || candidate.isBlank()) {
+            return Integer.MAX_VALUE;
+        }
+        if (candidate.equals(query)) {
+            return 0;
+        }
+        if (candidate.startsWith(query)) {
+            return 1;
+        }
+        if (candidate.contains(query)) {
+            return 2;
+        }
+        int distance = levenshtein(query, candidate);
+        return distance <= maxDistance ? 10 + distance : Integer.MAX_VALUE;
+    }
+
+    private int levenshtein(String left, String right) {
+        int[][] dp = new int[left.length() + 1][right.length() + 1];
+        for (int i = 0; i <= left.length(); i++) {
+            dp[i][0] = i;
+        }
+        for (int j = 0; j <= right.length(); j++) {
+            dp[0][j] = j;
+        }
+        for (int i = 1; i <= left.length(); i++) {
+            for (int j = 1; j <= right.length(); j++) {
+                int cost = left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1;
+                dp[i][j] = Math.min(
+                    Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
+                    dp[i - 1][j - 1] + cost
+                );
+            }
+        }
+        return dp[left.length()][right.length()];
     }
 }
