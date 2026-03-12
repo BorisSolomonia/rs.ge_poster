@@ -83,7 +83,7 @@ camora:
       sheet-index: "${CAMORA_SALES_SHEET_INDEX:0}"
       skip-header-rows: "${CAMORA_SALES_SKIP_HEADER_ROWS:1}"
       min-columns: "${CAMORA_SALES_MIN_COLUMNS:8}"
-      date-format: "${CAMORA_SALES_DATE_FORMAT:dd.MM.yyyy}"
+      date-format: "${CAMORA_SALES_DATE_FORMAT:yyyy-MM-dd}"
       columns:
         date: "${CAMORA_SALES_COL_DATE:1}"
         amount: "${CAMORA_SALES_COL_AMOUNT:7}"
