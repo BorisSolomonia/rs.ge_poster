@@ -8,7 +8,9 @@ interface ImportMetaEnv {
   readonly VITE_API_BASE_URL: string
   readonly VITE_API_PREFIX: string
   readonly VITE_ASSET_BASE: string
+  readonly VITE_ROUTE_SALES_ANALYSIS: string
   readonly VITE_ROUTE_RECONCILE_PURCHASES: string
+  readonly VITE_NAV_SALES_ANALYSIS_LABEL: string
   readonly VITE_NAV_RECONCILE_PURCHASES_LABEL: string
   readonly VITE_DEV_PORT: string
   readonly VITE_DEV_PROXY_TARGET: string
@@ -17,11 +19,19 @@ interface ImportMetaEnv {
   readonly VITE_RESULTS_POLL_INTERVAL_MS: string
   readonly VITE_MATCH_THRESHOLD: string
   readonly VITE_RECONCILE_PURCHASES_TITLE: string
+  readonly VITE_SALES_ANALYSIS_TITLE: string
   readonly VITE_RECONCILE_PURCHASES_UPLOAD_TITLE: string
+  readonly VITE_SALES_ANALYSIS_UPLOAD_TITLE: string
+  readonly VITE_SALES_ANALYSIS_SALES_LABEL: string
+  readonly VITE_SALES_ANALYSIS_TBC_LABEL: string
+  readonly VITE_SALES_ANALYSIS_BOG_LABEL: string
   readonly VITE_RECONCILE_PURCHASES_POSTER_LABEL: string
   readonly VITE_RECONCILE_PURCHASES_RUN_LABEL: string
   readonly VITE_RECONCILE_PURCHASES_RUNNING_LABEL: string
   readonly VITE_RECONCILE_PURCHASES_INFO: string
+  readonly VITE_SALES_ANALYSIS_RUN_LABEL: string
+  readonly VITE_SALES_ANALYSIS_RUNNING_LABEL: string
+  readonly VITE_SALES_ANALYSIS_ACCEPT: string
   readonly VITE_RECONCILE_RSGE_ACCEPT: string
   readonly VITE_RECONCILE_POSTER_ACCEPT: string
   readonly VITE_CORRECTION_GUIDE_PREFIX: string

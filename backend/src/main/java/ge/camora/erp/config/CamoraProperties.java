@@ -16,6 +16,7 @@ public class CamoraProperties {
     private final ResultCache resultCache = new ResultCache();
     private final Seed seed = new Seed();
     private final Reconciliation reconciliation = new Reconciliation();
+    private final SalesAnalysis salesAnalysis = new SalesAnalysis();
     private final RsgeApi rsgeApi = new RsgeApi();
     private final Parsers parsers = new Parsers();
     private final Platforms platforms = new Platforms();
@@ -56,6 +57,10 @@ public class CamoraProperties {
 
     public Reconciliation getReconciliation() {
         return reconciliation;
+    }
+
+    public SalesAnalysis getSalesAnalysis() {
+        return salesAnalysis;
     }
 
     public RsgeApi getRsgeApi() {
@@ -211,6 +216,27 @@ public class CamoraProperties {
 
         public void setResultExpireAfterHours(long resultExpireAfterHours) {
             this.resultExpireAfterHours = resultExpireAfterHours;
+        }
+    }
+
+    public static class SalesAnalysis {
+        private BigDecimal matchThreshold;
+        private int weekStartsOnIso;
+
+        public BigDecimal getMatchThreshold() {
+            return matchThreshold;
+        }
+
+        public void setMatchThreshold(BigDecimal matchThreshold) {
+            this.matchThreshold = matchThreshold;
+        }
+
+        public int getWeekStartsOnIso() {
+            return weekStartsOnIso;
+        }
+
+        public void setWeekStartsOnIso(int weekStartsOnIso) {
+            this.weekStartsOnIso = weekStartsOnIso;
         }
     }
 
@@ -379,6 +405,9 @@ public class CamoraProperties {
     public static class Parsers {
         private final Rsge rsge = new Rsge();
         private final Poster poster = new Poster();
+        private final AmountSheet sales = new AmountSheet();
+        private final AmountSheet tbc = new AmountSheet();
+        private final AmountSheet bog = new AmountSheet();
 
         public Rsge getRsge() {
             return rsge;
@@ -386,6 +415,18 @@ public class CamoraProperties {
 
         public Poster getPoster() {
             return poster;
+        }
+
+        public AmountSheet getSales() {
+            return sales;
+        }
+
+        public AmountSheet getTbc() {
+            return tbc;
+        }
+
+        public AmountSheet getBog() {
+            return bog;
         }
     }
 
@@ -579,6 +620,71 @@ public class CamoraProperties {
 
         public void setTotalPrice(int totalPrice) {
             this.totalPrice = totalPrice;
+        }
+    }
+
+    public static class AmountSheet {
+        private int sheetIndex;
+        private int skipHeaderRows;
+        private int minColumns;
+        private String dateFormat;
+        private final AmountColumns columns = new AmountColumns();
+
+        public int getSheetIndex() {
+            return sheetIndex;
+        }
+
+        public void setSheetIndex(int sheetIndex) {
+            this.sheetIndex = sheetIndex;
+        }
+
+        public int getSkipHeaderRows() {
+            return skipHeaderRows;
+        }
+
+        public void setSkipHeaderRows(int skipHeaderRows) {
+            this.skipHeaderRows = skipHeaderRows;
+        }
+
+        public int getMinColumns() {
+            return minColumns;
+        }
+
+        public void setMinColumns(int minColumns) {
+            this.minColumns = minColumns;
+        }
+
+        public String getDateFormat() {
+            return dateFormat;
+        }
+
+        public void setDateFormat(String dateFormat) {
+            this.dateFormat = dateFormat;
+        }
+
+        public AmountColumns getColumns() {
+            return columns;
+        }
+    }
+
+    public static class AmountColumns {
+        private int date;
+        private int amount;
+
+        public int getDate() {
+            return date;
+        }
+
+        public void setDate(int date) {
+            this.date = date;
+        }
+
+        public int getAmount() {
+            return amount;
+        }
+
+        public void setAmount(int amount) {
+            this.amount = amount;
         }
     }
 }

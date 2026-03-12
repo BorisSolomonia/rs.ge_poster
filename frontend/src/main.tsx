@@ -6,6 +6,7 @@ import AppLayout from './components/layout/AppLayout'
 import DashboardPage from './pages/DashboardPage'
 import ReconcilePage from './pages/ReconcilePage'
 import PurchaseReconcilePage from './pages/PurchaseReconcilePage'
+import SalesAnalysisPage from './pages/SalesAnalysisPage'
 import SupplierMappingPage from './pages/SupplierMappingPage'
 import ProductMappingPage from './pages/ProductMappingPage'
 import { env } from './env'
@@ -30,6 +31,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path={env.routeDashboard} element={<DashboardPage />} />
             <Route path={env.routeReconcile} element={<ReconcilePage />} />
             <Route path={env.routePurchaseReconcile} element={<PurchaseReconcilePage />} />
+            <Route path={env.routeSalesAnalysis} element={<SalesAnalysisPage />} />
             <Route path={env.routeSupplierMappings} element={<SupplierMappingPage />} />
             <Route path={env.routeProductMappings} element={<ProductMappingPage />} />
             <Route path="*" element={<Navigate to={env.routeDashboard} replace />} />

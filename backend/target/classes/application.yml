@@ -32,6 +32,9 @@ camora:
     resource: "${CAMORA_SEED_RESOURCE:classpath:seed/supplier_mapping.csv}"
   reconciliation:
     result-expire-after-hours: "${CAMORA_RECONCILIATION_RESULT_EXPIRE_AFTER_HOURS:12}"
+  sales-analysis:
+    match-threshold: "${CAMORA_SALES_ANALYSIS_MATCH_THRESHOLD:0.01}"
+    week-starts-on-iso: "${CAMORA_SALES_ANALYSIS_WEEK_STARTS_ON_ISO:1}"
   rsge-api:
     endpoint: "${CAMORA_RSGE_ENDPOINT:https://services.rs.ge/WayBillService/WayBillService.asmx}"
     username: "${CAMORA_RSGE_USERNAME:}"
@@ -76,6 +79,30 @@ camora:
         supplier: "${CAMORA_POSTER_COL_SUPPLIER:3}"
         products-raw: "${CAMORA_POSTER_COL_PRODUCTS_RAW:6}"
         total-price: "${CAMORA_POSTER_COL_TOTAL_PRICE:9}"
+    sales:
+      sheet-index: "${CAMORA_SALES_SHEET_INDEX:0}"
+      skip-header-rows: "${CAMORA_SALES_SKIP_HEADER_ROWS:1}"
+      min-columns: "${CAMORA_SALES_MIN_COLUMNS:8}"
+      date-format: "${CAMORA_SALES_DATE_FORMAT:dd.MM.yyyy}"
+      columns:
+        date: "${CAMORA_SALES_COL_DATE:1}"
+        amount: "${CAMORA_SALES_COL_AMOUNT:7}"
+    tbc:
+      sheet-index: "${CAMORA_TBC_SHEET_INDEX:1}"
+      skip-header-rows: "${CAMORA_TBC_SKIP_HEADER_ROWS:1}"
+      min-columns: "${CAMORA_TBC_MIN_COLUMNS:5}"
+      date-format: "${CAMORA_TBC_DATE_FORMAT:dd.MM.yyyy}"
+      columns:
+        date: "${CAMORA_TBC_COL_DATE:0}"
+        amount: "${CAMORA_TBC_COL_AMOUNT:4}"
+    bog:
+      sheet-index: "${CAMORA_BOG_SHEET_INDEX:0}"
+      skip-header-rows: "${CAMORA_BOG_SKIP_HEADER_ROWS:1}"
+      min-columns: "${CAMORA_BOG_MIN_COLUMNS:5}"
+      date-format: "${CAMORA_BOG_DATE_FORMAT:dd.MM.yyyy}"
+      columns:
+        date: "${CAMORA_BOG_COL_DATE:0}"
+        amount: "${CAMORA_BOG_COL_AMOUNT:4}"
   match-threshold: "${CAMORA_MATCH_THRESHOLD:0.01}"
 
 logging:

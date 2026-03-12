@@ -35,6 +35,10 @@ export default function FileDropzone({ label, accept, file, onChange }: Props) {
         type="file"
         accept={accept}
         className="hidden"
+        onClick={(e) => {
+          // Allow picking the same file again to force recalculation workflows.
+          e.currentTarget.value = ''
+        }}
         onChange={(e) => onChange(e.target.files?.[0] ?? null)}
       />
 

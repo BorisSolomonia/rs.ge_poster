@@ -133,3 +133,57 @@ export interface PatternTestResult {
   isRegex: boolean
   error: string | null
 }
+
+export type SalesAggregation = 'DAY' | 'WEEK' | 'MONTH'
+
+export type SalesAnalysisStatus = 'MATCH' | 'SHORT' | 'OVER' | 'NO_BANK_DATA' | 'BANK_ONLY'
+
+export interface SalesAnalysisMetric {
+  current: number
+  previous: number
+  delta: number
+  deltaPercent: number
+}
+
+export interface SalesAnalysisSummary {
+  periodCount: number
+  totalSales: SalesAnalysisMetric
+  totalBankIncome: SalesAnalysisMetric
+  totalTbcIncome: SalesAnalysisMetric
+  totalBogIncome: SalesAnalysisMetric
+  variance: SalesAnalysisMetric
+  captureRatio: SalesAnalysisMetric
+  averageSales: SalesAnalysisMetric
+  averageBankIncome: SalesAnalysisMetric
+}
+
+export interface SalesAnalysisPeriodRow {
+  key: string
+  dateFrom: string
+  dateTo: string
+  sales: number
+  tbcIncome: number
+  bogIncome: number
+  bankIncome: number
+  variance: number
+  variancePercent: number
+  captureRatio: number
+  bankMixTbc: number
+  bankMixBog: number
+  status: SalesAnalysisStatus
+}
+
+export interface SalesAnalysisAggregationBlock {
+  aggregation: SalesAggregation
+  summary: SalesAnalysisSummary
+  periods: SalesAnalysisPeriodRow[]
+}
+
+export interface SalesAnalysisResult {
+  dateFrom: string
+  dateTo: string
+  generatedAt: string
+  day: SalesAnalysisAggregationBlock
+  week: SalesAnalysisAggregationBlock
+  month: SalesAnalysisAggregationBlock
+}

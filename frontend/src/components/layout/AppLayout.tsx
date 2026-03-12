@@ -6,12 +6,14 @@ import {
   RefreshCcw,
   Users,
   Package,
+  Landmark,
 } from 'lucide-react'
 
 const navItems = [
   { to: env.routeDashboard, label: env.navDashboardLabel, icon: BarChart3, end: true },
   { to: env.routeReconcile, label: env.navReconcileLabel, icon: RefreshCcw },
   { to: env.routePurchaseReconcile, label: env.navPurchaseReconcileLabel, icon: RefreshCcw },
+  { to: env.routeSalesAnalysis, label: env.navSalesAnalysisLabel, icon: Landmark },
   { to: env.routeSupplierMappings, label: env.navSuppliersLabel, icon: Users },
   { to: env.routeProductMappings, label: env.navProductsLabel, icon: Package },
 ]

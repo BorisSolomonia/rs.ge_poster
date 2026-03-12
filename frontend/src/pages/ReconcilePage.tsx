@@ -40,9 +40,18 @@ export default function ReconcilePage() {
   const [activeFilter, setActiveFilter] = useState<FilterTab>('ALL')
   const [expandedRow, setExpandedRow] = useState<string | null>(null)
   const [showCorrectionGuide, setShowCorrectionGuide] = useState(false)
+  const [lastRunKey, setLastRunKey] = useState<string | null>(null)
+
+  const currentRunKey = rsgeFile && posterFile
+    ? `${rsgeFile.name}:${rsgeFile.size}:${posterFile.name}:${posterFile.size}:${dateFrom}:${dateTo}`
+    : null
+  const needsRecalculation = Boolean(currentRunKey && currentRunKey !== lastRunKey)
 
   const mutation = useMutation({
     mutationFn: () => runAnalysis(rsgeFile!, posterFile!, dateFrom, dateTo),
+    onSuccess: () => {
+      if (currentRunKey) setLastRunKey(currentRunKey)
+    },
   })
 
   const result: ReconciliationResult | undefined = mutation.data
@@ -68,6 +77,26 @@ export default function ReconcilePage() {
     URL.revokeObjectURL(url)
   }
 
+  const onRsgeFileChange = (file: File | null) => {
+    setRsgeFile(file)
+    mutation.reset()
+  }
+
+  const onPosterFileChange = (file: File | null) => {
+    setPosterFile(file)
+    mutation.reset()
+  }
+
+  const onDateFromChange = (value: string) => {
+    setDateFrom(value)
+    mutation.reset()
+  }
+
+  const onDateToChange = (value: string) => {
+    setDateTo(value)
+    mutation.reset()
+  }
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">{env.reconcileTitle}</h1>
@@ -80,13 +109,13 @@ export default function ReconcilePage() {
             label={env.reconcileRsgeLabel}
             accept={env.rsgeAccept}
             file={rsgeFile}
-            onChange={setRsgeFile}
+            onChange={onRsgeFileChange}
           />
           <FileDropzone
             label={env.reconcilePosterLabel}
             accept={env.posterAccept}
             file={posterFile}
-            onChange={setPosterFile}
+            onChange={onPosterFileChange}
           />
         </div>
 
@@ -96,7 +125,7 @@ export default function ReconcilePage() {
             <input
               type="date"
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              onChange={(e) => onDateFromChange(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -105,7 +134,7 @@ export default function ReconcilePage() {
             <input
               type="date"
               value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
+              onChange={(e) => onDateToChange(e.target.value)}
               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -115,9 +144,21 @@ export default function ReconcilePage() {
             className="flex items-center gap-2 px-6 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Play className="w-4 h-4" />
-            {mutation.isPending ? env.reconcileRunningLabel : env.reconcileRunLabel}
+            {mutation.isPending
+              ? env.reconcileRunningLabel
+              : needsRecalculation
+                ? 'Recalculate & Update Accounting'
+                : env.reconcileRunLabel}
           </button>
         </div>
+
+        {(rsgeFile || posterFile) && (
+          <p className="mt-3 text-xs text-gray-500">
+            {needsRecalculation
+              ? 'Files are ready. Click the button to recalculate accounting based on the current upload.'
+              : 'These files are already calculated for the selected dates.'}
+          </p>
+        )}
 
         {mutation.isError && (
           <div className="mt-3 flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg p-3">
