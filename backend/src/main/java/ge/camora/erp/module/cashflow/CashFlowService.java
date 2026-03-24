@@ -231,8 +231,9 @@ public class CashFlowService {
                 List.copyOf(issues)
             );
             rows.add(rowModel);
+            int warningSourceRow = sourceRow;
             warnings.addAll(issues.stream()
-                .map(issue -> new CashFlowWarningDto(monthKey, sourceRow, severityFor(issue), codeFor(issue), issue))
+                .map(issue -> new CashFlowWarningDto(monthKey, warningSourceRow, severityFor(issue), codeFor(issue), issue))
                 .toList());
             sourceRow++;
         }
