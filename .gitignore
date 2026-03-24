@@ -1,1 +1,5 @@
 tones-488112-815340a08b7a.json
+backend/target/
+backend/.m2/
+frontend/dist/
+.m2repo/
