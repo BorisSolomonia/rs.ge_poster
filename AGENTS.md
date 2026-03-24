@@ -6,7 +6,7 @@ This repository has two main applications:
 
 - `backend/`: Spring Boot 3 API, reconciliation engine, SOAP integrations, and persistence logic.
 - `frontend/`: React 18 + Vite + TypeScript UI.
-- `docker/`: production compose files and env templates.
+- `docker/`: production compose files and env templates..
 - `.github/workflows/`: CI and VM deployment pipelines..
 
 Backend code lives in `backend/src/main/java/ge/camora/erp`, with config in `backend/src/main/resources` and tests in `backend/src/test/java`. Frontend code lives in `frontend/src`; use `pages/` for routes, `components/` for shared UI, and `api/` for HTTP clients.
