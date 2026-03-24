@@ -17,6 +17,7 @@ public class CamoraProperties {
     private final Seed seed = new Seed();
     private final Reconciliation reconciliation = new Reconciliation();
     private final SalesAnalysis salesAnalysis = new SalesAnalysis();
+    private final CashFlow cashFlow = new CashFlow();
     private final RsgeApi rsgeApi = new RsgeApi();
     private final Parsers parsers = new Parsers();
     private final Platforms platforms = new Platforms();
@@ -61,6 +62,10 @@ public class CamoraProperties {
 
     public SalesAnalysis getSalesAnalysis() {
         return salesAnalysis;
+    }
+
+    public CashFlow getCashFlow() {
+        return cashFlow;
     }
 
     public RsgeApi getRsgeApi() {
@@ -283,6 +288,192 @@ public class CamoraProperties {
         public void setMaxSuggestionDistance(int maxSuggestionDistance) {
             this.maxSuggestionDistance = maxSuggestionDistance;
         }
+    }
+
+    public static class CashFlow {
+        private boolean enabled;
+        private String sheetId;
+        private String sheetName;
+        private String range;
+        private int sourceStartRow;
+        private String syncFixedDelay;
+        private String serviceAccountJson;
+        private String serviceAccountPath;
+        private BigDecimal warningNegativeBalanceThreshold;
+        private final LedgerColumns columns = new LedgerColumns();
+        private List<String> incomeKeywords = new ArrayList<>();
+        private List<String> expenseKeywords = new ArrayList<>();
+        private List<String> safeKeywords = new ArrayList<>();
+        private List<String> dividendKeywords = new ArrayList<>();
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getSheetId() {
+            return sheetId;
+        }
+
+        public void setSheetId(String sheetId) {
+            this.sheetId = sheetId;
+        }
+
+        public String getSheetName() {
+            return sheetName;
+        }
+
+        public void setSheetName(String sheetName) {
+            this.sheetName = sheetName;
+        }
+
+        public String getRange() {
+            return range;
+        }
+
+        public void setRange(String range) {
+            this.range = range;
+        }
+
+        public int getSourceStartRow() {
+            return sourceStartRow;
+        }
+
+        public void setSourceStartRow(int sourceStartRow) {
+            this.sourceStartRow = sourceStartRow;
+        }
+
+        public String getSyncFixedDelay() {
+            return syncFixedDelay;
+        }
+
+        public void setSyncFixedDelay(String syncFixedDelay) {
+            this.syncFixedDelay = syncFixedDelay;
+        }
+
+        public String getServiceAccountJson() {
+            return serviceAccountJson;
+        }
+
+        public void setServiceAccountJson(String serviceAccountJson) {
+            this.serviceAccountJson = serviceAccountJson;
+        }
+
+        public String getServiceAccountPath() {
+            return serviceAccountPath;
+        }
+
+        public void setServiceAccountPath(String serviceAccountPath) {
+            this.serviceAccountPath = serviceAccountPath;
+        }
+
+        public BigDecimal getWarningNegativeBalanceThreshold() {
+            return warningNegativeBalanceThreshold;
+        }
+
+        public void setWarningNegativeBalanceThreshold(BigDecimal warningNegativeBalanceThreshold) {
+            this.warningNegativeBalanceThreshold = warningNegativeBalanceThreshold;
+        }
+
+        public LedgerColumns getColumns() {
+            return columns;
+        }
+
+        public List<String> getIncomeKeywords() {
+            return incomeKeywords;
+        }
+
+        public void setIncomeKeywords(List<String> incomeKeywords) {
+            this.incomeKeywords = incomeKeywords;
+        }
+
+        public List<String> getExpenseKeywords() {
+            return expenseKeywords;
+        }
+
+        public void setExpenseKeywords(List<String> expenseKeywords) {
+            this.expenseKeywords = expenseKeywords;
+        }
+
+        public List<String> getSafeKeywords() {
+            return safeKeywords;
+        }
+
+        public void setSafeKeywords(List<String> safeKeywords) {
+            this.safeKeywords = safeKeywords;
+        }
+
+        public List<String> getDividendKeywords() {
+            return dividendKeywords;
+        }
+
+        public void setDividendKeywords(List<String> dividendKeywords) {
+            this.dividendKeywords = dividendKeywords;
+        }
+    }
+
+    public static class LedgerColumns {
+        private int category;
+        private int day;
+        private int month;
+        private int year;
+        private int counterparty;
+        private int materialValue;
+        private int serviceValue;
+        private int cashInflow;
+        private int cashOutflow;
+        private int cashBalance;
+        private int bogInflow;
+        private int bogOutflow;
+        private int bogBalance;
+        private int tbcInflow;
+        private int tbcOutflow;
+        private int tbcBalance;
+        private int comment;
+        private int fullDate;
+        private int validationFlag;
+
+        public int getCategory() { return category; }
+        public void setCategory(int category) { this.category = category; }
+        public int getDay() { return day; }
+        public void setDay(int day) { this.day = day; }
+        public int getMonth() { return month; }
+        public void setMonth(int month) { this.month = month; }
+        public int getYear() { return year; }
+        public void setYear(int year) { this.year = year; }
+        public int getCounterparty() { return counterparty; }
+        public void setCounterparty(int counterparty) { this.counterparty = counterparty; }
+        public int getMaterialValue() { return materialValue; }
+        public void setMaterialValue(int materialValue) { this.materialValue = materialValue; }
+        public int getServiceValue() { return serviceValue; }
+        public void setServiceValue(int serviceValue) { this.serviceValue = serviceValue; }
+        public int getCashInflow() { return cashInflow; }
+        public void setCashInflow(int cashInflow) { this.cashInflow = cashInflow; }
+        public int getCashOutflow() { return cashOutflow; }
+        public void setCashOutflow(int cashOutflow) { this.cashOutflow = cashOutflow; }
+        public int getCashBalance() { return cashBalance; }
+        public void setCashBalance(int cashBalance) { this.cashBalance = cashBalance; }
+        public int getBogInflow() { return bogInflow; }
+        public void setBogInflow(int bogInflow) { this.bogInflow = bogInflow; }
+        public int getBogOutflow() { return bogOutflow; }
+        public void setBogOutflow(int bogOutflow) { this.bogOutflow = bogOutflow; }
+        public int getBogBalance() { return bogBalance; }
+        public void setBogBalance(int bogBalance) { this.bogBalance = bogBalance; }
+        public int getTbcInflow() { return tbcInflow; }
+        public void setTbcInflow(int tbcInflow) { this.tbcInflow = tbcInflow; }
+        public int getTbcOutflow() { return tbcOutflow; }
+        public void setTbcOutflow(int tbcOutflow) { this.tbcOutflow = tbcOutflow; }
+        public int getTbcBalance() { return tbcBalance; }
+        public void setTbcBalance(int tbcBalance) { this.tbcBalance = tbcBalance; }
+        public int getComment() { return comment; }
+        public void setComment(int comment) { this.comment = comment; }
+        public int getFullDate() { return fullDate; }
+        public void setFullDate(int fullDate) { this.fullDate = fullDate; }
+        public int getValidationFlag() { return validationFlag; }
+        public void setValidationFlag(int validationFlag) { this.validationFlag = validationFlag; }
     }
 
     public static class RsgeApi {

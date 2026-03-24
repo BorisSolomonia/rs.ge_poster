@@ -205,3 +205,99 @@ export interface SalesEvent {
   createdAt: string
   updatedAt: string
 }
+
+export interface CashFlowCategory {
+  category: string
+  group: string
+  amount: number
+  transactionCount: number
+}
+
+export interface CashFlowGroup {
+  group: string
+  amount: number
+  transactionCount: number
+  categories: CashFlowCategory[]
+}
+
+export interface CashFlowMonth {
+  month: string
+  totalInflow: number
+  totalOutflow: number
+  cashInflow: number
+  cashOutflow: number
+  bogInflow: number
+  bogOutflow: number
+  tbcInflow: number
+  tbcOutflow: number
+  endingCash: number
+  endingBog: number
+  endingTbc: number
+  totalBankBalance: number
+  totalEndingBalance: number
+  netMovement: number
+  warningCount: number
+  flaggedRowCount: number
+  groups: CashFlowGroup[]
+}
+
+export interface CashFlowOverview {
+  dateFrom: string | null
+  dateTo: string | null
+  availableMonths: string[]
+  months: CashFlowMonth[]
+}
+
+export interface CashFlowSyncStatus {
+  status: string
+  lastSyncStartedAt: string | null
+  lastSyncCompletedAt: string | null
+  lastSuccessAt: string | null
+  lastError: string | null
+  rowCount: number
+  refreshInProgress: boolean
+}
+
+export interface CashFlowWarning {
+  month: string
+  sourceRow: number
+  severity: string
+  code: string
+  message: string
+}
+
+export interface CashFlowWarningsResponse {
+  month: string | null
+  total: number
+  warnings: CashFlowWarning[]
+}
+
+export interface CashFlowTransaction {
+  sourceRow: number
+  date: string | null
+  month: string
+  category: string
+  group: string
+  counterparty: string
+  comment: string
+  materialValue: number
+  serviceValue: number
+  cashInflow: number
+  cashOutflow: number
+  cashBalance: number
+  bogInflow: number
+  bogOutflow: number
+  bogBalance: number
+  tbcInflow: number
+  tbcOutflow: number
+  tbcBalance: number
+  validationFlag: string
+  issues: string[]
+}
+
+export interface CashFlowTransactionsResponse {
+  month: string
+  group: string | null
+  category: string | null
+  transactions: CashFlowTransaction[]
+}
