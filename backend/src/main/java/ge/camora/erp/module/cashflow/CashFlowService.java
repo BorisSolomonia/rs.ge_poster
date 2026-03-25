@@ -356,13 +356,6 @@ public class CashFlowService {
     }
 
     private LocalDate parseDate(List<String> row, List<String> issues) {
-        String fullDate = read(row, properties.getCashFlow().getColumns().getFullDate());
-        if (fullDate != null && !fullDate.isBlank()) {
-            LocalDate parsed = tryParseDate(fullDate);
-            if (parsed != null) {
-                return parsed;
-            }
-        }
         String day = read(row, properties.getCashFlow().getColumns().getDay());
         String month = read(row, properties.getCashFlow().getColumns().getMonth());
         String year = read(row, properties.getCashFlow().getColumns().getYear());
