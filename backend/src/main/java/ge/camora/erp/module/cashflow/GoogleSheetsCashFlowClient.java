@@ -147,7 +147,10 @@ public class GoogleSheetsCashFlowClient {
     private boolean isUnsupportedDocument(GoogleJsonResponseException exception) {
         return exception.getStatusCode() == 400
             && exception.getDetails() != null
-            && "FAILED_PRECONDITION".equalsIgnoreCase(exception.getDetails().getStatus());
+            && ("This operation is not supported for this document".equalsIgnoreCase(exception.getDetails().getMessage())
+            || (exception.getDetails().getErrors() != null
+            && exception.getDetails().getErrors().stream()
+                .anyMatch(error -> "failedPrecondition".equalsIgnoreCase(error.getReason()))));
     }
 
     private String extractSheetName(String range, String configuredSheetName) {
