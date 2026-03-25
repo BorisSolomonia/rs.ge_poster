@@ -172,6 +172,10 @@ public class CashFlowService {
         int sourceRow = properties.getCashFlow().getSourceStartRow();
         for (List<Object> raw : rawRows) {
             List<String> row = raw.stream().map(String::valueOf).toList();
+            if (isBlankRow(row)) {
+                sourceRow++;
+                continue;
+            }
             List<String> issues = new ArrayList<>();
             LocalDate date = parseDate(row, issues);
             String monthKey = date == null ? "unknown" : YearMonth.from(date).toString();
@@ -208,6 +212,10 @@ public class CashFlowService {
             }
 
             CashFlowGroup group = resolveGroup(category, cashInflow, bogInflow, tbcInflow, materialValue, serviceValue, cashOutflow, bogOutflow, tbcOutflow);
+            if (shouldSkipNonDataRow(date, category, counterparty, comment, validationFlag, materialValue, serviceValue, cashInflow, cashOutflow, cashBalance, bogInflow, bogOutflow, bogBalance, tbcInflow, tbcOutflow, tbcBalance)) {
+                sourceRow++;
+                continue;
+            }
             CashFlowLedgerRow rowModel = new CashFlowLedgerRow(
                 sourceRow,
                 date,
@@ -518,6 +526,51 @@ public class CashFlowService {
 
     private String codeFor(String issue) {
         return normalize(issue).replace(' ', '_');
+    }
+
+    private boolean isBlankRow(List<String> row) {
+        return row.stream().allMatch(value -> value == null || value.isBlank());
+    }
+
+    private boolean shouldSkipNonDataRow(
+        LocalDate date,
+        String category,
+        String counterparty,
+        String comment,
+        String validationFlag,
+        BigDecimal materialValue,
+        BigDecimal serviceValue,
+        BigDecimal cashInflow,
+        BigDecimal cashOutflow,
+        BigDecimal cashBalance,
+        BigDecimal bogInflow,
+        BigDecimal bogOutflow,
+        BigDecimal bogBalance,
+        BigDecimal tbcInflow,
+        BigDecimal tbcOutflow,
+        BigDecimal tbcBalance
+    ) {
+        if (date != null) {
+            return false;
+        }
+        if ((validationFlag != null && !validationFlag.isBlank())
+            || (counterparty != null && !counterparty.isBlank())
+            || (comment != null && !comment.isBlank())) {
+            return false;
+        }
+        if (hasAnyNonZero(materialValue, serviceValue, cashInflow, cashOutflow, cashBalance, bogInflow, bogOutflow, bogBalance, tbcInflow, tbcOutflow, tbcBalance)) {
+            return false;
+        }
+        return category == null || !category.isBlank();
+    }
+
+    private boolean hasAnyNonZero(BigDecimal... values) {
+        for (BigDecimal value : values) {
+            if (value.signum() != 0) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String normalize(String value) {
