@@ -63,7 +63,11 @@ public class GoogleSheetsCashFlowClient {
             return response.getValues() == null ? List.of() : response.getValues();
         } catch (GoogleJsonResponseException e) {
             if (isUnsupportedDocument(e)) {
-                return fetchLedgerRowsFromDriveExport();
+                try {
+                    return fetchLedgerRowsFromDriveExport();
+                } catch (IOException | GeneralSecurityException exportException) {
+                    throw new IllegalStateException("Failed to fetch Google Sheets cash flow data: " + exportException.getMessage(), exportException);
+                }
             }
             throw new IllegalStateException("Failed to fetch Google Sheets cash flow data: " + e.getMessage(), e);
         } catch (IOException | GeneralSecurityException e) {
