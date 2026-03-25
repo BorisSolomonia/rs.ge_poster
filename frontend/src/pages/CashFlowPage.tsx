@@ -60,6 +60,19 @@ export default function CashFlowPage() {
     }
   }, [overviewQuery.data, selectedMonth, expandedMonths.length])
 
+  useEffect(() => {
+    const months = overviewQuery.data?.months ?? []
+    if (months.length === 0) {
+      if (selectedMonth) {
+        setSelectedMonth('')
+      }
+      return
+    }
+    if (!months.some((month) => month.month === selectedMonth)) {
+      setSelectedMonth(months[months.length - 1].month)
+    }
+  }, [overviewQuery.data, selectedMonth])
+
   const refreshMutation = useMutation({
     mutationFn: refreshCashFlow,
     onSuccess: async () => {
@@ -93,6 +106,30 @@ export default function CashFlowPage() {
 
   const months = overviewQuery.data?.months ?? []
   const selectedMonthData = months.find((month) => month.month === selectedMonth) ?? months[months.length - 1]
+  const periodSummary = useMemo(() => {
+    if (months.length === 0) {
+      return null
+    }
+    return months.reduce((summary, month) => ({
+      totalInflow: summary.totalInflow + month.totalInflow,
+      totalOutflow: summary.totalOutflow + month.totalOutflow,
+      netMovement: summary.netMovement + month.netMovement,
+      endingCash: month.endingCash,
+      endingBog: month.endingBog,
+      endingTbc: month.endingTbc,
+      totalEndingBalance: month.totalEndingBalance,
+      warningCount: summary.warningCount + month.warningCount,
+    }), {
+      totalInflow: 0,
+      totalOutflow: 0,
+      netMovement: 0,
+      endingCash: 0,
+      endingBog: 0,
+      endingTbc: 0,
+      totalEndingBalance: 0,
+      warningCount: 0,
+    })
+  }, [months])
   const trendData = months.map((month) => ({
     month: month.month,
     inflow: month.totalInflow,
@@ -161,17 +198,17 @@ export default function CashFlowPage() {
         </div>
       )}
 
-      {selectedMonthData && (
+      {selectedMonthData && periodSummary && (
         <>
           <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label={env.cashFlowTotalInflowLabel} value={selectedMonthData.totalInflow} tone="emerald" />
-            <MetricCard label={env.cashFlowTotalOutflowLabel} value={selectedMonthData.totalOutflow} tone="amber" />
-            <MetricCard label={env.cashFlowNetMovementLabel} value={selectedMonthData.netMovement} tone="sky" />
-            <MetricCard label={env.cashFlowEndingCashLabel} value={selectedMonthData.endingCash} tone="slate" />
-            <MetricCard label={env.cashFlowEndingBogLabel} value={selectedMonthData.endingBog} tone="sky" />
-            <MetricCard label={env.cashFlowEndingTbcLabel} value={selectedMonthData.endingTbc} tone="violet" />
-            <MetricCard label={env.cashFlowEndingTotalLabel} value={selectedMonthData.totalEndingBalance} tone="emerald" />
-            <MetricCard label={env.cashFlowWarningStateLabel} value={selectedMonthData.warningCount} tone="rose" isCount />
+            <MetricCard label={env.cashFlowTotalInflowLabel} value={periodSummary.totalInflow} tone="emerald" />
+            <MetricCard label={env.cashFlowTotalOutflowLabel} value={periodSummary.totalOutflow} tone="amber" />
+            <MetricCard label={env.cashFlowNetMovementLabel} value={periodSummary.netMovement} tone="sky" />
+            <MetricCard label={env.cashFlowEndingCashLabel} value={periodSummary.endingCash} tone="slate" />
+            <MetricCard label={env.cashFlowEndingBogLabel} value={periodSummary.endingBog} tone="sky" />
+            <MetricCard label={env.cashFlowEndingTbcLabel} value={periodSummary.endingTbc} tone="violet" />
+            <MetricCard label={env.cashFlowEndingTotalLabel} value={periodSummary.totalEndingBalance} tone="emerald" />
+            <MetricCard label={env.cashFlowWarningStateLabel} value={periodSummary.warningCount} tone="rose" isCount />
           </div>
 
           <div className="mb-6 grid gap-6 xl:grid-cols-2">
