@@ -441,7 +441,7 @@ function MonthField({ label, value, onChange }: { label: string; value: string; 
     <div>
       <label className="mb-1 block text-xs font-medium text-slate-600">{label}</label>
       <input
-        type="month"
+        type="date"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20"

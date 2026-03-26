@@ -131,13 +131,17 @@ public class CashFlowService {
         if ((from == null || from.isBlank()) && (to == null || to.isBlank())) {
             return snapshot.overview();
         }
-        List<CashFlowMonthDto> months = snapshot.overview().months().stream()
-            .filter(month -> (from == null || from.isBlank() || month.month().compareTo(from) >= 0)
-                && (to == null || to.isBlank() || month.month().compareTo(to) <= 0))
+        LocalDate fromDate = parseOverviewBoundary(from, true);
+        LocalDate toDate = parseOverviewBoundary(to, false);
+        List<CashFlowLedgerRow> filteredRows = snapshot.rows().stream()
+            .filter(row -> row.date() != null)
+            .filter(row -> fromDate == null || !row.date().isBefore(fromDate))
+            .filter(row -> toDate == null || !row.date().isAfter(toDate))
             .toList();
-        String dateFrom = months.isEmpty() ? null : months.get(0).month();
-        String dateTo = months.isEmpty() ? null : months.get(months.size() - 1).month();
-        return new CashFlowOverviewDto(dateFrom, dateTo, snapshot.overview().availableMonths(), months);
+        List<CashFlowWarningDto> filteredWarnings = snapshot.warnings().stream()
+            .filter(warning -> filteredRows.stream().anyMatch(row -> row.sourceRow() == warning.sourceRow()))
+            .toList();
+        return buildOverview(filteredRows, filteredWarnings);
     }
 
     public List<CashFlowGroupDto> getCategories(String month) {
@@ -572,6 +576,18 @@ public class CashFlowService {
 
     private BigDecimal round(BigDecimal value) {
         return value.setScale(2, RoundingMode.HALF_UP);
+    }
+
+    private LocalDate parseOverviewBoundary(String raw, boolean startBoundary) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.matches("\\d{4}-\\d{2}$")) {
+            YearMonth yearMonth = YearMonth.parse(value);
+            return startBoundary ? yearMonth.atDay(1) : yearMonth.atEndOfMonth();
+        }
+        return LocalDate.parse(value, DateTimeFormatter.ISO_LOCAL_DATE);
     }
 
     private record ParseResult(List<CashFlowLedgerRow> rows, List<CashFlowWarningDto> warnings) {
