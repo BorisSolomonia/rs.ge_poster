@@ -20,6 +20,7 @@ camora:
     standalone-suppliers: "${CAMORA_STANDALONE_SUPPLIERS_FILE:standalone-suppliers.json}"
     sales-product-exclusions: "${CAMORA_SALES_PRODUCT_EXCLUSIONS_FILE:sales-product-exclusions.json}"
     sales-events: "${CAMORA_SALES_EVENTS_FILE:sales-events.json}"
+    cash-flow-category-mappings: "${CAMORA_CASH_FLOW_CATEGORY_MAPPINGS_FILE:cash-flow-category-mappings.json}"
   cors:
     allowed-origin-patterns: "${CAMORA_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}"
     allowed-methods: "${CAMORA_CORS_ALLOWED_METHODS:GET,POST,PUT,PATCH,DELETE,OPTIONS}"
@@ -50,7 +51,7 @@ camora:
     service-account-json: "${CAMORA_CASH_FLOW_SERVICE_ACCOUNT_JSON:}"
     service-account-path: "${CAMORA_CASH_FLOW_SERVICE_ACCOUNT_PATH:}"
     warning-negative-balance-threshold: "${CAMORA_CASH_FLOW_WARNING_NEGATIVE_BALANCE_THRESHOLD:0.00}"
-    income-keywords: "${CAMORA_CASH_FLOW_INCOME_KEYWORDS:income,შემოსავალი,revenue,sale,service,services}"
+    income-keywords: "${CAMORA_CASH_FLOW_INCOME_KEYWORDS:რეალიზაცია}"
     expense-keywords: "${CAMORA_CASH_FLOW_EXPENSE_KEYWORDS:expense,expenses,გასავალი,material,materials,inventory,stock,purchase,purchases,service cost,opex}"
     safe-keywords: "${CAMORA_CASH_FLOW_SAFE_KEYWORDS:safe,transfer,internal,deposit,withdrawal,ინკასო}"
     dividend-keywords: "${CAMORA_CASH_FLOW_DIVIDEND_KEYWORDS:dividend,dividends,დივიდენდი}"

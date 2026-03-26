@@ -24,9 +24,10 @@ import {
   getCashFlowWarnings,
   refreshCashFlow,
 } from '../api/cash-flow.api'
+import { deleteCashFlowMapping, getCashFlowMappings, upsertCashFlowMapping } from '../api/cash-flow-mappings.api'
 import { formatGel } from '../components/reconciliation/reconciliation.utils'
 import { env } from '../env'
-import type { CashFlowMonth, CashFlowTransaction, CashFlowWarning } from '../types'
+import type { CashFlowMonth, CashFlowTransaction, CashFlowUnmappedCategory, CashFlowWarning } from '../types'
 
 const groupColors = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#64748b']
 
@@ -37,6 +38,7 @@ export default function CashFlowPage() {
   const [selectedMonth, setSelectedMonth] = useState('')
   const [expandedMonths, setExpandedMonths] = useState<string[]>([])
   const [drilldown, setDrilldown] = useState<{ month: string; group?: string; category?: string } | null>(null)
+  const [mappingSelections, setMappingSelections] = useState<Record<string, string>>({})
 
   const statusQuery = useQuery({
     queryKey: ['cash-flow-status'],
@@ -92,6 +94,11 @@ export default function CashFlowPage() {
     enabled: Boolean(selectedMonth),
   })
 
+  const mappingsQuery = useQuery({
+    queryKey: ['cash-flow-mappings', from, to],
+    queryFn: () => getCashFlowMappings(from || undefined, to || undefined),
+  })
+
   const warningsQuery = useQuery({
     queryKey: ['cash-flow-warnings', selectedMonth],
     queryFn: () => getCashFlowWarnings(selectedMonth || undefined),
@@ -102,6 +109,54 @@ export default function CashFlowPage() {
     queryKey: ['cash-flow-transactions', drilldown?.month, drilldown?.group, drilldown?.category],
     queryFn: () => getCashFlowTransactions(drilldown!.month, drilldown?.group, drilldown?.category),
     enabled: Boolean(drilldown),
+  })
+
+  useEffect(() => {
+    if (!mappingsQuery.data) {
+      return
+    }
+    setMappingSelections((current) => {
+      const next = { ...current }
+      for (const mapping of mappingsQuery.data.mappings) {
+        next[mapping.sourceCategory] = mapping.targetCategory
+      }
+      return next
+    })
+  }, [mappingsQuery.data])
+
+  const mappingMutation = useMutation({
+    mutationFn: ({ sourceCategory, targetCategory }: { sourceCategory: string; targetCategory: string }) =>
+      upsertCashFlowMapping(sourceCategory, targetCategory),
+    onSuccess: async (_, variables) => {
+      setMappingSelections((current) => ({ ...current, [variables.sourceCategory]: variables.targetCategory }))
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-status'] }),
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-overview'] }),
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-categories'] }),
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-warnings'] }),
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-transactions'] }),
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-mappings'] }),
+      ])
+    },
+  })
+
+  const deleteMappingMutation = useMutation({
+    mutationFn: deleteCashFlowMapping,
+    onSuccess: async (_, sourceCategory) => {
+      setMappingSelections((current) => {
+        const next = { ...current }
+        delete next[sourceCategory]
+        return next
+      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-status'] }),
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-overview'] }),
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-categories'] }),
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-warnings'] }),
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-transactions'] }),
+        queryClient.invalidateQueries({ queryKey: ['cash-flow-mappings'] }),
+      ])
+    },
   })
 
   const months = overviewQuery.data?.months ?? []
@@ -380,6 +435,7 @@ export default function CashFlowPage() {
                       <thead className="bg-slate-50 text-slate-500">
                         <tr>
                           <HeaderCell>{env.cashFlowSourceRowColumnLabel}</HeaderCell>
+                          <HeaderCell>{env.cashFlowSourceCategoryColumnLabel}</HeaderCell>
                           <HeaderCell>{env.cashFlowCategoryColumnLabel}</HeaderCell>
                           <HeaderCell>{env.cashFlowAmountColumnLabel}</HeaderCell>
                           <HeaderCell>{env.cashFlowIssuesColumnLabel}</HeaderCell>
@@ -395,6 +451,65 @@ export default function CashFlowPage() {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-base font-semibold text-slate-800">{env.cashFlowUnmappedTitle}</h2>
+                <p className="mt-1 text-sm text-slate-500">{env.cashFlowUnmappedInfo}</p>
+              </div>
+              <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+                {env.cashFlowUnmappedTotalLabel}: {formatGel(overviewQuery.data?.unmappedTotal ?? 0)}
+              </div>
+            </div>
+
+            {(overviewQuery.data?.unmappedCategories ?? []).length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
+                All source categories are mapped.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-50 text-slate-500">
+                    <tr>
+                      <HeaderCell>{env.cashFlowSourceCategoryColumnLabel}</HeaderCell>
+                      <HeaderCell>{env.cashFlowAmountColumnLabel}</HeaderCell>
+                      <HeaderCell>{env.cashFlowTransactionCountLabel}</HeaderCell>
+                      <HeaderCell>{env.cashFlowMapTargetLabel}</HeaderCell>
+                      <HeaderCell>{env.cashFlowIssuesColumnLabel}</HeaderCell>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(overviewQuery.data?.unmappedCategories ?? []).map((category) => (
+                      <UnmappedCategoryRow
+                        key={category.sourceCategory}
+                        category={category}
+                        options={mappingsQuery.data?.canonicalCategories ?? []}
+                        selectedTarget={mappingSelections[category.sourceCategory] ?? ''}
+                        onSelect={(targetCategory) =>
+                          setMappingSelections((current) => ({ ...current, [category.sourceCategory]: targetCategory }))
+                        }
+                        onSave={() => {
+                          const targetCategory = mappingSelections[category.sourceCategory]
+                          if (targetCategory) {
+                            mappingMutation.mutate({ sourceCategory: category.sourceCategory, targetCategory })
+                          }
+                        }}
+                        onDelete={() => deleteMappingMutation.mutate(category.sourceCategory)}
+                        isSaving={
+                          mappingMutation.isPending && mappingMutation.variables?.sourceCategory === category.sourceCategory
+                        }
+                        isDeleting={
+                          deleteMappingMutation.isPending
+                          && deleteMappingMutation.variables === category.sourceCategory
+                        }
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -479,6 +594,9 @@ function TransactionRow({ transaction }: { transaction: CashFlowTransaction }) {
     <tr className="border-t border-slate-100 align-top">
       <BodyCell>{transaction.sourceRow}</BodyCell>
       <BodyCell>
+        <div className="font-semibold text-slate-800">{transaction.sourceCategory}</div>
+      </BodyCell>
+      <BodyCell>
         <div className="font-semibold text-slate-800">{transaction.category}</div>
         <div className="text-xs text-slate-500">{transaction.date ?? transaction.month}</div>
         {transaction.counterparty && <div className="text-xs text-slate-500">{transaction.counterparty}</div>}
@@ -493,6 +611,66 @@ function TransactionRow({ transaction }: { transaction: CashFlowTransaction }) {
                 </span>
               ))
             : <span className="text-slate-400">-</span>}
+        </div>
+      </BodyCell>
+    </tr>
+  )
+}
+
+function UnmappedCategoryRow({
+  category,
+  options,
+  selectedTarget,
+  onSelect,
+  onSave,
+  onDelete,
+  isSaving,
+  isDeleting,
+}: {
+  category: CashFlowUnmappedCategory
+  options: string[]
+  selectedTarget: string
+  onSelect: (value: string) => void
+  onSave: () => void
+  onDelete: () => void
+  isSaving: boolean
+  isDeleting: boolean
+}) {
+  return (
+    <tr className="border-t border-slate-100 align-top">
+      <BodyCell className="font-semibold text-slate-800">{category.sourceCategory}</BodyCell>
+      <BodyCell>{formatGel(category.amount)}</BodyCell>
+      <BodyCell>{category.transactionCount}</BodyCell>
+      <BodyCell>
+        <select
+          value={selectedTarget}
+          onChange={(e) => onSelect(e.target.value)}
+          className="min-w-[220px] rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+        >
+          <option value="">{env.cashFlowSelectCategoryLabel}</option>
+          {options.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </BodyCell>
+      <BodyCell>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={onSave}
+            disabled={!selectedTarget || isSaving}
+            className="rounded-xl bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {env.cashFlowMapSaveLabel}
+          </button>
+          <button
+            onClick={onDelete}
+            disabled={isDeleting}
+            className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {env.cashFlowMapDeleteLabel}
+          </button>
         </div>
       </BodyCell>
     </tr>

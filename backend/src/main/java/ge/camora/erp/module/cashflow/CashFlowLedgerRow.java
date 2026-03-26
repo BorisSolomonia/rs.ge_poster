@@ -8,6 +8,7 @@ public record CashFlowLedgerRow(
     int sourceRow,
     LocalDate date,
     String monthKey,
+    String sourceCategory,
     String category,
     CashFlowGroup group,
     String counterparty,

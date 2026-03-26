@@ -3,6 +3,7 @@ package ge.camora.erp.store;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ge.camora.erp.config.CamoraProperties;
+import ge.camora.erp.model.config.CashFlowCategoryMapping;
 import ge.camora.erp.model.config.ProductMapping;
 import ge.camora.erp.model.config.SalesEvent;
 import ge.camora.erp.model.config.SalesProductExclusion;
@@ -45,6 +46,7 @@ public class ConfigStore {
     private List<StandaloneSupplier> standaloneSuppliers = new ArrayList<>();
     private List<SalesProductExclusion> salesProductExclusions = new ArrayList<>();
     private List<SalesEvent> salesEvents = new ArrayList<>();
+    private List<CashFlowCategoryMapping> cashFlowCategoryMappings = new ArrayList<>();
 
     public ConfigStore(ObjectMapper objectMapper, CamoraProperties properties) {
         this.objectMapper = objectMapper;
@@ -68,6 +70,8 @@ public class ConfigStore {
         salesProductExclusions = loadJson(configDir.resolve(properties.getConfigFiles().getSalesProductExclusions()),
                                       new TypeReference<>() {});
         salesEvents = loadJson(configDir.resolve(properties.getConfigFiles().getSalesEvents()),
+                                      new TypeReference<>() {});
+        cashFlowCategoryMappings = loadJson(configDir.resolve(properties.getConfigFiles().getCashFlowCategoryMappings()),
                                       new TypeReference<>() {});
         log.info("ConfigStore loaded: {} supplier mappings, {} product mappings, {} standalone",
                  supplierMappings.size(), productMappings.size(), standaloneSuppliers.size());
@@ -426,6 +430,74 @@ public class ConfigStore {
         }
     }
 
+    public List<CashFlowCategoryMapping> getCashFlowCategoryMappings() {
+        lock.readLock().lock();
+        try {
+            return cashFlowCategoryMappings.stream()
+                .sorted(Comparator.comparing(CashFlowCategoryMapping::getSourceCategory, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public Optional<CashFlowCategoryMapping> findCashFlowCategoryMapping(String sourceCategory) {
+        String normalizedSource = normalizeSalesKey(sourceCategory);
+        lock.readLock().lock();
+        try {
+            return cashFlowCategoryMappings.stream()
+                .filter(mapping -> mapping.getNormalizedSourceCategory().equals(normalizedSource))
+                .findFirst();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public CashFlowCategoryMapping upsertCashFlowCategoryMapping(String sourceCategory, String targetCategory, String source) {
+        String normalizedSource = normalizeSalesKey(sourceCategory);
+        String normalizedTarget = normalizeSalesKey(targetCategory);
+        lock.writeLock().lock();
+        try {
+            LocalDateTime now = LocalDateTime.now();
+            for (CashFlowCategoryMapping mapping : cashFlowCategoryMappings) {
+                if (mapping.getNormalizedSourceCategory().equals(normalizedSource)) {
+                    mapping.setSourceCategory(sourceCategory.trim());
+                    mapping.setTargetCategory(targetCategory.trim());
+                    mapping.setNormalizedTargetCategory(normalizedTarget);
+                    mapping.setSource(source);
+                    mapping.setUpdatedAt(now);
+                    persistCashFlowCategoryMappings();
+                    return mapping;
+                }
+            }
+            CashFlowCategoryMapping created = new CashFlowCategoryMapping(
+                sourceCategory.trim(),
+                normalizedSource,
+                targetCategory.trim(),
+                normalizedTarget,
+                source,
+                now,
+                now
+            );
+            cashFlowCategoryMappings.add(created);
+            persistCashFlowCategoryMappings();
+            return created;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void deleteCashFlowCategoryMapping(String sourceCategory) {
+        String normalizedSource = normalizeSalesKey(sourceCategory);
+        lock.writeLock().lock();
+        try {
+            cashFlowCategoryMappings.removeIf(mapping -> mapping.getNormalizedSourceCategory().equals(normalizedSource));
+            persistCashFlowCategoryMappings();
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public void deleteSalesEvent(LocalDate date) {
         lock.writeLock().lock();
         try {
@@ -487,6 +559,10 @@ public class ConfigStore {
 
     private void persistSalesEvents() {
         writeJson(configDir.resolve(properties.getConfigFiles().getSalesEvents()), salesEvents);
+    }
+
+    private void persistCashFlowCategoryMappings() {
+        writeJson(configDir.resolve(properties.getConfigFiles().getCashFlowCategoryMappings()), cashFlowCategoryMappings);
     }
 
     private <T> List<T> loadJson(Path path, TypeReference<List<T>> type) {

@@ -7,6 +7,7 @@ public record CashFlowTransactionDto(
     int sourceRow,
     String date,
     String month,
+    String sourceCategory,
     String category,
     String group,
     String counterparty,

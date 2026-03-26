@@ -98,6 +98,7 @@ public class CamoraProperties {
         private String standaloneSuppliers;
         private String salesProductExclusions;
         private String salesEvents;
+        private String cashFlowCategoryMappings;
 
         public String getSupplierMappings() {
             return supplierMappings;
@@ -137,6 +138,14 @@ public class CamoraProperties {
 
         public void setSalesEvents(String salesEvents) {
             this.salesEvents = salesEvents;
+        }
+
+        public String getCashFlowCategoryMappings() {
+            return cashFlowCategoryMappings;
+        }
+
+        public void setCashFlowCategoryMappings(String cashFlowCategoryMappings) {
+            this.cashFlowCategoryMappings = cashFlowCategoryMappings;
         }
     }
 

@@ -246,6 +246,8 @@ export interface CashFlowOverview {
   dateTo: string | null
   availableMonths: string[]
   months: CashFlowMonth[]
+  unmappedTotal: number
+  unmappedCategories: CashFlowUnmappedCategory[]
 }
 
 export interface CashFlowSyncStatus {
@@ -276,6 +278,7 @@ export interface CashFlowTransaction {
   sourceRow: number
   date: string | null
   month: string
+  sourceCategory: string
   category: string
   group: string
   counterparty: string
@@ -300,4 +303,22 @@ export interface CashFlowTransactionsResponse {
   group: string | null
   category: string | null
   transactions: CashFlowTransaction[]
+}
+
+export interface CashFlowUnmappedCategory {
+  sourceCategory: string
+  amount: number
+  transactionCount: number
+}
+
+export interface CashFlowCategoryMapping {
+  sourceCategory: string
+  targetCategory: string
+  source: string
+}
+
+export interface CashFlowMappingsView {
+  canonicalCategories: string[]
+  mappings: CashFlowCategoryMapping[]
+  unmappedCategories: CashFlowUnmappedCategory[]
 }
