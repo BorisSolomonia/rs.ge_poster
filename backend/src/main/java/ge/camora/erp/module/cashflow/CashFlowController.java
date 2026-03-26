@@ -1,6 +1,7 @@
 package ge.camora.erp.module.cashflow;
 
 import ge.camora.erp.model.dto.ApiResponse;
+import ge.camora.erp.model.dto.CashFlowCategoryDebugDto;
 import ge.camora.erp.model.dto.CashFlowGroupDto;
 import ge.camora.erp.model.dto.CashFlowOverviewDto;
 import ge.camora.erp.model.dto.CashFlowSyncStatusDto;
@@ -60,5 +61,14 @@ public class CashFlowController {
     @GetMapping("/warnings")
     public ResponseEntity<ApiResponse<CashFlowWarningsResponseDto>> warnings(@RequestParam(required = false) String month) {
         return ResponseEntity.ok(ApiResponse.ok(cashFlowService.getWarnings(month)));
+    }
+
+    @GetMapping("/debug/category")
+    public ResponseEntity<ApiResponse<CashFlowCategoryDebugDto>> categoryDebug(
+        @RequestParam String category,
+        @RequestParam(required = false) String from,
+        @RequestParam(required = false) String to
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(cashFlowService.getCategoryDebug(category, from, to)));
     }
 }

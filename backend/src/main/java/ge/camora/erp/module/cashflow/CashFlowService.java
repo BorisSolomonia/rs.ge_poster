@@ -2,6 +2,9 @@ package ge.camora.erp.module.cashflow;
 
 import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.dto.CashFlowCategoryDto;
+import ge.camora.erp.model.dto.CashFlowCategoryDebugDto;
+import ge.camora.erp.model.dto.CashFlowCategoryDebugMonthDto;
+import ge.camora.erp.model.dto.CashFlowCategoryDebugRowDto;
 import ge.camora.erp.model.dto.CashFlowCategoryMappingView;
 import ge.camora.erp.model.dto.CashFlowGroupDto;
 import ge.camora.erp.model.dto.CashFlowMappingsViewDto;
@@ -14,6 +17,8 @@ import ge.camora.erp.model.dto.CashFlowUnmappedCategoryDto;
 import ge.camora.erp.model.dto.CashFlowWarningDto;
 import ge.camora.erp.model.dto.CashFlowWarningsResponseDto;
 import ge.camora.erp.store.ConfigStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -32,10 +37,12 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -43,6 +50,7 @@ import java.util.stream.Collectors;
 @Service
 public class CashFlowService {
 
+    private static final Logger log = LoggerFactory.getLogger(CashFlowService.class);
     private static final Pattern NUMERIC_PATTERN = Pattern.compile("[^0-9,.-]");
     private static final List<DateTimeFormatter> DATE_FORMATTERS = List.of(
         DateTimeFormatter.ISO_LOCAL_DATE,
@@ -103,6 +111,7 @@ public class CashFlowService {
             List<List<Object>> rawRows = sheetsClient.fetchLedgerRows();
             ParseResult parseResult = parseRows(rawRows);
             CashFlowOverviewDto overview = buildOverview(parseResult.rows(), parseResult.warnings());
+            logRefreshDiagnostics(parseResult.rows(), overview);
             snapshot = new CashFlowSnapshot(
                 overview,
                 parseResult.rows(),
@@ -178,13 +187,7 @@ public class CashFlowService {
 
     public CashFlowMappingsViewDto getMappingsView(String from, String to) {
         CashFlowOverviewDto overview = getOverview(from, to);
-        List<String> canonicalCategories = snapshot.rows().stream()
-            .filter(row -> row.group() != CashFlowGroup.UNCATEGORIZED)
-            .map(CashFlowLedgerRow::category)
-            .filter(category -> category != null && !category.isBlank())
-            .distinct()
-            .sorted(String.CASE_INSENSITIVE_ORDER)
-            .toList();
+        List<String> canonicalCategories = collectCanonicalCategories();
         List<CashFlowCategoryMappingView> mappings = configStore.getCashFlowCategoryMappings().stream()
             .map(mapping -> new CashFlowCategoryMappingView(mapping.getSourceCategory(), mapping.getTargetCategory(), mapping.getSource()))
             .toList();
@@ -200,6 +203,71 @@ public class CashFlowService {
     public void deleteMapping(String sourceCategory) {
         configStore.deleteCashFlowCategoryMapping(sourceCategory);
         refreshSnapshot();
+    }
+
+    public CashFlowCategoryDebugDto getCategoryDebug(String category, String from, String to) {
+        String normalizedCategory = normalizeCategory(category);
+        LocalDate fromDate = parseOverviewBoundary(from, true);
+        LocalDate toDate = parseOverviewBoundary(to, false);
+        List<CashFlowLedgerRow> rows = snapshot.rows().stream()
+            .filter(row -> row.date() != null)
+            .filter(row -> fromDate == null || !row.date().isBefore(fromDate))
+            .filter(row -> toDate == null || !row.date().isAfter(toDate))
+            .filter(row ->
+                normalizedCategory.equals(row.normalizedSourceCategory())
+                    || normalizedCategory.equals(row.normalizedCategory())
+            )
+            .sorted(Comparator.comparing(CashFlowLedgerRow::date).thenComparing(CashFlowLedgerRow::sourceRow))
+            .toList();
+
+        List<CashFlowCategoryDebugMonthDto> months = rows.stream()
+            .filter(CashFlowLedgerRow::countedAsIncome)
+            .collect(Collectors.groupingBy(CashFlowLedgerRow::monthKey, LinkedHashMap::new, Collectors.toList()))
+            .entrySet()
+            .stream()
+            .map(entry -> new CashFlowCategoryDebugMonthDto(
+                entry.getKey(),
+                round(sum(entry.getValue(), CashFlowLedgerRow::incomeAmount)),
+                entry.getValue().size()
+            ))
+            .toList();
+
+        List<CashFlowCategoryDebugRowDto> debugRows = rows.stream()
+            .map(row -> new CashFlowCategoryDebugRowDto(
+                row.sourceRow(),
+                row.date() == null ? null : row.date().toString(),
+                row.monthKey(),
+                row.sourceCategory(),
+                row.normalizedSourceCategory(),
+                row.category(),
+                row.normalizedCategory(),
+                row.group().name(),
+                row.classificationReason(),
+                row.countedAsIncome(),
+                round(row.incomeAmount()),
+                row.cashInflow(),
+                row.bogInflow(),
+                row.tbcInflow(),
+                row.issues()
+            ))
+            .toList();
+
+        BigDecimal totalAmount = debugRows.stream()
+            .filter(CashFlowCategoryDebugRowDto::countedAsIncome)
+            .map(CashFlowCategoryDebugRowDto::incomeAmount)
+            .reduce(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), BigDecimal::add);
+
+        return new CashFlowCategoryDebugDto(
+            category,
+            normalizedCategory,
+            fromDate == null ? null : fromDate.toString(),
+            toDate == null ? null : toDate.toString(),
+            round(totalAmount),
+            (int) debugRows.stream().filter(CashFlowCategoryDebugRowDto::countedAsIncome).count(),
+            (int) debugRows.stream().filter(row -> !row.countedAsIncome()).count(),
+            months,
+            debugRows
+        );
     }
 
     private ParseResult parseRows(List<List<Object>> rawRows) {
@@ -247,8 +315,20 @@ public class CashFlowService {
                 issues.add("negative balance");
             }
 
+            String normalizedSourceCategory = normalizeCategory(sourceCategory);
             String effectiveCategory = resolveEffectiveCategory(sourceCategory);
-            CashFlowGroup group = resolveGroup(effectiveCategory, cashInflow, bogInflow, tbcInflow, materialValue, serviceValue, cashOutflow, bogOutflow, tbcOutflow);
+            String normalizedEffectiveCategory = normalizeCategory(effectiveCategory);
+            ClassificationResult classification = resolveGroup(
+                normalizedEffectiveCategory,
+                cashInflow,
+                bogInflow,
+                tbcInflow,
+                materialValue,
+                serviceValue,
+                cashOutflow,
+                bogOutflow,
+                tbcOutflow
+            );
             if (shouldSkipNonDataRow(date, sourceCategory, counterparty, comment, validationFlag, materialValue, serviceValue, cashInflow, cashOutflow, cashBalance, bogInflow, bogOutflow, bogBalance, tbcInflow, tbcOutflow, tbcBalance)) {
                 sourceRow++;
                 continue;
@@ -258,8 +338,11 @@ public class CashFlowService {
                 date,
                 monthKey,
                 sourceCategory == null || sourceCategory.isBlank() ? "Uncategorized" : sourceCategory.trim(),
+                normalizedSourceCategory,
                 effectiveCategory,
-                group,
+                normalizedEffectiveCategory,
+                classification.group(),
+                classification.reason(),
                 counterparty,
                 comment,
                 materialValue,
@@ -435,7 +518,7 @@ public class CashFlowService {
         if (value.matches("\\d+")) {
             return Integer.parseInt(value);
         }
-        String normalized = normalize(value);
+        String normalized = normalizeCategory(value);
         Map<String, Integer> months = Map.ofEntries(
             Map.entry("january", 1), Map.entry("იანვარი", 1),
             Map.entry("february", 2), Map.entry("თებერვალი", 2),
@@ -457,8 +540,8 @@ public class CashFlowService {
         return resolved;
     }
 
-    private CashFlowGroup resolveGroup(
-        String category,
+    private ClassificationResult resolveGroup(
+        String normalizedCategory,
         BigDecimal cashInflow,
         BigDecimal bogInflow,
         BigDecimal tbcInflow,
@@ -468,26 +551,25 @@ public class CashFlowService {
         BigDecimal bogOutflow,
         BigDecimal tbcOutflow
     ) {
-        String normalized = normalize(category);
-        if (matches(normalized, properties.getCashFlow().getDividendKeywords())) {
-            return CashFlowGroup.DIVIDEND;
+        if (matches(normalizedCategory, properties.getCashFlow().getDividendKeywords())) {
+            return new ClassificationResult(CashFlowGroup.DIVIDEND, "matched dividend keywords");
         }
-        if (matches(normalized, properties.getCashFlow().getSafeKeywords())) {
-            return CashFlowGroup.SAFE;
+        if (matches(normalizedCategory, properties.getCashFlow().getSafeKeywords())) {
+            return new ClassificationResult(CashFlowGroup.SAFE, "matched safe keywords");
         }
-        if (matchesExact(normalized, properties.getCashFlow().getIncomeKeywords())) {
-            return CashFlowGroup.INCOME;
+        if (matchesExact(normalizedCategory, properties.getCashFlow().getIncomeKeywords())) {
+            return new ClassificationResult(CashFlowGroup.INCOME, "matched income keywords");
         }
-        if (matches(normalized, properties.getCashFlow().getExpenseKeywords())) {
-            return CashFlowGroup.EXPENSE;
+        if (matches(normalizedCategory, properties.getCashFlow().getExpenseKeywords())) {
+            return new ClassificationResult(CashFlowGroup.EXPENSE, "matched expense keywords");
         }
         if (materialValue.signum() > 0 || serviceValue.signum() > 0 || cashOutflow.signum() > 0 || bogOutflow.signum() > 0 || tbcOutflow.signum() > 0) {
-            return CashFlowGroup.EXPENSE;
+            return new ClassificationResult(CashFlowGroup.EXPENSE, "derived expense from outflow or cost columns");
         }
         if (cashInflow.signum() > 0 || bogInflow.signum() > 0 || tbcInflow.signum() > 0) {
-            return CashFlowGroup.UNCATEGORIZED;
+            return new ClassificationResult(CashFlowGroup.UNCATEGORIZED, "inflow present but category not mapped to income");
         }
-        return CashFlowGroup.UNCATEGORIZED;
+        return new ClassificationResult(CashFlowGroup.UNCATEGORIZED, "no classification rule matched");
     }
 
     private String resolveEffectiveCategory(String sourceCategory) {
@@ -499,17 +581,21 @@ public class CashFlowService {
             .orElse(sourceCategory.trim());
     }
 
+    private String normalizeCategory(String value) {
+        return ConfigStore.normalizeSalesKey(value);
+    }
+
     private boolean matches(String normalizedValue, Collection<String> keywords) {
         return keywords.stream()
             .filter(Objects::nonNull)
-            .map(this::normalize)
+            .map(this::normalizeCategory)
             .anyMatch(keyword -> !keyword.isBlank() && normalizedValue.contains(keyword));
     }
 
     private boolean matchesExact(String normalizedValue, Collection<String> keywords) {
         return keywords.stream()
             .filter(Objects::nonNull)
-            .map(this::normalize)
+            .map(this::normalizeCategory)
             .anyMatch(keyword -> !keyword.isBlank() && normalizedValue.equals(keyword));
     }
 
@@ -585,7 +671,7 @@ public class CashFlowService {
     }
 
     private String codeFor(String issue) {
-        return normalize(issue).replace(' ', '_');
+        return normalizeCategory(issue).replace(' ', '_');
     }
 
     private boolean isBlankRow(List<String> row) {
@@ -633,10 +719,6 @@ public class CashFlowService {
         return false;
     }
 
-    private String normalize(String value) {
-        return value == null ? "" : value.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
-    }
-
     private BigDecimal round(BigDecimal value) {
         return value.setScale(2, RoundingMode.HALF_UP);
     }
@@ -669,7 +751,136 @@ public class CashFlowService {
             .toList();
     }
 
+    private List<String> collectCanonicalCategories() {
+        Set<String> categories = new LinkedHashSet<>();
+        snapshot.rows().stream()
+            .map(CashFlowLedgerRow::sourceCategory)
+            .filter(category -> category != null && !category.isBlank() && !"Uncategorized".equalsIgnoreCase(category))
+            .forEach(categories::add);
+        configStore.getCashFlowCategoryMappings().stream()
+            .map(mapping -> mapping.getTargetCategory())
+            .filter(category -> category != null && !category.isBlank())
+            .forEach(categories::add);
+        properties.getCashFlow().getIncomeKeywords().stream()
+            .filter(keyword -> keyword != null && !keyword.isBlank())
+            .forEach(categories::add);
+        properties.getCashFlow().getExpenseKeywords().stream()
+            .filter(keyword -> keyword != null && !keyword.isBlank() && !keyword.contains(" "))
+            .forEach(categories::add);
+        properties.getCashFlow().getSafeKeywords().stream()
+            .filter(keyword -> keyword != null && !keyword.isBlank() && !keyword.contains(" "))
+            .forEach(categories::add);
+        properties.getCashFlow().getDividendKeywords().stream()
+            .filter(keyword -> keyword != null && !keyword.isBlank())
+            .forEach(categories::add);
+        return categories.stream()
+            .sorted(String.CASE_INSENSITIVE_ORDER)
+            .toList();
+    }
+
+    private void logRefreshDiagnostics(List<CashFlowLedgerRow> rows, CashFlowOverviewDto overview) {
+        if (!properties.getCashFlow().isDebug()) {
+            return;
+        }
+        String minDate = rows.stream()
+            .map(CashFlowLedgerRow::date)
+            .filter(Objects::nonNull)
+            .min(LocalDate::compareTo)
+            .map(LocalDate::toString)
+            .orElse("n/a");
+        String maxDate = rows.stream()
+            .map(CashFlowLedgerRow::date)
+            .filter(Objects::nonNull)
+            .max(LocalDate::compareTo)
+            .map(LocalDate::toString)
+            .orElse("n/a");
+        log.info(
+            "Cash flow refresh debug: sheetId={}, range={}, startRow={}, rows={}, minDate={}, maxDate={}",
+            properties.getCashFlow().getSheetId(),
+            properties.getCashFlow().getRange(),
+            properties.getCashFlow().getSourceStartRow(),
+            rows.size(),
+            minDate,
+            maxDate
+        );
+        rows.stream()
+            .filter(row -> matchesExact(row.normalizedCategory(), properties.getCashFlow().getIncomeKeywords()))
+            .collect(Collectors.groupingBy(CashFlowLedgerRow::monthKey, LinkedHashMap::new, Collectors.toList()))
+            .forEach((month, monthRows) -> log.info(
+                "Cash flow income debug: month={}, category={}, amount={}, rows={}",
+                month,
+                "რეალიზაცია",
+                round(sum(monthRows, CashFlowLedgerRow::incomeAmount)),
+                monthRows.size()
+            ));
+        long inflowUncategorized = rows.stream()
+            .filter(row -> row.group() == CashFlowGroup.UNCATEGORIZED)
+            .filter(row -> row.totalInflow().signum() > 0)
+            .count();
+        log.info("Cash flow income debug: inflow rows still uncategorized={}", inflowUncategorized);
+        overview.unmappedCategories().stream()
+            .limit(10)
+            .forEach(category -> log.info(
+                "Cash flow unmapped debug: sourceCategory={}, amount={}, transactions={}",
+                category.sourceCategory(),
+                category.amount(),
+                category.transactionCount()
+            ));
+        rows.stream()
+            .filter(row -> row.totalInflow().signum() > 0)
+            .filter(row -> row.group() != CashFlowGroup.INCOME)
+            .filter(row -> isCloseToIncomeKeyword(row.normalizedSourceCategory()))
+            .limit(20)
+            .forEach(row -> log.info(
+                "Cash flow income mismatch: row={}, sourceCategory='{}', normalized='{}', effectiveCategory='{}', group={}, reason={}, inflow={}",
+                row.sourceRow(),
+                row.sourceCategory(),
+                row.normalizedSourceCategory(),
+                row.category(),
+                row.group(),
+                row.classificationReason(),
+                row.totalInflow()
+            ));
+    }
+
+    private boolean isCloseToIncomeKeyword(String normalizedCategory) {
+        return properties.getCashFlow().getIncomeKeywords().stream()
+            .map(this::normalizeCategory)
+            .filter(keyword -> !keyword.isBlank())
+            .anyMatch(keyword ->
+                normalizedCategory.contains(keyword)
+                    || keyword.contains(normalizedCategory)
+                    || levenshtein(normalizedCategory, keyword) <= 2
+            );
+    }
+
+    private int levenshtein(String left, String right) {
+        if (left.isBlank() || right.isBlank()) {
+            return Integer.MAX_VALUE;
+        }
+        int[][] dp = new int[left.length() + 1][right.length() + 1];
+        for (int i = 0; i <= left.length(); i++) {
+            dp[i][0] = i;
+        }
+        for (int j = 0; j <= right.length(); j++) {
+            dp[0][j] = j;
+        }
+        for (int i = 1; i <= left.length(); i++) {
+            for (int j = 1; j <= right.length(); j++) {
+                int cost = left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1;
+                dp[i][j] = Math.min(
+                    Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
+                    dp[i - 1][j - 1] + cost
+                );
+            }
+        }
+        return dp[left.length()][right.length()];
+    }
+
     private record ParseResult(List<CashFlowLedgerRow> rows, List<CashFlowWarningDto> warnings) {
+    }
+
+    private record ClassificationResult(CashFlowGroup group, String reason) {
     }
 
     @FunctionalInterface

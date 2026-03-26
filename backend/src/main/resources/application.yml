@@ -50,6 +50,7 @@ camora:
     sync-fixed-delay: "${CAMORA_CASH_FLOW_SYNC_FIXED_DELAY:14400000}"
     service-account-json: "${CAMORA_CASH_FLOW_SERVICE_ACCOUNT_JSON:}"
     service-account-path: "${CAMORA_CASH_FLOW_SERVICE_ACCOUNT_PATH:}"
+    debug: "${CAMORA_CASH_FLOW_DEBUG:false}"
     warning-negative-balance-threshold: "${CAMORA_CASH_FLOW_WARNING_NEGATIVE_BALANCE_THRESHOLD:0.00}"
     income-keywords: "${CAMORA_CASH_FLOW_INCOME_KEYWORDS:რეალიზაცია}"
     expense-keywords: "${CAMORA_CASH_FLOW_EXPENSE_KEYWORDS:expense,expenses,გასავალი,material,materials,inventory,stock,purchase,purchases,service cost,opex}"

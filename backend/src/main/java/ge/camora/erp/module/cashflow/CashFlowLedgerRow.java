@@ -9,8 +9,11 @@ public record CashFlowLedgerRow(
     LocalDate date,
     String monthKey,
     String sourceCategory,
+    String normalizedSourceCategory,
     String category,
+    String normalizedCategory,
     CashFlowGroup group,
+    String classificationReason,
     String counterparty,
     String comment,
     BigDecimal materialValue,
@@ -46,5 +49,13 @@ public record CashFlowLedgerRow(
             case SAFE, DIVIDEND -> totalInflow().add(totalOutflow());
             case UNCATEGORIZED -> totalInflow().add(totalOutflow()).add(materialValue).add(serviceValue);
         };
+    }
+
+    public boolean countedAsIncome() {
+        return group == CashFlowGroup.INCOME;
+    }
+
+    public BigDecimal incomeAmount() {
+        return countedAsIncome() ? totalInflow() : BigDecimal.ZERO.setScale(2);
     }
 }

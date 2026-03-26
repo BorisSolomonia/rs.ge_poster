@@ -308,6 +308,7 @@ public class CamoraProperties {
         private String syncFixedDelay;
         private String serviceAccountJson;
         private String serviceAccountPath;
+        private boolean debug;
         private BigDecimal warningNegativeBalanceThreshold;
         private final LedgerColumns columns = new LedgerColumns();
         private List<String> incomeKeywords = new ArrayList<>();
@@ -377,6 +378,14 @@ public class CamoraProperties {
 
         public void setServiceAccountPath(String serviceAccountPath) {
             this.serviceAccountPath = serviceAccountPath;
+        }
+
+        public boolean isDebug() {
+            return debug;
+        }
+
+        public void setDebug(boolean debug) {
+            this.debug = debug;
         }
 
         public BigDecimal getWarningNegativeBalanceThreshold() {

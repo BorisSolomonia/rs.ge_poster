@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -587,7 +588,14 @@ public class ConfigStore {
         if (value == null) {
             return "";
         }
-        return value.trim().replaceAll("\\s+", " ").toLowerCase();
+        String normalized = value
+            .replace('\u00A0', ' ')
+            .replace("\u200B", "")
+            .replace("\u200C", "")
+            .replace("\u200D", "")
+            .trim()
+            .replaceAll("\\s+", " ");
+        return normalized.toLowerCase(Locale.ROOT);
     }
 
     private int suggestionScore(String query, String candidate, int maxDistance) {

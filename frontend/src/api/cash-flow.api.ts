@@ -2,6 +2,7 @@ import { client } from './client'
 import { env } from '../env'
 import type {
   ApiResponse,
+  CashFlowCategoryDebug,
   CashFlowGroup,
   CashFlowOverview,
   CashFlowSyncStatus,
@@ -50,6 +51,17 @@ export async function getCashFlowTransactions(month: string, group?: string, cat
 export async function getCashFlowWarnings(month?: string): Promise<CashFlowWarningsResponse> {
   const res = await client.get<ApiResponse<CashFlowWarningsResponse>>(`${BASE}/warnings`, {
     params: month ? { month } : undefined,
+  })
+  return res.data.data
+}
+
+export async function getCashFlowCategoryDebug(category: string, from?: string, to?: string): Promise<CashFlowCategoryDebug> {
+  const res = await client.get<ApiResponse<CashFlowCategoryDebug>>(`${BASE}/debug/category`, {
+    params: {
+      category,
+      ...(from ? { from } : {}),
+      ...(to ? { to } : {}),
+    },
   })
   return res.data.data
 }

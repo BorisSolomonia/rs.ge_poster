@@ -322,3 +322,39 @@ export interface CashFlowMappingsView {
   mappings: CashFlowCategoryMapping[]
   unmappedCategories: CashFlowUnmappedCategory[]
 }
+
+export interface CashFlowCategoryDebugMonth {
+  month: string
+  amount: number
+  rowCount: number
+}
+
+export interface CashFlowCategoryDebugRow {
+  sourceRow: number
+  date: string | null
+  month: string
+  sourceCategory: string
+  normalizedSourceCategory: string
+  effectiveCategory: string
+  normalizedEffectiveCategory: string
+  group: string
+  classificationReason: string
+  countedAsIncome: boolean
+  incomeAmount: number
+  cashInflow: number
+  bogInflow: number
+  tbcInflow: number
+  issues: string[]
+}
+
+export interface CashFlowCategoryDebug {
+  category: string
+  normalizedCategory: string
+  dateFrom: string | null
+  dateTo: string | null
+  totalAmount: number
+  includedRowCount: number
+  excludedRowCount: number
+  months: CashFlowCategoryDebugMonth[]
+  rows: CashFlowCategoryDebugRow[]
+}
