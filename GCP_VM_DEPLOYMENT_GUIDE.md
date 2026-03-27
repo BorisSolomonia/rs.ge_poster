@@ -8,7 +8,7 @@ This deployment now uses a shared-proxy VM layout on the same VM and in the same
 - Image registry: Artifact Registry repo `orderapp` in `us-central1`
 - Runtime host: same VM  as `Order_app`
 - Runtime orchestrator: Docker Compose with shared external network `web`
-- Public ingress: dedicated shared Caddy stack
+- Public ingress: dedicated shared Caddy stack.
 - Public app path: `/camora`
 
 ## Runtime Layout.
