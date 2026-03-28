@@ -245,6 +245,12 @@ public class CashFlowService {
                 row.classificationReason(),
                 row.countedAsIncome(),
                 round(row.incomeAmount()),
+                row.rawCashInflow(),
+                row.rawBogInflow(),
+                row.rawTbcInflow(),
+                row.rawCashBalance(),
+                row.rawBogBalance(),
+                row.rawTbcBalance(),
                 row.cashInflow(),
                 row.bogInflow(),
                 row.tbcInflow(),
@@ -287,18 +293,27 @@ public class CashFlowService {
             String counterparty = read(row, properties.getCashFlow().getColumns().getCounterparty());
             String comment = read(row, properties.getCashFlow().getColumns().getComment());
             String validationFlag = read(row, properties.getCashFlow().getColumns().getValidationFlag());
+            String rawCashInflow = read(row, properties.getCashFlow().getColumns().getCashInflow());
+            String rawCashOutflow = read(row, properties.getCashFlow().getColumns().getCashOutflow());
+            String rawCashBalance = read(row, properties.getCashFlow().getColumns().getCashBalance());
+            String rawBogInflow = read(row, properties.getCashFlow().getColumns().getBogInflow());
+            String rawBogOutflow = read(row, properties.getCashFlow().getColumns().getBogOutflow());
+            String rawBogBalance = read(row, properties.getCashFlow().getColumns().getBogBalance());
+            String rawTbcInflow = read(row, properties.getCashFlow().getColumns().getTbcInflow());
+            String rawTbcOutflow = read(row, properties.getCashFlow().getColumns().getTbcOutflow());
+            String rawTbcBalance = read(row, properties.getCashFlow().getColumns().getTbcBalance());
 
             BigDecimal materialValue = parseAmount(read(row, properties.getCashFlow().getColumns().getMaterialValue()), issues, "material_value");
             BigDecimal serviceValue = parseAmount(read(row, properties.getCashFlow().getColumns().getServiceValue()), issues, "service_value");
-            BigDecimal cashInflow = parseAmount(read(row, properties.getCashFlow().getColumns().getCashInflow()), issues, "cash_inflow");
-            BigDecimal cashOutflow = parseAmount(read(row, properties.getCashFlow().getColumns().getCashOutflow()), issues, "cash_outflow");
-            BigDecimal cashBalance = parseAmount(read(row, properties.getCashFlow().getColumns().getCashBalance()), issues, "cash_balance");
-            BigDecimal bogInflow = parseAmount(read(row, properties.getCashFlow().getColumns().getBogInflow()), issues, "bog_inflow");
-            BigDecimal bogOutflow = parseAmount(read(row, properties.getCashFlow().getColumns().getBogOutflow()), issues, "bog_outflow");
-            BigDecimal bogBalance = parseAmount(read(row, properties.getCashFlow().getColumns().getBogBalance()), issues, "bog_balance");
-            BigDecimal tbcInflow = parseAmount(read(row, properties.getCashFlow().getColumns().getTbcInflow()), issues, "tbc_inflow");
-            BigDecimal tbcOutflow = parseAmount(read(row, properties.getCashFlow().getColumns().getTbcOutflow()), issues, "tbc_outflow");
-            BigDecimal tbcBalance = parseAmount(read(row, properties.getCashFlow().getColumns().getTbcBalance()), issues, "tbc_balance");
+            BigDecimal cashInflow = parseAmount(rawCashInflow, issues, "cash_inflow");
+            BigDecimal cashOutflow = parseAmount(rawCashOutflow, issues, "cash_outflow");
+            BigDecimal cashBalance = parseAmount(rawCashBalance, issues, "cash_balance");
+            BigDecimal bogInflow = parseAmount(rawBogInflow, issues, "bog_inflow");
+            BigDecimal bogOutflow = parseAmount(rawBogOutflow, issues, "bog_outflow");
+            BigDecimal bogBalance = parseAmount(rawBogBalance, issues, "bog_balance");
+            BigDecimal tbcInflow = parseAmount(rawTbcInflow, issues, "tbc_inflow");
+            BigDecimal tbcOutflow = parseAmount(rawTbcOutflow, issues, "tbc_outflow");
+            BigDecimal tbcBalance = parseAmount(rawTbcBalance, issues, "tbc_balance");
 
             int movementColumns = countPositive(cashInflow, cashOutflow, bogInflow, bogOutflow, tbcInflow, tbcOutflow);
             if (movementColumns > 2) {
@@ -345,6 +360,12 @@ public class CashFlowService {
                 classification.reason(),
                 counterparty,
                 comment,
+                rawCashInflow,
+                rawBogInflow,
+                rawTbcInflow,
+                rawCashBalance,
+                rawBogBalance,
+                rawTbcBalance,
                 materialValue,
                 serviceValue,
                 cashInflow,
@@ -832,14 +853,17 @@ public class CashFlowService {
             .filter(row -> isCloseToIncomeKeyword(row.normalizedSourceCategory()))
             .limit(20)
             .forEach(row -> log.info(
-                "Cash flow income mismatch: row={}, sourceCategory='{}', normalized='{}', effectiveCategory='{}', group={}, reason={}, inflow={}",
+                "Cash flow income mismatch: row={}, sourceCategory='{}', normalized='{}', effectiveCategory='{}', group={}, reason={}, inflow={}, rawCashInflow='{}', rawBogInflow='{}', rawTbcInflow='{}'",
                 row.sourceRow(),
                 row.sourceCategory(),
                 row.normalizedSourceCategory(),
                 row.category(),
                 row.group(),
                 row.classificationReason(),
-                row.totalInflow()
+                row.totalInflow(),
+                row.rawCashInflow(),
+                row.rawBogInflow(),
+                row.rawTbcInflow()
             ));
     }
 

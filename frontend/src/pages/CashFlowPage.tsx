@@ -747,6 +747,12 @@ function IncomeDebugRow({ row }: { row: CashFlowCategoryDebugRow }) {
           <div className={`text-xs font-semibold ${row.countedAsIncome ? 'text-emerald-700' : 'text-amber-700'}`}>
             {row.classificationReason}
           </div>
+          <div className="text-[11px] text-slate-500">
+            raw H/K/N: [{row.rawCashInflow || '-'} / {row.rawBogInflow || '-'} / {row.rawTbcInflow || '-'}]
+          </div>
+          <div className="text-[11px] text-slate-500">
+            parsed H/K/N: [{formatGel(row.cashInflow)} / {formatGel(row.bogInflow)} / {formatGel(row.tbcInflow)}]
+          </div>
           {row.issues.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {row.issues.map((issue) => (

@@ -341,6 +341,12 @@ export interface CashFlowCategoryDebugRow {
   classificationReason: string
   countedAsIncome: boolean
   incomeAmount: number
+  rawCashInflow: string
+  rawBogInflow: string
+  rawTbcInflow: string
+  rawCashBalance: string
+  rawBogBalance: string
+  rawTbcBalance: string
   cashInflow: number
   bogInflow: number
   tbcInflow: number
