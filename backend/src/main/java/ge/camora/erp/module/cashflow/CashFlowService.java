@@ -632,7 +632,7 @@ public class CashFlowService {
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
         try {
-            String normalized = NUMERIC_PATTERN.matcher(raw).replaceAll("").replace(",", ".");
+            String normalized = normalizeNumericString(raw);
             if (normalized.isBlank() || normalized.equals("-")) {
                 return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
             }
@@ -641,6 +641,31 @@ public class CashFlowService {
             issues.add("invalid " + code);
             return BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP);
         }
+    }
+
+    private String normalizeNumericString(String raw) {
+        String cleaned = NUMERIC_PATTERN.matcher(raw).replaceAll("")
+            .replace("\u00A0", "")
+            .replace(" ", "");
+        boolean hasComma = cleaned.contains(",");
+        boolean hasDot = cleaned.contains(".");
+        if (hasComma && hasDot) {
+            int lastComma = cleaned.lastIndexOf(',');
+            int lastDot = cleaned.lastIndexOf('.');
+            if (lastComma < lastDot) {
+                return cleaned.replace(",", "");
+            }
+            return cleaned.replace(".", "").replace(",", ".");
+        }
+        if (hasComma) {
+            int lastComma = cleaned.lastIndexOf(',');
+            int fractionalDigits = cleaned.length() - lastComma - 1;
+            if (fractionalDigits == 3 && cleaned.chars().filter(ch -> ch == ',').count() >= 1) {
+                return cleaned.replace(",", "");
+            }
+            return cleaned.replace(",", ".");
+        }
+        return cleaned;
     }
 
     private int countPositive(BigDecimal... values) {
