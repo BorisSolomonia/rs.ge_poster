@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -459,6 +460,7 @@ public class ConfigStore {
         String normalizedTarget = normalizeSalesKey(targetCategory);
         lock.writeLock().lock();
         try {
+            List<CashFlowCategoryMapping> previous = copyCashFlowCategoryMappings();
             LocalDateTime now = LocalDateTime.now();
             for (CashFlowCategoryMapping mapping : cashFlowCategoryMappings) {
                 if (mapping.getNormalizedSourceCategory().equals(normalizedSource)) {
@@ -467,7 +469,7 @@ public class ConfigStore {
                     mapping.setNormalizedTargetCategory(normalizedTarget);
                     mapping.setSource(source);
                     mapping.setUpdatedAt(now);
-                    persistCashFlowCategoryMappings();
+                    persistCashFlowCategoryMappingsWithRollback(previous);
                     return mapping;
                 }
             }
@@ -481,7 +483,7 @@ public class ConfigStore {
                 now
             );
             cashFlowCategoryMappings.add(created);
-            persistCashFlowCategoryMappings();
+            persistCashFlowCategoryMappingsWithRollback(previous);
             return created;
         } finally {
             lock.writeLock().unlock();
@@ -492,8 +494,9 @@ public class ConfigStore {
         String normalizedSource = normalizeSalesKey(sourceCategory);
         lock.writeLock().lock();
         try {
+            List<CashFlowCategoryMapping> previous = copyCashFlowCategoryMappings();
             cashFlowCategoryMappings.removeIf(mapping -> mapping.getNormalizedSourceCategory().equals(normalizedSource));
-            persistCashFlowCategoryMappings();
+            persistCashFlowCategoryMappingsWithRollback(previous);
         } finally {
             lock.writeLock().unlock();
         }
@@ -566,6 +569,29 @@ public class ConfigStore {
         writeJson(configDir.resolve(properties.getConfigFiles().getCashFlowCategoryMappings()), cashFlowCategoryMappings);
     }
 
+    private void persistCashFlowCategoryMappingsWithRollback(List<CashFlowCategoryMapping> previous) {
+        try {
+            persistCashFlowCategoryMappings();
+        } catch (RuntimeException exception) {
+            cashFlowCategoryMappings = previous;
+            throw exception;
+        }
+    }
+
+    private List<CashFlowCategoryMapping> copyCashFlowCategoryMappings() {
+        return cashFlowCategoryMappings.stream()
+            .map(mapping -> new CashFlowCategoryMapping(
+                mapping.getSourceCategory(),
+                mapping.getNormalizedSourceCategory(),
+                mapping.getTargetCategory(),
+                mapping.getNormalizedTargetCategory(),
+                mapping.getSource(),
+                mapping.getCreatedAt(),
+                mapping.getUpdatedAt()
+            ))
+            .collect(Collectors.toCollection(ArrayList::new));
+    }
+
     private <T> List<T> loadJson(Path path, TypeReference<List<T>> type) {
         if (!Files.exists(path)) return new ArrayList<>();
         try {
@@ -578,9 +604,21 @@ public class ConfigStore {
 
     private void writeJson(Path path, Object data) {
         try {
-            objectMapper.writerWithDefaultPrettyPrinter().writeValue(path.toFile(), data);
+            Path parent = path.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            Path tempFile = Files.createTempFile(parent, path.getFileName().toString(), ".tmp");
+            try {
+                objectMapper.writerWithDefaultPrettyPrinter().writeValue(tempFile.toFile(), data);
+                Files.move(tempFile, path, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException innerException) {
+                Files.deleteIfExists(tempFile);
+                throw innerException;
+            }
         } catch (IOException e) {
             log.error("Failed to write {}: {}", path, e.getMessage(), e);
+            throw new IllegalStateException("Failed to persist config file: " + path, e);
         }
     }
 
