@@ -66,7 +66,7 @@ export default function DashboardPage() {
           icon={<RefreshCcw className="w-5 h-5 text-blue-600" />}
           title={env.dashboardRunReconciliationTitle}
           desc={env.dashboardRunReconciliationDesc}
-          onClick={() => navigate(env.routeReconcile)}
+          onClick={() => navigate(env.routePurchaseReconcile)}
           color="blue"
         />
         <QuickCard
@@ -140,7 +140,7 @@ export default function DashboardPage() {
                 return (
                   <tr
                     key={r.runId}
-                    onClick={() => navigate(env.routeReconcile)}
+                    onClick={() => navigate(env.routePurchaseReconcile)}
                     className="hover:bg-gray-50 cursor-pointer"
                   >
                     <td className="px-4 py-3 text-gray-900">{r.dateFrom} → {r.dateTo}</td>
@@ -168,7 +168,7 @@ export default function DashboardPage() {
           <p className="text-gray-500 font-medium">{env.dashboardNoRunsTitle}</p>
           <p className="text-sm text-gray-400 mt-1">{env.dashboardNoRunsSubtitle}</p>
           <button
-            onClick={() => navigate(env.routeReconcile)}
+            onClick={() => navigate(env.routePurchaseReconcile)}
             className="mt-4 px-5 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
           >
             {env.dashboardGoToReconcileLabel}

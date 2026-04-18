@@ -28,7 +28,14 @@ import {
 import { deleteCashFlowMapping, getCashFlowMappings, upsertCashFlowMapping } from '../api/cash-flow-mappings.api'
 import { formatGel } from '../components/reconciliation/reconciliation.utils'
 import { env } from '../env'
-import type { CashFlowCategoryDebugRow, CashFlowMonth, CashFlowTransaction, CashFlowUnmappedCategory, CashFlowWarning } from '../types'
+import type {
+  CashFlowAnalysisMetric,
+  CashFlowCategoryDebugRow,
+  CashFlowMonth,
+  CashFlowTransaction,
+  CashFlowUnmappedCategory,
+  CashFlowWarning,
+} from '../types'
 
 const groupColors = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#64748b']
 
@@ -275,6 +282,55 @@ export default function CashFlowPage() {
             <MetricCard label={env.cashFlowEndingTotalLabel} value={periodSummary.totalEndingBalance} tone="emerald" />
             <MetricCard label={env.cashFlowWarningStateLabel} value={periodSummary.warningCount} tone="rose" isCount />
           </div>
+
+          {overviewQuery.data?.analysis && (
+            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="mb-4">
+                <h2 className="text-base font-semibold text-slate-800">{env.cashFlowAnalysisTitle}</h2>
+                <p className="mt-1 text-sm text-slate-500">{formatPeriodLabel(overviewQuery.data.analysis.currentPeriod)}</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-50 text-slate-500">
+                    <tr>
+                      <HeaderCell>{env.cashFlowCategoryColumnLabel}</HeaderCell>
+                      <HeaderCell>{env.cashFlowAnalysisCurrentLabel}</HeaderCell>
+                      <HeaderCell>{env.cashFlowAnalysisPreviousMonthLabel}</HeaderCell>
+                      <HeaderCell>{env.cashFlowAnalysisDeltaLabel}</HeaderCell>
+                      <HeaderCell>{env.cashFlowAnalysisPreviousYearLabel}</HeaderCell>
+                      <HeaderCell>{env.cashFlowAnalysisDeltaLabel}</HeaderCell>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <AnalysisRow
+                      label={env.cashFlowTotalInflowLabel}
+                      metric={overviewQuery.data.analysis.totalInflow}
+                      previousMonthPeriod={overviewQuery.data.analysis.previousMonthPeriod}
+                      previousYearPeriod={overviewQuery.data.analysis.previousYearPeriod}
+                    />
+                    <AnalysisRow
+                      label={env.cashFlowTotalOutflowLabel}
+                      metric={overviewQuery.data.analysis.totalOutflow}
+                      previousMonthPeriod={overviewQuery.data.analysis.previousMonthPeriod}
+                      previousYearPeriod={overviewQuery.data.analysis.previousYearPeriod}
+                    />
+                    <AnalysisRow
+                      label={env.cashFlowNetMovementLabel}
+                      metric={overviewQuery.data.analysis.netMovement}
+                      previousMonthPeriod={overviewQuery.data.analysis.previousMonthPeriod}
+                      previousYearPeriod={overviewQuery.data.analysis.previousYearPeriod}
+                    />
+                    <AnalysisRow
+                      label={env.cashFlowEndingTotalLabel}
+                      metric={overviewQuery.data.analysis.totalEndingBalance}
+                      previousMonthPeriod={overviewQuery.data.analysis.previousMonthPeriod}
+                      previousYearPeriod={overviewQuery.data.analysis.previousYearPeriod}
+                    />
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           <div className="mb-6 grid gap-6 xl:grid-cols-2">
             <ChartCard title={env.cashFlowTrendInOutTitle}>
@@ -603,6 +659,35 @@ function BodyCell({ children, className = '' }: { children: React.ReactNode; cla
   return <td className={`px-4 py-3 text-slate-700 ${className}`}>{children}</td>
 }
 
+function AnalysisRow({
+  label,
+  metric,
+  previousMonthPeriod,
+  previousYearPeriod,
+}: {
+  label: string
+  metric: CashFlowAnalysisMetric
+  previousMonthPeriod: { dateFrom: string | null; dateTo: string | null; available: boolean }
+  previousYearPeriod: { dateFrom: string | null; dateTo: string | null; available: boolean }
+}) {
+  return (
+    <tr className="border-t border-slate-100 align-top">
+      <BodyCell className="font-semibold text-slate-800">{label}</BodyCell>
+      <BodyCell>{formatAnalysisValue(metric.currentValue)}</BodyCell>
+      <BodyCell>
+        <div>{previousMonthPeriod.available ? formatAnalysisValue(metric.previousMonthValue) : env.cashFlowAnalysisNoComparisonLabel}</div>
+        <div className="text-xs text-slate-500">{formatPeriodLabel(previousMonthPeriod)}</div>
+      </BodyCell>
+      <BodyCell>{formatDelta(metric.previousMonthDelta.amount, metric.previousMonthDelta.percent)}</BodyCell>
+      <BodyCell>
+        <div>{previousYearPeriod.available ? formatAnalysisValue(metric.previousYearValue) : env.cashFlowAnalysisNoComparisonLabel}</div>
+        <div className="text-xs text-slate-500">{formatPeriodLabel(previousYearPeriod)}</div>
+      </BodyCell>
+      <BodyCell>{formatDelta(metric.previousYearDelta.amount, metric.previousYearDelta.percent)}</BodyCell>
+    </tr>
+  )
+}
+
 function MonthField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <div>
@@ -771,4 +856,32 @@ function IncomeDebugRow({ row }: { row: CashFlowCategoryDebugRow }) {
 function formatDateTime(value: string | null | undefined) {
   if (!value) return '--'
   return new Date(value).toLocaleString()
+}
+
+function formatAnalysisValue(value: number | null) {
+  if (value === null) {
+    return env.cashFlowAnalysisNoComparisonLabel
+  }
+  return formatGel(value)
+}
+
+function formatDelta(amount: number | null, percent: number | null) {
+  if (amount === null) {
+    return env.cashFlowAnalysisNoComparisonLabel
+  }
+  const amountLabel = `${amount >= 0 ? '+' : ''}${formatGel(amount)}`
+  const percentLabel = percent === null ? env.cashFlowAnalysisNoComparisonLabel : `${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%`
+  return (
+    <div>
+      <div>{amountLabel}</div>
+      <div className="text-xs text-slate-500">{percentLabel}</div>
+    </div>
+  )
+}
+
+function formatPeriodLabel(period: { dateFrom: string | null; dateTo: string | null; available: boolean }) {
+  if (!period.available || !period.dateFrom || !period.dateTo) {
+    return env.cashFlowAnalysisNoComparisonLabel
+  }
+  return `${period.dateFrom} - ${period.dateTo}`
 }

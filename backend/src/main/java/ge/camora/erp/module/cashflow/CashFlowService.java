@@ -2,6 +2,10 @@ package ge.camora.erp.module.cashflow;
 
 import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.dto.CashFlowCategoryDto;
+import ge.camora.erp.model.dto.CashFlowAnalysisDeltaDto;
+import ge.camora.erp.model.dto.CashFlowAnalysisDto;
+import ge.camora.erp.model.dto.CashFlowAnalysisMetricDto;
+import ge.camora.erp.model.dto.CashFlowAnalysisPeriodDto;
 import ge.camora.erp.model.dto.CashFlowCategoryDebugDto;
 import ge.camora.erp.model.dto.CashFlowCategoryDebugMonthDto;
 import ge.camora.erp.model.dto.CashFlowCategoryDebugRowDto;
@@ -65,9 +69,10 @@ public class CashFlowService {
     private final GoogleSheetsCashFlowClient sheetsClient;
     private final CamoraProperties properties;
     private final ConfigStore configStore;
+    private static final BigDecimal HUNDRED = new BigDecimal("100");
     private final AtomicBoolean refreshInProgress = new AtomicBoolean(false);
     private volatile CashFlowSnapshot snapshot = new CashFlowSnapshot(
-        new CashFlowOverviewDto(null, null, List.of(), List.of(), BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), List.of()),
+        new CashFlowOverviewDto(null, null, List.of(), List.of(), BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), List.of(), null),
         List.of(),
         List.of(),
         null,
@@ -110,7 +115,7 @@ public class CashFlowService {
         try {
             List<List<Object>> rawRows = sheetsClient.fetchLedgerRows();
             ParseResult parseResult = parseRows(rawRows);
-            CashFlowOverviewDto overview = buildOverview(parseResult.rows(), parseResult.warnings());
+            CashFlowOverviewDto overview = buildOverview(parseResult.rows(), parseResult.warnings(), null, null, parseResult.rows());
             logRefreshDiagnostics(parseResult.rows(), overview);
             snapshot = new CashFlowSnapshot(
                 overview,
@@ -156,7 +161,7 @@ public class CashFlowService {
         List<CashFlowWarningDto> filteredWarnings = snapshot.warnings().stream()
             .filter(warning -> filteredRows.stream().anyMatch(row -> row.sourceRow() == warning.sourceRow()))
             .toList();
-        return buildOverview(filteredRows, filteredWarnings);
+        return buildOverview(filteredRows, filteredWarnings, fromDate, toDate, snapshot.rows());
     }
 
     public List<CashFlowGroupDto> getCategories(String month) {
@@ -390,7 +395,13 @@ public class CashFlowService {
         return new ParseResult(rows, warnings);
     }
 
-    private CashFlowOverviewDto buildOverview(List<CashFlowLedgerRow> rows, List<CashFlowWarningDto> warnings) {
+    private CashFlowOverviewDto buildOverview(
+        List<CashFlowLedgerRow> rows,
+        List<CashFlowWarningDto> warnings,
+        LocalDate requestedFrom,
+        LocalDate requestedTo,
+        List<CashFlowLedgerRow> comparisonSourceRows
+    ) {
         Map<String, List<CashFlowLedgerRow>> byMonth = rows.stream()
             .filter(row -> !"unknown".equals(row.monthKey()))
             .collect(Collectors.groupingBy(CashFlowLedgerRow::monthKey, LinkedHashMap::new, Collectors.toList()));
@@ -404,7 +415,10 @@ public class CashFlowService {
         BigDecimal unmappedTotal = unmappedCategories.stream()
             .map(CashFlowUnmappedCategoryDto::amount)
             .reduce(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP), BigDecimal::add);
-        return new CashFlowOverviewDto(dateFrom, dateTo, monthsAvailable, months, round(unmappedTotal), unmappedCategories);
+        LocalDate effectiveFrom = requestedFrom != null ? requestedFrom : resolveMinDate(rows);
+        LocalDate effectiveTo = requestedTo != null ? requestedTo : resolveMaxDate(rows);
+        CashFlowAnalysisDto analysis = buildAnalysis(comparisonSourceRows, effectiveFrom, effectiveTo);
+        return new CashFlowOverviewDto(dateFrom, dateTo, monthsAvailable, months, round(unmappedTotal), unmappedCategories, analysis);
     }
 
     private CashFlowMonthDto buildMonth(String month, List<CashFlowLedgerRow> rows, List<CashFlowWarningDto> warnings) {
@@ -824,6 +838,100 @@ public class CashFlowService {
             .toList();
     }
 
+    private CashFlowAnalysisDto buildAnalysis(List<CashFlowLedgerRow> sourceRows, LocalDate effectiveFrom, LocalDate effectiveTo) {
+        if (effectiveFrom == null || effectiveTo == null || effectiveTo.isBefore(effectiveFrom)) {
+            return null;
+        }
+
+        long spanDays = java.time.temporal.ChronoUnit.DAYS.between(effectiveFrom, effectiveTo) + 1;
+        LocalDate previousMonthFrom = effectiveFrom.minusMonths(1);
+        LocalDate previousMonthTo = previousMonthFrom.plusDays(spanDays - 1);
+        LocalDate previousYearFrom = effectiveFrom.minusYears(1);
+        LocalDate previousYearTo = previousYearFrom.plusDays(spanDays - 1);
+
+        PeriodMetrics currentMetrics = extractPeriodMetrics(sourceRows, effectiveFrom, effectiveTo);
+        PeriodMetrics previousMonthMetrics = extractPeriodMetrics(sourceRows, previousMonthFrom, previousMonthTo);
+        PeriodMetrics previousYearMetrics = extractPeriodMetrics(sourceRows, previousYearFrom, previousYearTo);
+
+        return new CashFlowAnalysisDto(
+            new CashFlowAnalysisPeriodDto(effectiveFrom.toString(), effectiveTo.toString(), currentMetrics != null),
+            new CashFlowAnalysisPeriodDto(previousMonthFrom.toString(), previousMonthTo.toString(), previousMonthMetrics != null),
+            new CashFlowAnalysisPeriodDto(previousYearFrom.toString(), previousYearTo.toString(), previousYearMetrics != null),
+            buildAnalysisMetric(currentMetrics, previousMonthMetrics, previousYearMetrics, MetricExtractor.TOTAL_INFLOW),
+            buildAnalysisMetric(currentMetrics, previousMonthMetrics, previousYearMetrics, MetricExtractor.TOTAL_OUTFLOW),
+            buildAnalysisMetric(currentMetrics, previousMonthMetrics, previousYearMetrics, MetricExtractor.NET_MOVEMENT),
+            buildAnalysisMetric(currentMetrics, previousMonthMetrics, previousYearMetrics, MetricExtractor.TOTAL_ENDING_BALANCE)
+        );
+    }
+
+    private PeriodMetrics extractPeriodMetrics(List<CashFlowLedgerRow> sourceRows, LocalDate dateFrom, LocalDate dateTo) {
+        List<CashFlowLedgerRow> rows = sourceRows.stream()
+            .filter(row -> row.date() != null)
+            .filter(row -> !row.date().isBefore(dateFrom))
+            .filter(row -> !row.date().isAfter(dateTo))
+            .toList();
+        if (rows.isEmpty()) {
+            return null;
+        }
+        BigDecimal totalInflow = round(sumGroupAmount(rows, CashFlowGroup.INCOME));
+        BigDecimal totalOutflow = round(sumGroupAmount(rows, CashFlowGroup.EXPENSE));
+        BigDecimal totalEndingBalance = round(
+            lastBalance(rows, CashFlowLedgerRow::cashBalance)
+                .add(lastBalance(rows, CashFlowLedgerRow::bogBalance))
+                .add(lastBalance(rows, CashFlowLedgerRow::tbcBalance))
+        );
+        BigDecimal netMovement = round(totalInflow.subtract(totalOutflow));
+        return new PeriodMetrics(totalInflow, totalOutflow, netMovement, totalEndingBalance);
+    }
+
+    private CashFlowAnalysisMetricDto buildAnalysisMetric(
+        PeriodMetrics current,
+        PeriodMetrics previousMonth,
+        PeriodMetrics previousYear,
+        MetricExtractor extractor
+    ) {
+        BigDecimal currentValue = current == null ? null : extractor.extract(current);
+        BigDecimal previousMonthValue = previousMonth == null ? null : extractor.extract(previousMonth);
+        BigDecimal previousYearValue = previousYear == null ? null : extractor.extract(previousYear);
+        return new CashFlowAnalysisMetricDto(
+            currentValue,
+            previousMonthValue,
+            buildDelta(currentValue, previousMonthValue),
+            previousYearValue,
+            buildDelta(currentValue, previousYearValue)
+        );
+    }
+
+    private CashFlowAnalysisDeltaDto buildDelta(BigDecimal currentValue, BigDecimal comparisonValue) {
+        if (currentValue == null || comparisonValue == null) {
+            return new CashFlowAnalysisDeltaDto(null, null);
+        }
+        BigDecimal amount = round(currentValue.subtract(comparisonValue));
+        if (comparisonValue.signum() == 0) {
+            return new CashFlowAnalysisDeltaDto(amount, null);
+        }
+        BigDecimal percent = amount
+            .divide(comparisonValue.abs(), 6, RoundingMode.HALF_UP)
+            .multiply(HUNDRED);
+        return new CashFlowAnalysisDeltaDto(amount, round(percent));
+    }
+
+    private LocalDate resolveMinDate(List<CashFlowLedgerRow> rows) {
+        return rows.stream()
+            .map(CashFlowLedgerRow::date)
+            .filter(Objects::nonNull)
+            .min(LocalDate::compareTo)
+            .orElse(null);
+    }
+
+    private LocalDate resolveMaxDate(List<CashFlowLedgerRow> rows) {
+        return rows.stream()
+            .map(CashFlowLedgerRow::date)
+            .filter(Objects::nonNull)
+            .max(LocalDate::compareTo)
+            .orElse(null);
+    }
+
     private void logRefreshDiagnostics(List<CashFlowLedgerRow> rows, CashFlowOverviewDto overview) {
         if (!properties.getCashFlow().isDebug()) {
             return;
@@ -932,6 +1040,14 @@ public class CashFlowService {
     private record ClassificationResult(CashFlowGroup group, String reason) {
     }
 
+    private record PeriodMetrics(
+        BigDecimal totalInflow,
+        BigDecimal totalOutflow,
+        BigDecimal netMovement,
+        BigDecimal totalEndingBalance
+    ) {
+    }
+
     @FunctionalInterface
     private interface ValueExtractor {
         BigDecimal extract(CashFlowLedgerRow row);
@@ -940,5 +1056,15 @@ public class CashFlowService {
     @FunctionalInterface
     private interface BalanceExtractor {
         BigDecimal extract(CashFlowLedgerRow row);
+    }
+
+    @FunctionalInterface
+    private interface MetricExtractor {
+        MetricExtractor TOTAL_INFLOW = PeriodMetrics::totalInflow;
+        MetricExtractor TOTAL_OUTFLOW = PeriodMetrics::totalOutflow;
+        MetricExtractor NET_MOVEMENT = PeriodMetrics::netMovement;
+        MetricExtractor TOTAL_ENDING_BALANCE = PeriodMetrics::totalEndingBalance;
+
+        BigDecimal extract(PeriodMetrics metrics);
     }
 }

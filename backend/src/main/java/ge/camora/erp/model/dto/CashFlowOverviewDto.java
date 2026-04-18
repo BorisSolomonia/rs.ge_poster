@@ -9,6 +9,7 @@ public record CashFlowOverviewDto(
     List<String> availableMonths,
     List<CashFlowMonthDto> months,
     BigDecimal unmappedTotal,
-    List<CashFlowUnmappedCategoryDto> unmappedCategories
+    List<CashFlowUnmappedCategoryDto> unmappedCategories,
+    CashFlowAnalysisDto analysis
 ) {
 }

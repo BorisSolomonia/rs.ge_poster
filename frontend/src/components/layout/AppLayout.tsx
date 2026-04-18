@@ -12,7 +12,6 @@ import {
 
 const navItems = [
   { to: env.routeDashboard, label: env.navDashboardLabel, icon: BarChart3, end: true },
-  { to: env.routeReconcile, label: env.navReconcileLabel, icon: RefreshCcw },
   { to: env.routePurchaseReconcile, label: env.navPurchaseReconcileLabel, icon: RefreshCcw },
   { to: env.routeSalesAnalysis, label: env.navSalesAnalysisLabel, icon: Landmark },
   { to: env.routeCashFlow, label: env.navCashFlowLabel, icon: Wallet },

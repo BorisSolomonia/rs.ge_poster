@@ -4,7 +4,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import AppLayout from './components/layout/AppLayout'
 import DashboardPage from './pages/DashboardPage'
-import ReconcilePage from './pages/ReconcilePage'
 import PurchaseReconcilePage from './pages/PurchaseReconcilePage'
 import SalesAnalysisPage from './pages/SalesAnalysisPage'
 import CashFlowPage from './pages/CashFlowPage'
@@ -31,7 +30,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
           <Route element={<AppLayout />}>
             <Route index element={<DashboardPage />} />
             <Route path={env.routeDashboard} element={<DashboardPage />} />
-            <Route path={env.routeReconcile} element={<ReconcilePage />} />
+            <Route path={env.routeReconcile} element={<Navigate to={env.routePurchaseReconcile} replace />} />
             <Route path={env.routePurchaseReconcile} element={<PurchaseReconcilePage />} />
             <Route path={env.routeSalesAnalysis} element={<SalesAnalysisPage />} />
             <Route path={env.routeCashFlow} element={<CashFlowPage />} />

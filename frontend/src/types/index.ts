@@ -241,6 +241,35 @@ export interface CashFlowMonth {
   groups: CashFlowGroup[]
 }
 
+export interface CashFlowAnalysisPeriod {
+  dateFrom: string | null
+  dateTo: string | null
+  available: boolean
+}
+
+export interface CashFlowAnalysisDelta {
+  amount: number | null
+  percent: number | null
+}
+
+export interface CashFlowAnalysisMetric {
+  currentValue: number | null
+  previousMonthValue: number | null
+  previousMonthDelta: CashFlowAnalysisDelta
+  previousYearValue: number | null
+  previousYearDelta: CashFlowAnalysisDelta
+}
+
+export interface CashFlowAnalysis {
+  currentPeriod: CashFlowAnalysisPeriod
+  previousMonthPeriod: CashFlowAnalysisPeriod
+  previousYearPeriod: CashFlowAnalysisPeriod
+  totalInflow: CashFlowAnalysisMetric
+  totalOutflow: CashFlowAnalysisMetric
+  netMovement: CashFlowAnalysisMetric
+  totalEndingBalance: CashFlowAnalysisMetric
+}
+
 export interface CashFlowOverview {
   dateFrom: string | null
   dateTo: string | null
@@ -248,6 +277,7 @@ export interface CashFlowOverview {
   months: CashFlowMonth[]
   unmappedTotal: number
   unmappedCategories: CashFlowUnmappedCategory[]
+  analysis: CashFlowAnalysis | null
 }
 
 export interface CashFlowSyncStatus {
