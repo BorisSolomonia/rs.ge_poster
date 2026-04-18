@@ -925,6 +925,8 @@ public class CamoraProperties {
         private int date;
         private int amount;
         private int product = -1;
+        private int quantity = -1;
+        private int profit = -1;
 
         public int getDate() {
             return date;
@@ -948,6 +950,22 @@ public class CamoraProperties {
 
         public void setProduct(int product) {
             this.product = product;
+        }
+
+        public int getQuantity() {
+            return quantity;
+        }
+
+        public void setQuantity(int quantity) {
+            this.quantity = quantity;
+        }
+
+        public int getProfit() {
+            return profit;
+        }
+
+        public void setProfit(int profit) {
+            this.profit = profit;
         }
     }
 }

@@ -174,10 +174,28 @@ export interface SalesAnalysisPeriodRow {
   status: SalesAnalysisStatus
 }
 
+export interface SalesAnalysisProductPoint {
+  key: string
+  dateFrom: string
+  dateTo: string
+  grossRevenue: number
+  quantity: number
+  profit: number
+  profitPercentage: number
+  events: string[]
+}
+
+export interface SalesAnalysisProductSeries {
+  productName: string
+  periods: SalesAnalysisProductPoint[]
+}
+
 export interface SalesAnalysisAggregationBlock {
   aggregation: SalesAggregation
   summary: SalesAnalysisSummary
   periods: SalesAnalysisPeriodRow[]
+  availableProducts: string[]
+  productSeries: SalesAnalysisProductSeries[]
 }
 
 export interface SalesAnalysisResult {

@@ -129,6 +129,8 @@ camora:
         date: "${CAMORA_SALES_COL_DATE:1}"
         amount: "${CAMORA_SALES_COL_AMOUNT:7}"
         product: "${CAMORA_SALES_COL_PRODUCT:2}"
+        quantity: "${CAMORA_SALES_COL_QUANTITY:-1}"
+        profit: "${CAMORA_SALES_COL_PROFIT:-1}"
     tbc:
       sheet-index: "${CAMORA_TBC_SHEET_INDEX:1}"
       skip-header-rows: "${CAMORA_TBC_SKIP_HEADER_ROWS:1}"

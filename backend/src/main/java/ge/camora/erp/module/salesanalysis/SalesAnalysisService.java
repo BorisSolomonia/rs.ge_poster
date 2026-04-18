@@ -6,6 +6,8 @@ import ge.camora.erp.model.dto.SalesAggregation;
 import ge.camora.erp.model.dto.SalesAnalysisAggregationBlock;
 import ge.camora.erp.model.dto.SalesAnalysisMetric;
 import ge.camora.erp.model.dto.SalesAnalysisPeriodRow;
+import ge.camora.erp.model.dto.SalesAnalysisProductPoint;
+import ge.camora.erp.model.dto.SalesAnalysisProductSeries;
 import ge.camora.erp.model.dto.SalesAnalysisResult;
 import ge.camora.erp.model.dto.SalesAnalysisStatus;
 import ge.camora.erp.model.dto.SalesAnalysisSummary;
@@ -22,8 +24,11 @@ import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -56,8 +61,11 @@ public class SalesAnalysisService {
     ) {
         List<SalesRow> salesRows = salesSpreadsheetParser.parse(salesStream);
         salesRows.forEach(row -> configStore.registerSalesProduct(row.productName()));
+        List<SalesRow> includedSalesRows = salesRows.stream()
+            .filter(row -> !configStore.isSalesProductExcluded(row.productName()))
+            .toList();
 
-        Map<LocalDate, BigDecimal> salesAll = aggregateSales(salesRows);
+        Map<LocalDate, BigDecimal> salesAll = aggregateSales(includedSalesRows);
         Map<LocalDate, BigDecimal> tbcAll = spreadsheetAmountParser.parse(tbcStream, properties.getParsers().getTbc(), "TBC");
         Map<LocalDate, BigDecimal> bogAll = spreadsheetAmountParser.parse(bogStream, properties.getParsers().getBog(), "BOG");
         Map<LocalDate, String> eventsByDate = configStore.getSalesEvents().stream()
@@ -67,25 +75,27 @@ public class SalesAnalysisService {
             .distinct()
             .sorted(String.CASE_INSENSITIVE_ORDER)
             .toList();
+        List<String> availableProducts = includedSalesRows.stream()
+            .map(SalesRow::productName)
+            .distinct()
+            .sorted(String.CASE_INSENSITIVE_ORDER)
+            .toList();
 
         return new SalesAnalysisResult(
             dateFrom.toString(),
             dateTo.toString(),
             LocalDateTime.now().toString(),
             availableEvents,
-            buildDayBlock(salesAll, tbcAll, bogAll, eventsByDate, dateFrom, dateTo),
-            buildWeekBlock(salesAll, tbcAll, bogAll, eventsByDate, dateFrom, dateTo),
-            buildMonthBlock(salesAll, tbcAll, bogAll, eventsByDate, dateFrom, dateTo)
+            buildDayBlock(salesAll, tbcAll, bogAll, includedSalesRows, availableProducts, eventsByDate, dateFrom, dateTo),
+            buildWeekBlock(salesAll, tbcAll, bogAll, includedSalesRows, availableProducts, eventsByDate, dateFrom, dateTo),
+            buildMonthBlock(salesAll, tbcAll, bogAll, includedSalesRows, availableProducts, eventsByDate, dateFrom, dateTo)
         );
     }
 
     private Map<LocalDate, BigDecimal> aggregateSales(List<SalesRow> salesRows) {
         Map<LocalDate, BigDecimal> totals = new TreeMap<>();
         for (SalesRow row : salesRows) {
-            if (configStore.isSalesProductExcluded(row.productName())) {
-                continue;
-            }
-            totals.merge(row.date(), row.amount(), BigDecimal::add);
+            totals.merge(row.date(), row.grossRevenue(), BigDecimal::add);
         }
         totals.replaceAll((date, amount) -> MoneyUtil.round(amount));
         return totals;
@@ -95,6 +105,8 @@ public class SalesAnalysisService {
         Map<LocalDate, BigDecimal> salesAll,
         Map<LocalDate, BigDecimal> tbcAll,
         Map<LocalDate, BigDecimal> bogAll,
+        List<SalesRow> salesRows,
+        List<String> availableProducts,
         Map<LocalDate, String> eventsByDate,
         LocalDate dateFrom,
         LocalDate dateTo
@@ -111,13 +123,15 @@ public class SalesAnalysisService {
             previous.add(buildBucket(cursor, cursor, salesAll, tbcAll, bogAll, eventsByDate));
         }
 
-        return toBlock(SalesAggregation.DAY, current, previous);
+        return toBlock(SalesAggregation.DAY, current, previous, salesRows, availableProducts);
     }
 
     private SalesAnalysisAggregationBlock buildWeekBlock(
         Map<LocalDate, BigDecimal> salesAll,
         Map<LocalDate, BigDecimal> tbcAll,
         Map<LocalDate, BigDecimal> bogAll,
+        List<SalesRow> salesRows,
+        List<String> availableProducts,
         Map<LocalDate, String> eventsByDate,
         LocalDate dateFrom,
         LocalDate dateTo
@@ -138,13 +152,15 @@ public class SalesAnalysisService {
             previousCursor = previousCursor.plusWeeks(1);
         }
 
-        return toBlock(SalesAggregation.WEEK, current, previous);
+        return toBlock(SalesAggregation.WEEK, current, previous, salesRows, availableProducts);
     }
 
     private SalesAnalysisAggregationBlock buildMonthBlock(
         Map<LocalDate, BigDecimal> salesAll,
         Map<LocalDate, BigDecimal> tbcAll,
         Map<LocalDate, BigDecimal> bogAll,
+        List<SalesRow> salesRows,
+        List<String> availableProducts,
         Map<LocalDate, String> eventsByDate,
         LocalDate dateFrom,
         LocalDate dateTo
@@ -164,10 +180,16 @@ public class SalesAnalysisService {
             previousCursor = previousCursor.plusMonths(1);
         }
 
-        return toBlock(SalesAggregation.MONTH, current, previous);
+        return toBlock(SalesAggregation.MONTH, current, previous, salesRows, availableProducts);
     }
 
-    private SalesAnalysisAggregationBlock toBlock(SalesAggregation aggregation, List<Bucket> current, List<Bucket> previous) {
+    private SalesAnalysisAggregationBlock toBlock(
+        SalesAggregation aggregation,
+        List<Bucket> current,
+        List<Bucket> previous,
+        List<SalesRow> salesRows,
+        List<String> availableProducts
+    ) {
         List<SalesAnalysisPeriodRow> periods = current.stream().map(this::toPeriodRow).toList();
         BigDecimal currentSales = sum(current, bucket -> bucket.sales);
         BigDecimal currentBank = sum(current, Bucket::bankIncome);
@@ -196,7 +218,13 @@ public class SalesAnalysisService {
             metric(divide(currentBank, BigDecimal.valueOf(currentCount)), divide(previousBank, BigDecimal.valueOf(previousCount)))
         );
 
-        return new SalesAnalysisAggregationBlock(aggregation, summary, periods);
+        return new SalesAnalysisAggregationBlock(
+            aggregation,
+            summary,
+            periods,
+            availableProducts,
+            buildProductSeries(current, salesRows, availableProducts)
+        );
     }
 
     private SalesAnalysisPeriodRow toPeriodRow(Bucket bucket) {
@@ -218,6 +246,53 @@ public class SalesAnalysisService {
             bucket.events,
             resolveStatus(bucket.sales, bankIncome, variance)
         );
+    }
+
+    private List<SalesAnalysisProductSeries> buildProductSeries(
+        List<Bucket> buckets,
+        List<SalesRow> salesRows,
+        List<String> availableProducts
+    ) {
+        if (availableProducts.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, List<SalesRow>> rowsByProduct = salesRows.stream()
+            .collect(Collectors.groupingBy(SalesRow::productName));
+
+        List<SalesAnalysisProductSeries> series = new ArrayList<>();
+        for (String productName : availableProducts) {
+            List<SalesRow> productRows = rowsByProduct.getOrDefault(productName, List.of());
+            List<SalesAnalysisProductPoint> periods = new ArrayList<>(buckets.size());
+            for (Bucket bucket : buckets) {
+                BigDecimal grossRevenue = MoneyUtil.ZERO;
+                BigDecimal quantity = MoneyUtil.ZERO;
+                BigDecimal profit = MoneyUtil.ZERO;
+                for (SalesRow row : productRows) {
+                    if (row.date().isBefore(bucket.effectiveStart) || row.date().isAfter(bucket.effectiveEnd)) {
+                        continue;
+                    }
+                    grossRevenue = grossRevenue.add(row.grossRevenue());
+                    quantity = quantity.add(row.quantity());
+                    profit = profit.add(row.profit());
+                }
+                grossRevenue = MoneyUtil.round(grossRevenue);
+                quantity = MoneyUtil.round(quantity);
+                profit = MoneyUtil.round(profit);
+                periods.add(new SalesAnalysisProductPoint(
+                    bucket.start.toString(),
+                    bucket.start.toString(),
+                    bucket.end.toString(),
+                    grossRevenue,
+                    quantity,
+                    profit,
+                    ratio(profit, grossRevenue),
+                    bucket.events
+                ));
+            }
+            series.add(new SalesAnalysisProductSeries(productName, List.copyOf(periods)));
+        }
+        return List.copyOf(series);
     }
 
     private Bucket buildBucket(
@@ -244,11 +319,13 @@ public class SalesAnalysisService {
         LocalDate effectiveStart = bucketStart.isBefore(visibleStart) ? visibleStart : bucketStart;
         LocalDate effectiveEnd = bucketEnd.isAfter(visibleEnd) ? visibleEnd : bucketEnd;
         if (effectiveEnd.isBefore(effectiveStart)) {
-            return new Bucket(bucketStart, bucketEnd, MoneyUtil.ZERO, MoneyUtil.ZERO, MoneyUtil.ZERO, List.of());
+            return new Bucket(bucketStart, bucketEnd, effectiveStart, effectiveEnd, MoneyUtil.ZERO, MoneyUtil.ZERO, MoneyUtil.ZERO, List.of());
         }
         return new Bucket(
             bucketStart,
             bucketEnd,
+            effectiveStart,
+            effectiveEnd,
             sumRange(salesAll, effectiveStart, effectiveEnd),
             sumRange(tbcAll, effectiveStart, effectiveEnd),
             sumRange(bogAll, effectiveStart, effectiveEnd),
@@ -329,7 +406,16 @@ public class SalesAnalysisService {
         return aligned;
     }
 
-    private record Bucket(LocalDate start, LocalDate end, BigDecimal sales, BigDecimal tbcIncome, BigDecimal bogIncome, List<String> events) {
+    private record Bucket(
+        LocalDate start,
+        LocalDate end,
+        LocalDate effectiveStart,
+        LocalDate effectiveEnd,
+        BigDecimal sales,
+        BigDecimal tbcIncome,
+        BigDecimal bogIncome,
+        List<String> events
+    ) {
         private BigDecimal bankIncome() {
             return MoneyUtil.round(tbcIncome.add(bogIncome));
         }

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
@@ -37,6 +37,8 @@ import type {
   SalesAggregation,
   SalesAnalysisAggregationBlock,
   SalesAnalysisMetric,
+  SalesAnalysisProductPoint,
+  SalesAnalysisProductSeries,
   SalesAnalysisPeriodRow,
   SalesAnalysisResult,
   SalesAnalysisStatus,
@@ -63,6 +65,7 @@ export default function SalesAnalysisPage() {
   const [eventDate, setEventDate] = useState(defaults.from)
   const [eventName, setEventName] = useState('')
   const [selectedEvents, setSelectedEvents] = useState<string[]>([])
+  const [selectedProducts, setSelectedProducts] = useState<string[]>([])
 
   const currentRunKey = useMemo(() => {
     if (!salesFile || !tbcFile || !bogFile) return null
@@ -146,6 +149,36 @@ export default function SalesAnalysisPage() {
     if (!baseBlock) return null
     return buildEventComparison(baseBlock, selectedEvents)
   }, [baseBlock, selectedEvents])
+  const availableProducts = activeBlock?.availableProducts ?? []
+
+  useEffect(() => {
+    if (!result) {
+      setSelectedProducts([])
+      return
+    }
+    setSelectedProducts(result.day.availableProducts)
+  }, [result])
+
+  const selectedProductSeries = useMemo(
+    () => (activeBlock?.productSeries ?? []).filter((series) => selectedProducts.includes(series.productName)),
+    [activeBlock, selectedProducts]
+  )
+  const productGrossChart = useMemo(
+    () => buildProductChartData(selectedProductSeries, activeBlock?.periods ?? [], aggregation, 'grossRevenue'),
+    [selectedProductSeries, activeBlock?.periods, aggregation]
+  )
+  const productProfitChart = useMemo(
+    () => buildProductChartData(selectedProductSeries, activeBlock?.periods ?? [], aggregation, 'profit'),
+    [selectedProductSeries, activeBlock?.periods, aggregation]
+  )
+  const productQuantityChart = useMemo(
+    () => buildProductChartData(selectedProductSeries, activeBlock?.periods ?? [], aggregation, 'quantity'),
+    [selectedProductSeries, activeBlock?.periods, aggregation]
+  )
+  const productMarginChart = useMemo(
+    () => buildProductChartData(selectedProductSeries, activeBlock?.periods ?? [], aggregation, 'profitPercentage'),
+    [selectedProductSeries, activeBlock?.periods, aggregation]
+  )
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -408,6 +441,74 @@ export default function SalesAnalysisPage() {
             </ChartCard>
           </div>
 
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-base font-semibold text-slate-800">{env.salesAnalysisProductSectionTitle}</h2>
+              <span className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+                {env.salesAnalysisProductSelectorLabel}
+              </span>
+            </div>
+
+            <div className="mb-5 flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              {availableProducts.map((product) => {
+                const checked = selectedProducts.includes(product)
+                return (
+                  <label
+                    key={product}
+                    className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
+                      checked
+                        ? 'border-slate-900 bg-slate-900 text-white'
+                        : 'border-slate-300 bg-white text-slate-700'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() =>
+                        setSelectedProducts((current) =>
+                          current.includes(product)
+                            ? current.filter((item) => item !== product)
+                            : [...current, product]
+                        )
+                      }
+                      className="sr-only"
+                    />
+                    <span>{product}</span>
+                  </label>
+                )
+              })}
+            </div>
+
+            {selectedProductSeries.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+                {env.salesAnalysisProductNoSelectionLabel}
+              </div>
+            ) : (
+              <div className="grid gap-6 xl:grid-cols-2">
+                <ProductChartCard
+                  title={env.salesAnalysisProductGrossChartTitle}
+                  chart={productGrossChart}
+                  valueFormatter={(value) => formatGel(value)}
+                />
+                <ProductChartCard
+                  title={env.salesAnalysisProductProfitChartTitle}
+                  chart={productProfitChart}
+                  valueFormatter={(value) => formatGel(value)}
+                />
+                <ProductChartCard
+                  title={env.salesAnalysisProductQuantityChartTitle}
+                  chart={productQuantityChart}
+                  valueFormatter={(value) => formatNumber(value)}
+                />
+                <ProductChartCard
+                  title={env.salesAnalysisProductMarginChartTitle}
+                  chart={productMarginChart}
+                  valueFormatter={(value) => `${(value * 100).toFixed(2)}%`}
+                />
+              </div>
+            )}
+          </div>
+
           <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4">
               <h2 className="text-base font-semibold text-slate-800">{env.salesAnalysisPeriodTableTitle}</h2>
@@ -475,9 +576,14 @@ function filterAggregationBlock(
   const periods = block.periods.filter((period) =>
     period.events.some((event) => selectedEvents.includes(event))
   )
+  const visibleKeys = new Set(periods.map((period) => period.key))
   return {
     ...block,
     periods,
+    productSeries: block.productSeries.map((series) => ({
+      ...series,
+      periods: series.periods.filter((period) => visibleKeys.has(period.key)),
+    })),
     summary: buildSummaryFromPeriods(periods),
   }
 }
@@ -542,6 +648,14 @@ function metric(current: number): SalesAnalysisMetric {
 }
 
 function formatPeriodLabel(period: SalesAnalysisPeriodRow, aggregation: SalesAggregation) {
+  const from = new Date(period.dateFrom)
+  const to = new Date(period.dateTo)
+  if (aggregation === 'MONTH') return format(from, 'MMM yyyy')
+  if (aggregation === 'WEEK') return `${format(from, 'dd MMM')} - ${format(to, 'dd MMM')}`
+  return format(from, 'dd MMM yyyy')
+}
+
+function formatProductPeriodLabel(period: SalesAnalysisProductPoint, aggregation: SalesAggregation) {
   const from = new Date(period.dateFrom)
   const to = new Date(period.dateTo)
   if (aggregation === 'MONTH') return format(from, 'MMM yyyy')
@@ -703,3 +817,137 @@ function EventTooltip({
     </div>
   )
 }
+
+type ProductMetricKey = 'grossRevenue' | 'profit' | 'quantity' | 'profitPercentage'
+
+type ProductChartSeriesMeta = {
+  dataKey: string
+  productName: string
+  color: string
+}
+
+type ProductChartModel = {
+  rows: Array<Record<string, number | string>>
+  series: ProductChartSeriesMeta[]
+}
+
+function buildProductChartData(
+  selectedSeries: SalesAnalysisProductSeries[],
+  visiblePeriods: SalesAnalysisPeriodRow[],
+  aggregation: SalesAggregation,
+  metric: ProductMetricKey
+): ProductChartModel {
+  const visiblePeriodKeys = visiblePeriods.map((period) => period.key)
+  const periodLabelByKey = new Map(
+    selectedSeries.flatMap((series) =>
+      series.periods.map((period) => [period.key, formatProductPeriodLabel(period, aggregation)] as const)
+    )
+  )
+
+  const series = selectedSeries.map((item, index) => ({
+    dataKey: `product_${index}`,
+    productName: item.productName,
+    color: PRODUCT_LINE_COLORS[index % PRODUCT_LINE_COLORS.length],
+  }))
+
+  const rows = visiblePeriodKeys.map((key) => {
+    const row: Record<string, number | string> = {
+      period: periodLabelByKey.get(key) ?? key,
+    }
+    selectedSeries.forEach((item, index) => {
+      const point = item.periods.find((period) => period.key === key)
+      row[`product_${index}`] = point?.[metric] ?? 0
+    })
+    return row
+  })
+
+  return { rows, series }
+}
+
+function ProductChartCard({
+  title,
+  chart,
+  valueFormatter,
+}: {
+  title: string
+  chart: ProductChartModel
+  valueFormatter: (value: number) => string
+}) {
+  return (
+    <ChartCard title={title}>
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={chart.rows}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+          <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+          <YAxis tick={{ fontSize: 11 }} />
+          <Tooltip content={<ProductTooltip valueFormatter={valueFormatter} />} />
+          <Legend />
+          {chart.series.map((series) => (
+            <Line
+              key={series.dataKey}
+              type="monotone"
+              dataKey={series.dataKey}
+              stroke={series.color}
+              strokeWidth={2.25}
+              dot={false}
+              name={series.productName}
+            />
+          ))}
+        </LineChart>
+      </ResponsiveContainer>
+    </ChartCard>
+  )
+}
+
+function ProductTooltip({
+  active,
+  payload,
+  label,
+  valueFormatter,
+}: {
+  active?: boolean
+  payload?: Array<{ value: number; name: string; color?: string }>
+  label?: string
+  valueFormatter: (value: number) => string
+}) {
+  if (!active || !payload?.length) {
+    return null
+  }
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+      <p className="mb-2 text-sm font-semibold text-slate-900">{label}</p>
+      <div className="space-y-1 text-xs text-slate-600">
+        {payload.map((entry) => (
+          <div key={entry.name} className="flex items-center justify-between gap-4">
+            <span className="inline-flex items-center gap-2">
+              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+              {entry.name}
+            </span>
+            <span className="font-semibold text-slate-900">{valueFormatter(entry.value)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function formatNumber(value: number) {
+  return new Intl.NumberFormat('en-GB', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(value)
+}
+
+const PRODUCT_LINE_COLORS = [
+  '#0f766e',
+  '#2563eb',
+  '#7c3aed',
+  '#dc2626',
+  '#ea580c',
+  '#65a30d',
+  '#0891b2',
+  '#be123c',
+  '#4f46e5',
+  '#16a34a',
+] as const

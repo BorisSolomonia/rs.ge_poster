@@ -6,6 +6,8 @@ import java.time.LocalDate;
 public record SalesRow(
     LocalDate date,
     String productName,
-    BigDecimal amount
+    BigDecimal grossRevenue,
+    BigDecimal quantity,
+    BigDecimal profit
 ) {
 }

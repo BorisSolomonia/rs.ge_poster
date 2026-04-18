@@ -60,7 +60,13 @@ public class SalesSpreadsheetParser {
                         skipped++;
                         continue;
                     }
-                    rows.add(new SalesRow(date, product, amount));
+                    rows.add(new SalesRow(
+                        date,
+                        product,
+                        amount,
+                        parseOptionalAmount(row, salesConfig.getColumns().getQuantity(), formatter),
+                        parseOptionalAmount(row, salesConfig.getColumns().getProfit(), formatter)
+                    ));
                 } catch (Exception e) {
                     skipped++;
                     log.debug("Sales row {} skipped: {}", row.getRowNum(), e.getMessage());
@@ -100,5 +106,13 @@ public class SalesSpreadsheetParser {
                 yield raw.isBlank() ? null : MoneyUtil.parse(raw);
             }
         };
+    }
+
+    private BigDecimal parseOptionalAmount(Row row, int columnIndex, DataFormatter formatter) {
+        if (columnIndex < 0 || row.getLastCellNum() <= columnIndex) {
+            return MoneyUtil.ZERO;
+        }
+        BigDecimal parsed = parseAmount(row.getCell(columnIndex), formatter);
+        return parsed == null ? MoneyUtil.ZERO : parsed;
     }
 }
