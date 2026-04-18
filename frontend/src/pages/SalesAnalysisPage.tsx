@@ -875,13 +875,12 @@ function ProductChartCard({
 }) {
   return (
     <ChartCard title={title}>
-      <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={300}>
         <LineChart data={chart.rows}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
           <XAxis dataKey="period" tick={{ fontSize: 11 }} />
           <YAxis tick={{ fontSize: 11 }} />
           <Tooltip content={<ProductTooltip valueFormatter={valueFormatter} />} />
-          <Legend />
           {chart.series.map((series) => (
             <Line
               key={series.dataKey}
@@ -890,7 +889,7 @@ function ProductChartCard({
               stroke={series.color}
               strokeWidth={2.25}
               dot={false}
-              name={series.productName}
+              legendType="none"
             />
           ))}
         </LineChart>
@@ -902,12 +901,10 @@ function ProductChartCard({
 function ProductTooltip({
   active,
   payload,
-  label,
   valueFormatter,
 }: {
   active?: boolean
-  payload?: Array<{ value: number; name: string; color?: string }>
-  label?: string
+  payload?: Array<{ value: number; color?: string }>
   valueFormatter: (value: number) => string
 }) {
   if (!active || !payload?.length) {
@@ -916,13 +913,12 @@ function ProductTooltip({
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
-      <p className="mb-2 text-sm font-semibold text-slate-900">{label}</p>
       <div className="space-y-1 text-xs text-slate-600">
-        {payload.map((entry) => (
-          <div key={entry.name} className="flex items-center justify-between gap-4">
+        {payload.map((entry, index) => (
+          <div key={`product-value-${index}`} className="flex items-center justify-between gap-4">
             <span className="inline-flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
-              {entry.name}
+              Value
             </span>
             <span className="font-semibold text-slate-900">{valueFormatter(entry.value)}</span>
           </div>
