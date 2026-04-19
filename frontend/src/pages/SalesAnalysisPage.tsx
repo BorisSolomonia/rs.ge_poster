@@ -876,6 +876,7 @@ type ProductMetricKey = 'grossRevenue' | 'profit' | 'quantity' | 'profitPercenta
 type ProductChartSeriesMeta = {
   dataKey: string
   productName: string
+  shortName: string
   color: string
 }
 
@@ -900,6 +901,7 @@ function buildProductChartData(
   const series = selectedSeries.map((item, index) => ({
     dataKey: `product_${index}`,
     productName: item.productName,
+    shortName: shortenProductName(item.productName),
     color: PRODUCT_LINE_COLORS[index % PRODUCT_LINE_COLORS.length],
   }))
 
@@ -943,6 +945,7 @@ function ProductChartCard({
               strokeWidth={2.25}
               dot={false}
               legendType="none"
+              name={series.shortName}
             />
           ))}
         </LineChart>
@@ -957,7 +960,7 @@ function ProductTooltip({
   valueFormatter,
 }: {
   active?: boolean
-  payload?: Array<{ value: number; color?: string }>
+  payload?: Array<{ value: number; color?: string; name?: string }>
   valueFormatter: (value: number) => string
 }) {
   if (!active || !payload?.length) {
@@ -971,7 +974,7 @@ function ProductTooltip({
           <div key={`product-value-${index}`} className="flex items-center justify-between gap-4">
             <span className="inline-flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
-              Value
+              {entry.name || 'Product'}
             </span>
             <span className="font-semibold text-slate-900">{valueFormatter(entry.value)}</span>
           </div>
@@ -986,6 +989,14 @@ function formatNumber(value: number) {
     minimumFractionDigits: 0,
     maximumFractionDigits: 2,
   }).format(value)
+}
+
+function shortenProductName(value: string) {
+  const normalized = value.trim()
+  if (normalized.length <= 24) {
+    return normalized
+  }
+  return `${normalized.slice(0, 21)}...`
 }
 
 const PRODUCT_LINE_COLORS = [
