@@ -7,6 +7,7 @@ import ge.camora.erp.model.dto.SalesAnalysisAggregationBlock;
 import ge.camora.erp.model.dto.SalesAnalysisMetric;
 import ge.camora.erp.model.dto.SalesAnalysisPeriodRow;
 import ge.camora.erp.model.dto.SalesAnalysisProductPoint;
+import ge.camora.erp.model.dto.SalesAnalysisProductOption;
 import ge.camora.erp.model.dto.SalesAnalysisProductSeries;
 import ge.camora.erp.model.dto.SalesAnalysisResult;
 import ge.camora.erp.model.dto.SalesAnalysisStatus;
@@ -25,10 +26,8 @@ import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -75,11 +74,7 @@ public class SalesAnalysisService {
             .distinct()
             .sorted(String.CASE_INSENSITIVE_ORDER)
             .toList();
-        List<String> availableProducts = includedSalesRows.stream()
-            .map(SalesRow::productName)
-            .distinct()
-            .sorted(String.CASE_INSENSITIVE_ORDER)
-            .toList();
+        List<SalesAnalysisProductOption> availableProducts = buildAvailableProducts(includedSalesRows);
 
         return new SalesAnalysisResult(
             dateFrom.toString(),
@@ -106,7 +101,7 @@ public class SalesAnalysisService {
         Map<LocalDate, BigDecimal> tbcAll,
         Map<LocalDate, BigDecimal> bogAll,
         List<SalesRow> salesRows,
-        List<String> availableProducts,
+        List<SalesAnalysisProductOption> availableProducts,
         Map<LocalDate, String> eventsByDate,
         LocalDate dateFrom,
         LocalDate dateTo
@@ -131,7 +126,7 @@ public class SalesAnalysisService {
         Map<LocalDate, BigDecimal> tbcAll,
         Map<LocalDate, BigDecimal> bogAll,
         List<SalesRow> salesRows,
-        List<String> availableProducts,
+        List<SalesAnalysisProductOption> availableProducts,
         Map<LocalDate, String> eventsByDate,
         LocalDate dateFrom,
         LocalDate dateTo
@@ -160,7 +155,7 @@ public class SalesAnalysisService {
         Map<LocalDate, BigDecimal> tbcAll,
         Map<LocalDate, BigDecimal> bogAll,
         List<SalesRow> salesRows,
-        List<String> availableProducts,
+        List<SalesAnalysisProductOption> availableProducts,
         Map<LocalDate, String> eventsByDate,
         LocalDate dateFrom,
         LocalDate dateTo
@@ -188,7 +183,7 @@ public class SalesAnalysisService {
         List<Bucket> current,
         List<Bucket> previous,
         List<SalesRow> salesRows,
-        List<String> availableProducts
+        List<SalesAnalysisProductOption> availableProducts
     ) {
         List<SalesAnalysisPeriodRow> periods = current.stream().map(this::toPeriodRow).toList();
         BigDecimal currentSales = sum(current, bucket -> bucket.sales);
@@ -251,18 +246,23 @@ public class SalesAnalysisService {
     private List<SalesAnalysisProductSeries> buildProductSeries(
         List<Bucket> buckets,
         List<SalesRow> salesRows,
-        List<String> availableProducts
+        List<SalesAnalysisProductOption> availableProducts
     ) {
         if (availableProducts.isEmpty()) {
             return List.of();
         }
 
-        Map<String, List<SalesRow>> rowsByProduct = salesRows.stream()
-            .collect(Collectors.groupingBy(SalesRow::productName));
+        Map<String, ProductAggregate> aggregatesByKey = new TreeMap<>();
+        for (SalesRow row : salesRows) {
+            String productKey = ConfigStore.normalizeSalesKey(row.productName());
+            ProductAggregate aggregate = aggregatesByKey.computeIfAbsent(productKey, ignored -> new ProductAggregate(row.productName()));
+            aggregate.addRow(row);
+        }
 
         List<SalesAnalysisProductSeries> series = new ArrayList<>();
-        for (String productName : availableProducts) {
-            List<SalesRow> productRows = rowsByProduct.getOrDefault(productName, List.of());
+        for (SalesAnalysisProductOption option : availableProducts) {
+            ProductAggregate aggregate = aggregatesByKey.get(option.productKey());
+            List<SalesRow> productRows = aggregate == null ? List.of() : aggregate.rows();
             List<SalesAnalysisProductPoint> periods = new ArrayList<>(buckets.size());
             for (Bucket bucket : buckets) {
                 BigDecimal grossRevenue = MoneyUtil.ZERO;
@@ -290,9 +290,32 @@ public class SalesAnalysisService {
                     bucket.events
                 ));
             }
-            series.add(new SalesAnalysisProductSeries(productName, List.copyOf(periods)));
+            series.add(new SalesAnalysisProductSeries(option.productKey(), option.productName(), List.copyOf(periods)));
         }
         return List.copyOf(series);
+    }
+
+    private List<SalesAnalysisProductOption> buildAvailableProducts(List<SalesRow> salesRows) {
+        Map<String, ProductAggregate> aggregates = new TreeMap<>();
+        for (SalesRow row : salesRows) {
+            String productKey = ConfigStore.normalizeSalesKey(row.productName());
+            if (productKey.isBlank()) {
+                continue;
+            }
+            ProductAggregate aggregate = aggregates.computeIfAbsent(productKey, ignored -> new ProductAggregate(row.productName()));
+            aggregate.addRow(row);
+        }
+
+        return aggregates.entrySet().stream()
+            .map(entry -> new SalesAnalysisProductOption(
+                entry.getKey(),
+                entry.getValue().displayName(),
+                MoneyUtil.round(entry.getValue().grossRevenueTotal())
+            ))
+            .sorted(Comparator
+                .comparing(SalesAnalysisProductOption::grossRevenueTotal, Comparator.reverseOrder())
+                .thenComparing(SalesAnalysisProductOption::productName, String.CASE_INSENSITIVE_ORDER))
+            .toList();
     }
 
     private Bucket buildBucket(
@@ -418,6 +441,33 @@ public class SalesAnalysisService {
     ) {
         private BigDecimal bankIncome() {
             return MoneyUtil.round(tbcIncome.add(bogIncome));
+        }
+    }
+
+    private static final class ProductAggregate {
+        private final String displayName;
+        private final List<SalesRow> rows = new ArrayList<>();
+        private BigDecimal grossRevenueTotal = MoneyUtil.ZERO;
+
+        private ProductAggregate(String displayName) {
+            this.displayName = displayName;
+        }
+
+        private void addRow(SalesRow row) {
+            rows.add(row);
+            grossRevenueTotal = grossRevenueTotal.add(row.grossRevenue());
+        }
+
+        private String displayName() {
+            return displayName;
+        }
+
+        private List<SalesRow> rows() {
+            return rows;
+        }
+
+        private BigDecimal grossRevenueTotal() {
+            return grossRevenueTotal;
         }
     }
 

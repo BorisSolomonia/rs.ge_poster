@@ -128,6 +128,8 @@ export const env = {
   salesAnalysisVarianceChartTitle: import.meta.env.VITE_SALES_ANALYSIS_VARIANCE_CHART_TITLE || 'Period Variance',
   salesAnalysisProductSectionTitle: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_SECTION_TITLE || 'Product Sales Analysis',
   salesAnalysisProductSelectorLabel: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_SELECTOR_LABEL || 'Products',
+  salesAnalysisProductSelectPlaceholder: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_SELECT_PLACEHOLDER || 'Select products',
+  salesAnalysisProductSearchPlaceholder: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_SEARCH_PLACEHOLDER || 'Search products',
   salesAnalysisProductNoSelectionLabel: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_NO_SELECTION_LABEL || 'Select at least one product to display the product charts.',
   salesAnalysisProductGrossChartTitle: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_GROSS_CHART_TITLE || 'Gross Revenue by Product',
   salesAnalysisProductProfitChartTitle: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_PROFIT_CHART_TITLE || 'Profit by Product',

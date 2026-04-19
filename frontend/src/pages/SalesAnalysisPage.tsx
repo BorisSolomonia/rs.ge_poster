@@ -8,9 +8,11 @@ import {
   Landmark,
   Play,
   Plus,
+  Search,
   Sparkles,
   Tags,
   Trash2,
+  ChevronDown,
 } from 'lucide-react'
 import {
   Bar,
@@ -37,6 +39,7 @@ import type {
   SalesAggregation,
   SalesAnalysisAggregationBlock,
   SalesAnalysisMetric,
+  SalesAnalysisProductOption,
   SalesAnalysisProductPoint,
   SalesAnalysisProductSeries,
   SalesAnalysisPeriodRow,
@@ -66,6 +69,8 @@ export default function SalesAnalysisPage() {
   const [eventName, setEventName] = useState('')
   const [selectedEvents, setSelectedEvents] = useState<string[]>([])
   const [selectedProducts, setSelectedProducts] = useState<string[]>([])
+  const [productsDropdownOpen, setProductsDropdownOpen] = useState(false)
+  const [productSearch, setProductSearch] = useState('')
 
   const currentRunKey = useMemo(() => {
     if (!salesFile || !tbcFile || !bogFile) return null
@@ -156,13 +161,31 @@ export default function SalesAnalysisPage() {
       setSelectedProducts([])
       return
     }
-    setSelectedProducts(result.day.availableProducts)
+    setSelectedProducts(result.day.availableProducts.map((product) => product.productKey))
+    setProductsDropdownOpen(false)
+    setProductSearch('')
   }, [result])
 
   const selectedProductSeries = useMemo(
-    () => (activeBlock?.productSeries ?? []).filter((series) => selectedProducts.includes(series.productName)),
+    () => (activeBlock?.productSeries ?? []).filter((series) => selectedProducts.includes(series.productKey)),
     [activeBlock, selectedProducts]
   )
+  const visibleProductOptions = useMemo(() => {
+    const query = productSearch.trim().toLowerCase()
+    if (!query) {
+      return availableProducts
+    }
+    return availableProducts.filter((product) => product.productName.toLowerCase().includes(query))
+  }, [availableProducts, productSearch])
+  const selectedProductsLabel = useMemo(() => {
+    if (selectedProducts.length === 0) {
+      return env.salesAnalysisProductNoSelectionLabel
+    }
+    if (selectedProducts.length === availableProducts.length) {
+      return `${env.salesAnalysisProductSelectorLabel}: ${selectedProducts.length}`
+    }
+    return `${env.salesAnalysisProductSelectorLabel}: ${selectedProducts.length}`
+  }, [availableProducts.length, selectedProducts.length])
   const productGrossChart = useMemo(
     () => buildProductChartData(selectedProductSeries, activeBlock?.periods ?? [], aggregation, 'grossRevenue'),
     [selectedProductSeries, activeBlock?.periods, aggregation]
@@ -449,34 +472,64 @@ export default function SalesAnalysisPage() {
               </span>
             </div>
 
-            <div className="mb-5 flex max-h-40 flex-wrap gap-2 overflow-y-auto rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              {availableProducts.map((product) => {
-                const checked = selectedProducts.includes(product)
-                return (
-                  <label
-                    key={product}
-                    className={`inline-flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
-                      checked
-                        ? 'border-slate-900 bg-slate-900 text-white'
-                        : 'border-slate-300 bg-white text-slate-700'
-                    }`}
-                  >
+            <div className="mb-5 relative">
+              <button
+                type="button"
+                onClick={() => setProductsDropdownOpen((current) => !current)}
+                className="flex w-full items-center justify-between rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 text-left text-sm font-semibold text-slate-800"
+              >
+                <span className="truncate">{selectedProductsLabel}</span>
+                <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${productsDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {productsDropdownOpen && (
+                <div className="absolute z-20 mt-2 w-full rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+                  <div className="mb-3 flex items-center gap-2 rounded-xl border border-slate-200 px-3 py-2">
+                    <Search className="h-4 w-4 text-slate-400" />
                     <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() =>
-                        setSelectedProducts((current) =>
-                          current.includes(product)
-                            ? current.filter((item) => item !== product)
-                            : [...current, product]
-                        )
-                      }
-                      className="sr-only"
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                      placeholder={env.salesAnalysisProductSearchPlaceholder}
+                      className="w-full border-0 bg-transparent text-sm text-slate-700 outline-none"
                     />
-                    <span>{product}</span>
-                  </label>
-                )
-              })}
+                  </div>
+                  <div className="max-h-72 overflow-y-auto">
+                    {visibleProductOptions.map((product) => {
+                      const checked = selectedProducts.includes(product.productKey)
+                      return (
+                        <label
+                          key={product.productKey}
+                          className="flex cursor-pointer items-start justify-between gap-3 rounded-xl px-3 py-2 hover:bg-slate-50"
+                        >
+                          <span className="flex min-w-0 items-start gap-3">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setSelectedProducts((current) =>
+                                  current.includes(product.productKey)
+                                    ? current.filter((item) => item !== product.productKey)
+                                    : [...current, product.productKey]
+                                )
+                              }
+                              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                            />
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium text-slate-800">{product.productName}</span>
+                              <span className="block text-[11px] text-slate-500">{formatGel(product.grossRevenueTotal)}</span>
+                            </span>
+                          </span>
+                        </label>
+                      )
+                    })}
+                    {visibleProductOptions.length === 0 && (
+                      <div className="px-3 py-6 text-center text-sm text-slate-500">
+                        {env.salesAnalysisProductSearchPlaceholder}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {selectedProductSeries.length === 0 ? (

@@ -185,7 +185,14 @@ export interface SalesAnalysisProductPoint {
   events: string[]
 }
 
+export interface SalesAnalysisProductOption {
+  productKey: string
+  productName: string
+  grossRevenueTotal: number
+}
+
 export interface SalesAnalysisProductSeries {
+  productKey: string
   productName: string
   periods: SalesAnalysisProductPoint[]
 }
@@ -194,7 +201,7 @@ export interface SalesAnalysisAggregationBlock {
   aggregation: SalesAggregation
   summary: SalesAnalysisSummary
   periods: SalesAnalysisPeriodRow[]
-  availableProducts: string[]
+  availableProducts: SalesAnalysisProductOption[]
   productSeries: SalesAnalysisProductSeries[]
 }
 
