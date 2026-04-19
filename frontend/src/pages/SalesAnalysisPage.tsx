@@ -1100,8 +1100,8 @@ const PRODUCT_LINE_COLORS = [
 ] as const
 
 const PRODUCT_CLUSTER_COLORS: Record<ProductCluster, string> = {
-  TOP_10: '#dc2626',
-  NEXT_30_A: '#ea580c',
+  TOP_10: '#16a34a',
+  NEXT_30_A: '#eab308',
   NEXT_30_B: '#2563eb',
-  LAST_30: '#64748b',
+  LAST_30: '#dc2626',
 }
