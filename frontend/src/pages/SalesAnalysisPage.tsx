@@ -202,6 +202,10 @@ export default function SalesAnalysisPage() {
     () => buildProductChartData(selectedProductSeries, activeBlock?.periods ?? [], aggregation, 'profitPercentage'),
     [selectedProductSeries, activeBlock?.periods, aggregation]
   )
+  const productClusterChart = useMemo(
+    () => buildClusterProductChartData(activeBlock?.productSeries ?? [], selectedProducts, activeBlock?.periods ?? [], aggregation),
+    [activeBlock?.productSeries, activeBlock?.periods, aggregation, selectedProducts]
+  )
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -558,6 +562,11 @@ export default function SalesAnalysisPage() {
                   chart={productMarginChart}
                   valueFormatter={(value) => `${(value * 100).toFixed(2)}%`}
                 />
+                <ProductChartCard
+                  title={env.salesAnalysisProductClusterChartTitle}
+                  chart={productClusterChart}
+                  valueFormatter={(value) => formatGel(value)}
+                />
               </div>
             )}
           </div>
@@ -878,6 +887,7 @@ type ProductChartSeriesMeta = {
   productName: string
   shortName: string
   color: string
+  cluster?: ProductCluster
 }
 
 type ProductChartModel = {
@@ -917,6 +927,81 @@ function buildProductChartData(
   })
 
   return { rows, series }
+}
+
+type ProductCluster = 'TOP_10' | 'NEXT_30_A' | 'NEXT_30_B' | 'LAST_30'
+
+function buildClusterProductChartData(
+  allSeries: SalesAnalysisProductSeries[],
+  selectedProductKeys: string[],
+  visiblePeriods: SalesAnalysisPeriodRow[],
+  aggregation: SalesAggregation
+): ProductChartModel {
+  const selectedSeries = allSeries.filter((series) => selectedProductKeys.includes(series.productKey))
+  const clusterByKey = buildProductClusterMap(allSeries)
+  const visiblePeriodKeys = visiblePeriods.map((period) => period.key)
+  const periodLabelByKey = new Map(
+    selectedSeries.flatMap((series) =>
+      series.periods.map((period) => [period.key, formatProductPeriodLabel(period, aggregation)] as const)
+    )
+  )
+
+  const series = selectedSeries.map((item, index) => {
+    const cluster = clusterByKey.get(item.productKey) ?? 'LAST_30'
+    return {
+      dataKey: `cluster_product_${index}`,
+      productName: item.productName,
+      shortName: shortenProductName(item.productName),
+      color: PRODUCT_CLUSTER_COLORS[cluster],
+      cluster,
+    }
+  })
+
+  const rows = visiblePeriodKeys.map((key) => {
+    const row: Record<string, number | string> = {
+      period: periodLabelByKey.get(key) ?? key,
+    }
+    selectedSeries.forEach((item, index) => {
+      const point = item.periods.find((period) => period.key === key)
+      row[`cluster_product_${index}`] = point?.profit ?? 0
+    })
+    return row
+  })
+
+  return { rows, series }
+}
+
+function buildProductClusterMap(allSeries: SalesAnalysisProductSeries[]) {
+  const ranked = allSeries
+    .map((series) => ({
+      productKey: series.productKey,
+      totalProfit: series.periods.reduce((sum, period) => sum + period.profit, 0),
+    }))
+    .sort((left, right) => right.totalProfit - left.totalProfit)
+
+  const total = ranked.length
+  const top10Count = Math.min(total, Math.max(1, Math.ceil(total * 0.1)))
+  const next30ACount = Math.min(Math.max(total - top10Count, 0), Math.ceil(total * 0.3))
+  const next30BCount = Math.min(Math.max(total - top10Count - next30ACount, 0), Math.ceil(total * 0.3))
+
+  const clusterMap = new Map<string, ProductCluster>()
+  ranked.forEach((product, index) => {
+    if (index < top10Count) {
+      clusterMap.set(product.productKey, 'TOP_10')
+      return
+    }
+    if (index < top10Count + next30ACount) {
+      clusterMap.set(product.productKey, 'NEXT_30_A')
+      return
+    }
+    if (index < top10Count + next30ACount + next30BCount) {
+      clusterMap.set(product.productKey, 'NEXT_30_B')
+      return
+    }
+    clusterMap.set(product.productKey, 'LAST_30')
+  })
+
+  return clusterMap
 }
 
 function ProductChartCard({
@@ -970,7 +1055,9 @@ function ProductTooltip({
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
       <div className="space-y-1 text-xs text-slate-600">
-        {payload.map((entry, index) => (
+        {[...payload]
+          .sort((left, right) => right.value - left.value)
+          .map((entry, index) => (
           <div key={`product-value-${index}`} className="flex items-center justify-between gap-4">
             <span className="inline-flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
@@ -1011,3 +1098,10 @@ const PRODUCT_LINE_COLORS = [
   '#4f46e5',
   '#16a34a',
 ] as const
+
+const PRODUCT_CLUSTER_COLORS: Record<ProductCluster, string> = {
+  TOP_10: '#dc2626',
+  NEXT_30_A: '#ea580c',
+  NEXT_30_B: '#2563eb',
+  LAST_30: '#64748b',
+}

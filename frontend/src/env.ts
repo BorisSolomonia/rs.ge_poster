@@ -135,6 +135,7 @@ export const env = {
   salesAnalysisProductProfitChartTitle: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_PROFIT_CHART_TITLE || 'Profit by Product',
   salesAnalysisProductQuantityChartTitle: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_QUANTITY_CHART_TITLE || 'Quantity by Product',
   salesAnalysisProductMarginChartTitle: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_MARGIN_CHART_TITLE || 'Profit % by Product',
+  salesAnalysisProductClusterChartTitle: import.meta.env.VITE_SALES_ANALYSIS_PRODUCT_CLUSTER_CHART_TITLE || 'Product Profit Clusters',
   salesAnalysisPeriodTableTitle: import.meta.env.VITE_SALES_ANALYSIS_PERIOD_TABLE_TITLE || 'Period Comparison',
   salesAnalysisTotalSalesLabel: import.meta.env.VITE_SALES_ANALYSIS_TOTAL_SALES_LABEL || 'Total Sales',
   salesAnalysisTotalBankLabel: import.meta.env.VITE_SALES_ANALYSIS_TOTAL_BANK_LABEL || 'Total Bank Income',
