@@ -177,6 +177,10 @@ export default function SalesAnalysisPage() {
     }
     return availableProducts.filter((product) => product.productName.toLowerCase().includes(query))
   }, [availableProducts, productSearch])
+  const productClusterMap = useMemo(
+    () => buildProductClusterMap(activeBlock?.productSeries ?? []),
+    [activeBlock?.productSeries]
+  )
   const selectedProductsLabel = useMemo(() => {
     if (selectedProducts.length === 0) {
       return env.salesAnalysisProductNoSelectionLabel
@@ -496,6 +500,36 @@ export default function SalesAnalysisPage() {
                       placeholder={env.salesAnalysisProductSearchPlaceholder}
                       className="w-full border-0 bg-transparent text-sm text-slate-700 outline-none"
                     />
+                  </div>
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProducts(selectClusterProductKeys(availableProducts, productClusterMap, 'TOP_10'))}
+                      className="rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-800"
+                    >
+                      {env.salesAnalysisProductClusterTop10Label}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProducts(selectClusterProductKeys(availableProducts, productClusterMap, 'NEXT_30_A'))}
+                      className="rounded-full bg-yellow-100 px-3 py-1.5 text-xs font-semibold text-yellow-800"
+                    >
+                      {env.salesAnalysisProductClusterNext30ALabel}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProducts(selectClusterProductKeys(availableProducts, productClusterMap, 'NEXT_30_B'))}
+                      className="rounded-full bg-blue-100 px-3 py-1.5 text-xs font-semibold text-blue-800"
+                    >
+                      {env.salesAnalysisProductClusterNext30BLabel}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedProducts(selectClusterProductKeys(availableProducts, productClusterMap, 'LAST_30'))}
+                      className="rounded-full bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-800"
+                    >
+                      {env.salesAnalysisProductClusterBottom30Label}
+                    </button>
                   </div>
                   <div className="max-h-72 overflow-y-auto">
                     {visibleProductOptions.map((product) => {
@@ -1002,6 +1036,16 @@ function buildProductClusterMap(allSeries: SalesAnalysisProductSeries[]) {
   })
 
   return clusterMap
+}
+
+function selectClusterProductKeys(
+  products: SalesAnalysisProductOption[],
+  clusterMap: Map<string, ProductCluster>,
+  cluster: ProductCluster
+) {
+  return products
+    .filter((product) => clusterMap.get(product.productKey) === cluster)
+    .map((product) => product.productKey)
 }
 
 function ProductChartCard({
