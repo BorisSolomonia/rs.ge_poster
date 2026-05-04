@@ -31,7 +31,6 @@ import { env } from '../env'
 import type {
   CashFlowAnalysisMetric,
   CashFlowCategoryDebugRow,
-  CashFlowMonth,
   CashFlowTransaction,
   CashFlowUnmappedCategory,
   CashFlowWarning,

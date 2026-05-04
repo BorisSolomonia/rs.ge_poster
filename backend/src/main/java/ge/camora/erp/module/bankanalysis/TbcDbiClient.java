@@ -20,6 +20,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -31,6 +32,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.stream.IntStream;
 
 @Component
@@ -46,16 +48,16 @@ public class TbcDbiClient {
         CamoraProperties.TbcDbi config = properties.getTbcDbi();
         validateConfig(config);
         int pageSize = Math.max(1, Math.min(config.getPageSize(), 700));
-        int startRecord = 0;
+        int pageIndex = 1;
         List<BankTransaction> all = new ArrayList<>();
         while (true) {
-            String response = postSoap(config, buildEnvelope(config, dateFrom, dateTo, startRecord, pageSize));
+            String response = postSoap(config, buildEnvelope(config, dateFrom, dateTo, pageIndex, pageSize));
             List<BankTransaction> page = parseMovements(response, config);
             all.addAll(page);
             if (page.size() < pageSize) {
                 return all;
             }
-            startRecord += pageSize;
+            pageIndex++;
         }
     }
 
@@ -107,37 +109,52 @@ public class TbcDbiClient {
         CamoraProperties.TbcDbi config,
         LocalDate dateFrom,
         LocalDate dateTo,
-        int startRecord,
+        int pageIndex,
         int pageSize
     ) {
         String from = dateFrom.format(DateTimeFormatter.ISO_LOCAL_DATE);
         String to = dateTo.format(DateTimeFormatter.ISO_LOCAL_DATE);
+        String nonce = Base64.getEncoder().encodeToString(UUID.randomUUID().toString().getBytes(StandardCharsets.UTF_8));
         return """
             <?xml version="1.0" encoding="utf-8"?>
-            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:dbi="http://dbi.tbcbank.ge/">
-              <soapenv:Header/>
+            <soapenv:Envelope
+              xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+              xmlns:myg="http://www.mygemini.com/schemas/mygemini"
+              xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+              <soapenv:Header>
+                <wsse:Security>
+                  <wsse:UsernameToken>
+                    <wsse:Username>%s</wsse:Username>
+                    <wsse:Password>%s</wsse:Password>
+                    <wsse:Nonce>%s</wsse:Nonce>
+                  </wsse:UsernameToken>
+                </wsse:Security>
+              </soapenv:Header>
               <soapenv:Body>
-                <dbi:GetAccountMovements>
-                  <dbi:userName>%s</dbi:userName>
-                  <dbi:password>%s</dbi:password>
-                  <dbi:accountNumber>%s</dbi:accountNumber>
-                  <dbi:currency>%s</dbi:currency>
-                  <dbi:startDate>%s</dbi:startDate>
-                  <dbi:endDate>%s</dbi:endDate>
-                  <dbi:startRecord>%d</dbi:startRecord>
-                  <dbi:count>%d</dbi:count>
-                </dbi:GetAccountMovements>
+                <myg:GetAccountMovementsRequestIo>
+                  <myg:accountMovementFilterIo>
+                    <myg:pager>
+                      <myg:pageIndex>%d</myg:pageIndex>
+                      <myg:pageSize>%d</myg:pageSize>
+                    </myg:pager>
+                    <myg:accountNumber>%s</myg:accountNumber>
+                    <myg:accountCurrencyCode>%s</myg:accountCurrencyCode>
+                    <myg:periodFrom>%s</myg:periodFrom>
+                    <myg:periodTo>%s</myg:periodTo>
+                  </myg:accountMovementFilterIo>
+                </myg:GetAccountMovementsRequestIo>
               </soapenv:Body>
             </soapenv:Envelope>
             """.formatted(
                 xml(config.getUsername()),
                 xml(config.getPassword()),
+                xml(nonce),
+                pageIndex,
+                pageSize,
                 xml(config.getAccountNumber()),
                 xml(config.getCurrency()),
                 from,
-                to,
-                startRecord,
-                pageSize
+                to
             );
     }
 
@@ -151,7 +168,8 @@ public class TbcDbiClient {
             NodeList elements = document.getElementsByTagName("*");
             for (int i = 0; i < elements.getLength(); i++) {
                 Element element = (Element) elements.item(i);
-                if (!hasChild(element, "amount") || !hasChild(element, "debitCredit", "debitcredit", "debCred")) {
+                if (!hasChild(element, "amount", "transactionAmount", "operationAmount", "creditAmount", "debitAmount")
+                    || !hasChild(element, "debitCredit", "debitcredit", "debCred", "entryType", "movementType")) {
                     continue;
                 }
                 BankTransaction transaction = toTransaction(element, config);
@@ -166,21 +184,21 @@ public class TbcDbiClient {
     }
 
     private BankTransaction toTransaction(Element element, CamoraProperties.TbcDbi config) {
-        BigDecimal amount = parseAmount(firstText(element, "amount", "sum", "entryAmount"));
+        BigDecimal amount = parseAmount(firstText(element, "amount", "sum", "entryAmount", "transactionAmount", "operationAmount", "creditAmount", "debitAmount"));
         if (amount.compareTo(BigDecimal.ZERO) == 0) {
             return null;
         }
-        String debitCredit = firstText(element, "debitCredit", "debitcredit", "debCred");
+        String debitCredit = firstText(element, "debitCredit", "debitcredit", "debCred", "entryType", "movementType");
         String direction = parseDirection(debitCredit);
         LocalDate date = parseDate(firstText(element, "docDate", "date", "operationDate", "valueDate"));
         if (date == null || direction.isBlank()) {
             return null;
         }
         String counterparty = firstNonBlank(
-            firstText(element, "partnerName", "partner", "counterparty", "recipientName", "payerName"),
-            firstText(element, "partnerAccount", "recipientAccount", "payerAccount")
+            firstText(element, "partnerName", "partner", "counterparty", "recipientName", "payerName", "beneficiaryName", "senderName"),
+            firstText(element, "partnerAccount", "recipientAccount", "payerAccount", "beneficiaryAccount", "senderAccount")
         );
-        String description = firstText(element, "description", "purpose", "comment", "additionalInfo");
+        String description = firstText(element, "description", "purpose", "comment", "additionalInfo", "paymentDetails");
         String reference = firstText(element, "documentKey", "docKey", "documentNumber", "reference");
         String currency = firstNonBlank(firstText(element, "currency", "ccy"), config.getCurrency());
         String accountNumber = firstNonBlank(firstText(element, "accountNumber", "account"), config.getAccountNumber());

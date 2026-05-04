@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import * as suppliersApi from '../api/suppliers.api'
 import { env } from '../env'
 import type { SupplierMapping, StandaloneSupplier } from '../types'
-import { Plus, Trash2, EyeOff, Check, X, AlertTriangle } from 'lucide-react'
+import { Plus, Trash2, EyeOff, Check, AlertTriangle } from 'lucide-react'
 import ConfirmDialog from '../components/common/ConfirmDialog'
 
 function CreateMappingModal({
@@ -229,8 +229,8 @@ export default function SupplierMappingPage() {
   )
 }
 
-// mini helper — not used but needed for map button
-function setPosterAliasDefault(_: string) {}
+// TODO: Wire this into CreateMappingModal when supplier prefill is needed.
+function setPosterAliasDefault(_name: string) {}
 
 function UnmappedSection({
   title,

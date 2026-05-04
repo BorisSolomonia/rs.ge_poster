@@ -2,6 +2,7 @@ tones-488112-815340a08b7a.json
 docker/.env.secret.local
 backend/target/
 backend/.m2/
+frontend/node_modules/
 frontend/dist/
 .m2repo/
 *.pfx

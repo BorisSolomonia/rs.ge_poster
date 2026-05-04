@@ -41,8 +41,11 @@ export default function DashboardPage() {
     : []
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">{env.dashboardTitle}</h1>
+    <div className="mx-auto max-w-6xl space-y-6">
+      <div className="rounded-[1.75rem] border border-white/70 bg-white/80 p-6 shadow-sm backdrop-blur">
+        <p className="text-xs font-bold uppercase tracking-[0.32em] text-sky-600">Operations overview</p>
+        <h1 className="mt-2 text-3xl font-black text-slate-950">{env.dashboardTitle}</h1>
+      </div>
 
       {/* Unmapped suppliers alert */}
       {unmappedCount > 0 && (
@@ -124,41 +127,43 @@ export default function DashboardPage() {
           <div className="px-5 py-3 border-b border-gray-100 bg-gray-50">
             <h2 className="font-semibold text-gray-700 text-sm">{env.dashboardRecentRunsLabel} ({env.dashboardRecentRunsWindowLabel})</h2>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100">
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Period</th>
-                <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase">Total</th>
-                <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase">Matched</th>
-                <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase">Issues</th>
-                <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Run At</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {results.map((r: ReconciliationResultSummary) => {
-                const issues = r.summary.discrepancy + r.summary.missingPoster + r.summary.missingRsge
-                return (
-                  <tr
-                    key={r.runId}
-                    onClick={() => navigate(env.routePurchaseReconcile)}
-                    className="hover:bg-gray-50 cursor-pointer"
-                  >
-                    <td className="px-4 py-3 text-gray-900">{r.dateFrom} → {r.dateTo}</td>
-                    <td className="px-4 py-3 text-center">{r.summary.totalLines}</td>
-                    <td className="px-4 py-3 text-center text-green-700">{r.summary.matched}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`font-semibold ${issues > 0 ? 'text-red-700' : 'text-green-700'}`}>
-                        {issues}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      {new Date(r.generatedAt).toLocaleTimeString()}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="min-w-[720px] w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Period</th>
+                  <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase">Total</th>
+                  <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase">Matched</th>
+                  <th className="px-4 py-2.5 text-center text-xs font-semibold text-gray-500 uppercase">Issues</th>
+                  <th className="px-4 py-2.5 text-left text-xs font-semibold text-gray-500 uppercase">Run At</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {results.map((r: ReconciliationResultSummary) => {
+                  const issues = r.summary.discrepancy + r.summary.missingPoster + r.summary.missingRsge
+                  return (
+                    <tr
+                      key={r.runId}
+                      onClick={() => navigate(env.routePurchaseReconcile)}
+                      className="hover:bg-gray-50 cursor-pointer"
+                    >
+                      <td className="px-4 py-3 text-gray-900">{r.dateFrom} → {r.dateTo}</td>
+                      <td className="px-4 py-3 text-center">{r.summary.totalLines}</td>
+                      <td className="px-4 py-3 text-center text-green-700">{r.summary.matched}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className={`font-semibold ${issues > 0 ? 'text-red-700' : 'text-green-700'}`}>
+                          {issues}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 text-xs">
+                        {new Date(r.generatedAt).toLocaleTimeString()}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

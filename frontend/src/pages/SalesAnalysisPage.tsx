@@ -45,7 +45,6 @@ import type {
   SalesAnalysisPeriodRow,
   SalesAnalysisResult,
   SalesAnalysisStatus,
-  SalesEvent,
 } from '../types'
 
 const aggregationLabels: Record<SalesAggregation, string> = {
