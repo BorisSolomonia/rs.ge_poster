@@ -481,3 +481,65 @@ export interface BankAnalysisOverview {
   mappings: BankTransactionMapping[]
   transactions: BankTransaction[]
 }
+
+export interface SupplierPaymentMapping {
+  id: string
+  provider: string
+  matchText: string
+  normalizedMatchText: string
+  supplierKey: string
+  supplierTin: string
+  supplierName: string
+  source: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SupplierDebtPurchase {
+  waybillNumber: string
+  date: string | null
+  amount: number
+  supplierTin: string
+  supplierName: string
+}
+
+export interface SupplierDebtPayment {
+  date: string | null
+  amount: number
+  provider: string
+  counterparty: string
+  counterpartyInn: string
+  counterpartyAccount: string
+  description: string
+  reference: string
+  matchReason: string
+}
+
+export interface SupplierDebtRow {
+  supplierKey: string
+  supplierTin: string
+  supplierName: string
+  purchaseTotal: number
+  purchaseCount: number
+  paidTotal: number
+  paymentCount: number
+  debtLeft: number
+  lastPurchaseDate: string | null
+  lastPaymentDate: string | null
+  purchases: SupplierDebtPurchase[]
+  payments: SupplierDebtPayment[]
+}
+
+export interface SupplierDebtOverview {
+  dateFrom: string
+  dateTo: string
+  purchaseTotal: number
+  paidTotal: number
+  debtTotal: number
+  supplierCount: number
+  unmatchedPaymentTotal: number
+  unmatchedPaymentCount: number
+  suppliers: SupplierDebtRow[]
+  unmatchedPayments: SupplierDebtPayment[]
+  mappings: SupplierPaymentMapping[]
+}

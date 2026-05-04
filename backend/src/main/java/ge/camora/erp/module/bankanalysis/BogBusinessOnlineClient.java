@@ -151,6 +151,8 @@ public class BogBusinessOnlineClient {
             firstNonBlank(text(record, "DocumentSourceCurrency"), text(record, "DocumentDestinationCurrency"), config.getCurrency()),
             firstNonBlank(text(record, "EntryAccountNumber"), config.getAccountNumber()),
             counterparty(record, direction),
+            counterpartyInn(record, direction),
+            counterpartyAccount(record, direction),
             firstNonBlank(
                 text(record, "EntryComment"),
                 text(record, "DocumentNomination"),
@@ -185,6 +187,26 @@ public class BogBusinessOnlineClient {
             text(record.path("BeneficiaryDetails"), "Name"),
             text(record, "DocumentPayerName")
         );
+    }
+
+    private String counterpartyInn(JsonNode record, String direction) {
+        if (direction.equals("CREDIT")) {
+            return firstNonBlank(
+                text(record.path("SenderDetails"), "Inn"),
+                text(record, "DocumentPayerInn")
+            );
+        }
+        return firstNonBlank(
+            text(record.path("BeneficiaryDetails"), "Inn"),
+            text(record, "DocumentPayerInn")
+        );
+    }
+
+    private String counterpartyAccount(JsonNode record, String direction) {
+        if (direction.equals("CREDIT")) {
+            return text(record.path("SenderDetails"), "AccountNumber");
+        }
+        return text(record.path("BeneficiaryDetails"), "AccountNumber");
     }
 
     private String statementUrl(CamoraProperties.BogApi config, LocalDate dateFrom, LocalDate dateTo, boolean includeToday) {

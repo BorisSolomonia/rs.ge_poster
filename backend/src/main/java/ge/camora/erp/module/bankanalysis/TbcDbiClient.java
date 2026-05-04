@@ -209,6 +209,8 @@ public class TbcDbiClient {
             currency,
             accountNumber,
             counterparty,
+            "",
+            firstText(element, "partnerAccount", "recipientAccount", "payerAccount", "beneficiaryAccount", "senderAccount"),
             description,
             reference,
             element.getTextContent()

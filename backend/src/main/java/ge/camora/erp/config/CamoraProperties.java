@@ -110,6 +110,7 @@ public class CamoraProperties {
         private String salesEvents;
         private String cashFlowCategoryMappings;
         private String bankTransactionMappings;
+        private String supplierPaymentMappings;
 
         public String getSupplierMappings() {
             return supplierMappings;
@@ -165,6 +166,14 @@ public class CamoraProperties {
 
         public void setBankTransactionMappings(String bankTransactionMappings) {
             this.bankTransactionMappings = bankTransactionMappings;
+        }
+
+        public String getSupplierPaymentMappings() {
+            return supplierPaymentMappings;
+        }
+
+        public void setSupplierPaymentMappings(String supplierPaymentMappings) {
+            this.supplierPaymentMappings = supplierPaymentMappings;
         }
     }
 

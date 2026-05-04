@@ -10,6 +10,7 @@ import ge.camora.erp.model.config.SalesEvent;
 import ge.camora.erp.model.config.SalesProductExclusion;
 import ge.camora.erp.model.config.StandaloneSupplier;
 import ge.camora.erp.model.config.SupplierMapping;
+import ge.camora.erp.model.config.SupplierPaymentMapping;
 import ge.camora.erp.model.dto.SupplierMappingStatusView;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -51,6 +52,7 @@ public class ConfigStore {
     private List<SalesEvent> salesEvents = new ArrayList<>();
     private List<CashFlowCategoryMapping> cashFlowCategoryMappings = new ArrayList<>();
     private List<BankTransactionMapping> bankTransactionMappings = new ArrayList<>();
+    private List<SupplierPaymentMapping> supplierPaymentMappings = new ArrayList<>();
 
     public ConfigStore(ObjectMapper objectMapper, CamoraProperties properties) {
         this.objectMapper = objectMapper;
@@ -78,6 +80,8 @@ public class ConfigStore {
         cashFlowCategoryMappings = loadJson(configDir.resolve(properties.getConfigFiles().getCashFlowCategoryMappings()),
                                       new TypeReference<>() {});
         bankTransactionMappings = loadJson(configDir.resolve(properties.getConfigFiles().getBankTransactionMappings()),
+                                      new TypeReference<>() {});
+        supplierPaymentMappings = loadJson(configDir.resolve(properties.getConfigFiles().getSupplierPaymentMappings()),
                                       new TypeReference<>() {});
         log.info("ConfigStore loaded: {} supplier mappings, {} product mappings, {} standalone",
                  supplierMappings.size(), productMappings.size(), standaloneSuppliers.size());
@@ -579,6 +583,85 @@ public class ConfigStore {
         }
     }
 
+    public List<SupplierPaymentMapping> getSupplierPaymentMappings() {
+        lock.readLock().lock();
+        try {
+            return supplierPaymentMappings.stream()
+                .sorted(Comparator.comparing(SupplierPaymentMapping::getSupplierName, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(SupplierPaymentMapping::getMatchText, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public SupplierPaymentMapping upsertSupplierPaymentMapping(
+        String provider,
+        String matchText,
+        String supplierKey,
+        String supplierTin,
+        String supplierName,
+        String source
+    ) {
+        String normalizedProvider = provider == null || provider.isBlank()
+            ? "BOG"
+            : provider.trim().toUpperCase(Locale.ROOT);
+        String normalizedMatchText = normalizeSalesKey(matchText);
+        String normalizedSupplierKey = normalizeSalesKey(supplierKey);
+        if (normalizedMatchText.isBlank()) {
+            throw new IllegalArgumentException("Supplier payment mapping match text is required");
+        }
+        if (normalizedSupplierKey.isBlank()) {
+            throw new IllegalArgumentException("Supplier payment mapping supplier key is required");
+        }
+        lock.writeLock().lock();
+        try {
+            List<SupplierPaymentMapping> previous = copySupplierPaymentMappings();
+            LocalDateTime now = LocalDateTime.now();
+            for (SupplierPaymentMapping mapping : supplierPaymentMappings) {
+                if (mapping.getProvider().equals(normalizedProvider)
+                    && mapping.getNormalizedMatchText().equals(normalizedMatchText)) {
+                    mapping.setMatchText(matchText.trim());
+                    mapping.setSupplierKey(supplierKey.trim());
+                    mapping.setSupplierTin(supplierTin == null ? "" : supplierTin.trim());
+                    mapping.setSupplierName(supplierName == null ? supplierKey.trim() : supplierName.trim());
+                    mapping.setSource(source);
+                    mapping.setUpdatedAt(now);
+                    persistSupplierPaymentMappingsWithRollback(previous);
+                    return mapping;
+                }
+            }
+            SupplierPaymentMapping created = new SupplierPaymentMapping(
+                UUID.randomUUID().toString(),
+                normalizedProvider,
+                matchText.trim(),
+                normalizedMatchText,
+                supplierKey.trim(),
+                supplierTin == null ? "" : supplierTin.trim(),
+                supplierName == null ? supplierKey.trim() : supplierName.trim(),
+                source,
+                now,
+                now
+            );
+            supplierPaymentMappings.add(created);
+            persistSupplierPaymentMappingsWithRollback(previous);
+            return created;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void deleteSupplierPaymentMapping(String id) {
+        lock.writeLock().lock();
+        try {
+            List<SupplierPaymentMapping> previous = copySupplierPaymentMappings();
+            supplierPaymentMappings.removeIf(mapping -> mapping.getId().equals(id));
+            persistSupplierPaymentMappingsWithRollback(previous);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public void deleteSalesEvent(LocalDate date) {
         lock.writeLock().lock();
         try {
@@ -650,6 +733,10 @@ public class ConfigStore {
         writeJson(configDir.resolve(properties.getConfigFiles().getBankTransactionMappings()), bankTransactionMappings);
     }
 
+    private void persistSupplierPaymentMappings() {
+        writeJson(configDir.resolve(properties.getConfigFiles().getSupplierPaymentMappings()), supplierPaymentMappings);
+    }
+
     private void persistCashFlowCategoryMappingsWithRollback(List<CashFlowCategoryMapping> previous) {
         try {
             persistCashFlowCategoryMappings();
@@ -691,6 +778,32 @@ public class ConfigStore {
                 mapping.getNormalizedMatchText(),
                 mapping.getCategory(),
                 mapping.getNormalizedCategory(),
+                mapping.getSource(),
+                mapping.getCreatedAt(),
+                mapping.getUpdatedAt()
+            ))
+            .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private void persistSupplierPaymentMappingsWithRollback(List<SupplierPaymentMapping> previous) {
+        try {
+            persistSupplierPaymentMappings();
+        } catch (RuntimeException exception) {
+            supplierPaymentMappings = previous;
+            throw exception;
+        }
+    }
+
+    private List<SupplierPaymentMapping> copySupplierPaymentMappings() {
+        return supplierPaymentMappings.stream()
+            .map(mapping -> new SupplierPaymentMapping(
+                mapping.getId(),
+                mapping.getProvider(),
+                mapping.getMatchText(),
+                mapping.getNormalizedMatchText(),
+                mapping.getSupplierKey(),
+                mapping.getSupplierTin(),
+                mapping.getSupplierName(),
                 mapping.getSource(),
                 mapping.getCreatedAt(),
                 mapping.getUpdatedAt()

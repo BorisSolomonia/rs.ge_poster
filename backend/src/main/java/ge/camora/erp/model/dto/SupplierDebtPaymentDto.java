@@ -1,19 +1,17 @@
-package ge.camora.erp.module.bankanalysis;
+package ge.camora.erp.model.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
-public record BankTransaction(
+public record SupplierDebtPaymentDto(
     LocalDate date,
-    String direction,
     BigDecimal amount,
-    String currency,
-    String accountNumber,
+    String provider,
     String counterparty,
     String counterpartyInn,
     String counterpartyAccount,
     String description,
     String reference,
-    String rawPayload
+    String matchReason
 ) {
 }
