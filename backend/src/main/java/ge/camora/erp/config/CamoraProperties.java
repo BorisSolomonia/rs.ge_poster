@@ -18,6 +18,8 @@ public class CamoraProperties {
     private final Reconciliation reconciliation = new Reconciliation();
     private final SalesAnalysis salesAnalysis = new SalesAnalysis();
     private final CashFlow cashFlow = new CashFlow();
+    private final TbcDbi tbcDbi = new TbcDbi();
+    private final BogApi bogApi = new BogApi();
     private final RsgeApi rsgeApi = new RsgeApi();
     private final Parsers parsers = new Parsers();
     private final Platforms platforms = new Platforms();
@@ -68,6 +70,14 @@ public class CamoraProperties {
         return cashFlow;
     }
 
+    public TbcDbi getTbcDbi() {
+        return tbcDbi;
+    }
+
+    public BogApi getBogApi() {
+        return bogApi;
+    }
+
     public RsgeApi getRsgeApi() {
         return rsgeApi;
     }
@@ -99,6 +109,7 @@ public class CamoraProperties {
         private String salesProductExclusions;
         private String salesEvents;
         private String cashFlowCategoryMappings;
+        private String bankTransactionMappings;
 
         public String getSupplierMappings() {
             return supplierMappings;
@@ -146,6 +157,14 @@ public class CamoraProperties {
 
         public void setCashFlowCategoryMappings(String cashFlowCategoryMappings) {
             this.cashFlowCategoryMappings = cashFlowCategoryMappings;
+        }
+
+        public String getBankTransactionMappings() {
+            return bankTransactionMappings;
+        }
+
+        public void setBankTransactionMappings(String bankTransactionMappings) {
+            this.bankTransactionMappings = bankTransactionMappings;
         }
     }
 
@@ -430,6 +449,210 @@ public class CamoraProperties {
 
         public void setDividendKeywords(List<String> dividendKeywords) {
             this.dividendKeywords = dividendKeywords;
+        }
+    }
+
+    public static class TbcDbi {
+        private boolean enabled;
+        private String endpoint;
+        private String username;
+        private String password;
+        private String certificatePath;
+        private String certificateBase64;
+        private String certificatePassword;
+        private String accountNumber;
+        private String currency;
+        private int pageSize;
+        private int timeoutSeconds;
+        private BigDecimal largeCreditThreshold;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getEndpoint() {
+            return endpoint;
+        }
+
+        public void setEndpoint(String endpoint) {
+            this.endpoint = endpoint;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+
+        public String getCertificatePath() {
+            return certificatePath;
+        }
+
+        public void setCertificatePath(String certificatePath) {
+            this.certificatePath = certificatePath;
+        }
+
+        public String getCertificateBase64() {
+            return certificateBase64;
+        }
+
+        public void setCertificateBase64(String certificateBase64) {
+            this.certificateBase64 = certificateBase64;
+        }
+
+        public String getCertificatePassword() {
+            return certificatePassword;
+        }
+
+        public void setCertificatePassword(String certificatePassword) {
+            this.certificatePassword = certificatePassword;
+        }
+
+        public String getAccountNumber() {
+            return accountNumber;
+        }
+
+        public void setAccountNumber(String accountNumber) {
+            this.accountNumber = accountNumber;
+        }
+
+        public String getCurrency() {
+            return currency;
+        }
+
+        public void setCurrency(String currency) {
+            this.currency = currency;
+        }
+
+        public int getPageSize() {
+            return pageSize;
+        }
+
+        public void setPageSize(int pageSize) {
+            this.pageSize = pageSize;
+        }
+
+        public int getTimeoutSeconds() {
+            return timeoutSeconds;
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = timeoutSeconds;
+        }
+
+        public BigDecimal getLargeCreditThreshold() {
+            return largeCreditThreshold;
+        }
+
+        public void setLargeCreditThreshold(BigDecimal largeCreditThreshold) {
+            this.largeCreditThreshold = largeCreditThreshold;
+        }
+    }
+
+    public static class BogApi {
+        private boolean enabled;
+        private String tokenUrl;
+        private String baseUrl;
+        private String clientId;
+        private String clientSecret;
+        private String accountNumber;
+        private String currency;
+        private int take;
+        private int timeoutSeconds;
+        private BigDecimal largeCreditThreshold;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getTokenUrl() {
+            return tokenUrl;
+        }
+
+        public void setTokenUrl(String tokenUrl) {
+            this.tokenUrl = tokenUrl;
+        }
+
+        public String getBaseUrl() {
+            return baseUrl;
+        }
+
+        public void setBaseUrl(String baseUrl) {
+            this.baseUrl = baseUrl;
+        }
+
+        public String getClientId() {
+            return clientId;
+        }
+
+        public void setClientId(String clientId) {
+            this.clientId = clientId;
+        }
+
+        public String getClientSecret() {
+            return clientSecret;
+        }
+
+        public void setClientSecret(String clientSecret) {
+            this.clientSecret = clientSecret;
+        }
+
+        public String getAccountNumber() {
+            return accountNumber;
+        }
+
+        public void setAccountNumber(String accountNumber) {
+            this.accountNumber = accountNumber;
+        }
+
+        public String getCurrency() {
+            return currency;
+        }
+
+        public void setCurrency(String currency) {
+            this.currency = currency;
+        }
+
+        public int getTake() {
+            return take;
+        }
+
+        public void setTake(int take) {
+            this.take = take;
+        }
+
+        public int getTimeoutSeconds() {
+            return timeoutSeconds;
+        }
+
+        public void setTimeoutSeconds(int timeoutSeconds) {
+            this.timeoutSeconds = timeoutSeconds;
+        }
+
+        public BigDecimal getLargeCreditThreshold() {
+            return largeCreditThreshold;
+        }
+
+        public void setLargeCreditThreshold(BigDecimal largeCreditThreshold) {
+            this.largeCreditThreshold = largeCreditThreshold;
         }
     }
 

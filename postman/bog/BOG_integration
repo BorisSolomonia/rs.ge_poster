@@ -1,0 +1,374 @@
+{
+  "info": {
+    "_postman_id": "60f61444-6f29-434a-a2ad-06822a3fd86f",
+    "name": "BOG Business Online API",
+    "description": "Postman collection for testing Bank of Georgia Business Online API using client_id and client_secret. Import together with bog-postman-environment.json.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "18613893"
+  },
+  "item": [
+    {
+      "name": "1. Get Access Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Token request succeeded', function () {",
+              "  pm.expect(pm.response.code).to.be.oneOf([200, 201]);",
+              "});",
+              "",
+              "var json = {};",
+              "try {",
+              "  json = pm.response.json();",
+              "} catch (e) {",
+              "  console.log('Token response is not JSON', e);",
+              "}",
+              "",
+              "if (json.access_token) {",
+              "  pm.environment.set('access_token', json.access_token);",
+              "}",
+              "if (json.refresh_token) {",
+              "  pm.environment.set('refresh_token', json.refresh_token);",
+              "}",
+              "if (json.expires_in) {",
+              "  pm.environment.set('token_expires_in', String(json.expires_in));",
+              "}",
+              "",
+              "console.log('Saved access_token to environment');"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "basic",
+          "basic": [
+            {
+              "key": "username",
+              "value": "{{client_id}}",
+              "type": "string"
+            },
+            {
+              "key": "password",
+              "value": "{{client_secret}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/x-www-form-urlencoded"
+          },
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            {
+              "key": "grant_type",
+              "value": "client_credentials",
+              "type": "text"
+            },
+            {
+              "key": "client_id",
+              "value": "{{client_id}}",
+              "type": "text"
+            },
+            {
+              "key": "client_secret",
+              "value": "{{client_secret}}",
+              "type": "text"
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{token_url}}",
+          "host": [
+            "{{token_url}}"
+          ]
+        },
+        "description": "Gets OAuth access token using client_credentials. Test script stores access_token into the active environment."
+      },
+      "response": []
+    },
+    {
+      "name": "2. Get Available Balance",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/accounts/{{account_number}}/{{currency}}",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "accounts",
+            "{{account_number}}",
+            "{{currency}}"
+          ]
+        },
+        "description": "Gets available balance for the configured account and currency."
+      },
+      "response": []
+    },
+    {
+      "name": "3. Get Current Day Activities (v2)",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/documents/v2/todayactivities/{{account_number}}/{{currency}}",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "documents",
+            "v2",
+            "todayactivities",
+            "{{account_number}}",
+            "{{currency}}"
+          ]
+        },
+        "description": "Gets current-day activities for the configured account and currency."
+      },
+      "response": []
+    },
+    {
+      "name": "4. Get Statement V2",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/statement/v2/{{account_number}}/{{currency}}/{{statement_start_date}}/{{statement_end_date}}",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "statement",
+            "v2",
+            "{{account_number}}",
+            "{{currency}}",
+            "{{statement_start_date}}",
+            "{{statement_end_date}}"
+          ]
+        },
+        "description": "Requests statement v2 for the selected period. If the bank responds with paged data or an id for subsequent calls, use the next two requests."
+      },
+      "response": []
+    },
+    {
+      "name": "5. Get Statement V2 Summary",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/statement/v2/summary/{{account_number}}/{{currency}}/{{statement_id}}",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "statement",
+            "v2",
+            "summary",
+            "{{account_number}}",
+            "{{currency}}",
+            "{{statement_id}}"
+          ]
+        },
+        "description": "Use this only if the previous statement v2 response gives you a statement_id / id to query summary separately."
+      },
+      "response": []
+    },
+    {
+      "name": "6. Get Statement V2 Page",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/statement/v2/{{account_number}}/{{currency}}/{{statement_id}}/{{statement_page}}",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "statement",
+            "v2",
+            "{{account_number}}",
+            "{{currency}}",
+            "{{statement_id}}",
+            "{{statement_page}}"
+          ]
+        },
+        "description": "Use this only if the previous statement v2 response is paged and the bank expects follow-up page calls by statement id."
+      },
+      "response": []
+    },
+    {
+      "name": "7. Get Document Result Codes",
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{access_token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [
+          {
+            "key": "Accept",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{api_base_url}}/documents/code",
+          "host": [
+            "{{api_base_url}}"
+          ],
+          "path": [
+            "documents",
+            "code"
+          ]
+        },
+        "description": "Optional helper request for reading document result codes."
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "client_id",
+      "value": ""
+    },
+    {
+      "key": "client_secret",
+      "value": ""
+    },
+    {
+      "key": "account_number",
+      "value": ""
+    },
+    {
+      "key": "currency",
+      "value": ""
+    },
+    {
+      "key": "statement_start_date",
+      "value": ""
+    },
+    {
+      "key": "statement_end_date",
+      "value": ""
+    }
+  ]
+}

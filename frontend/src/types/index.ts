@@ -419,3 +419,65 @@ export interface CashFlowCategoryDebug {
   months: CashFlowCategoryDebugMonth[]
   rows: CashFlowCategoryDebugRow[]
 }
+
+export type BankDirection = 'CREDIT' | 'DEBIT' | 'BOTH'
+
+export interface BankTransactionMapping {
+  id: string
+  direction: BankDirection
+  matchText: string
+  normalizedMatchText: string
+  category: string
+  normalizedCategory: string
+  source: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface BankCategoryTotal {
+  direction: BankDirection
+  category: string
+  amount: number
+  transactionCount: number
+}
+
+export interface BankUnmappedGroup {
+  direction: BankDirection
+  matchText: string
+  counterparty: string
+  description: string
+  amount: number
+  transactionCount: number
+  largestTransaction: number
+}
+
+export interface BankTransaction {
+  date: string
+  direction: BankDirection
+  amount: number
+  currency: string
+  accountNumber: string
+  counterparty: string
+  description: string
+  reference: string
+  category: string
+  mapped: boolean
+  mappingMatchText: string
+}
+
+export interface BankAnalysisOverview {
+  dateFrom: string
+  dateTo: string
+  provider: string
+  accountNumber: string
+  currency: string
+  totalCredits: number
+  totalDebits: number
+  netMovement: number
+  transactionCount: number
+  categoryTotals: BankCategoryTotal[]
+  largeUnmappedCredits: BankUnmappedGroup[]
+  unmappedDebitReceivers: BankUnmappedGroup[]
+  mappings: BankTransactionMapping[]
+  transactions: BankTransaction[]
+}

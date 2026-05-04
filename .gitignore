@@ -4,3 +4,7 @@ backend/target/
 backend/.m2/
 frontend/dist/
 .m2repo/
+*.pfx
+*.p12
+*.pem
+*.key

@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage'
 import PurchaseReconcilePage from './pages/PurchaseReconcilePage'
 import SalesAnalysisPage from './pages/SalesAnalysisPage'
 import CashFlowPage from './pages/CashFlowPage'
+import BankAnalysisPage from './pages/BankAnalysisPage'
 import SalesProductsPage from './pages/SalesProductsPage'
 import SupplierMappingPage from './pages/SupplierMappingPage'
 import ProductMappingPage from './pages/ProductMappingPage'
@@ -34,6 +35,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path={env.routePurchaseReconcile} element={<PurchaseReconcilePage />} />
             <Route path={env.routeSalesAnalysis} element={<SalesAnalysisPage />} />
             <Route path={env.routeCashFlow} element={<CashFlowPage />} />
+            <Route path={env.routeBankAnalysis} element={<BankAnalysisPage />} />
             <Route path={env.routeSalesProducts} element={<SalesProductsPage />} />
             <Route path={env.routeSupplierMappings} element={<SupplierMappingPage />} />
             <Route path={env.routeProductMappings} element={<ProductMappingPage />} />

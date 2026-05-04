@@ -8,6 +8,7 @@ import {
   Package,
   Landmark,
   Wallet,
+  CreditCard,
 } from 'lucide-react'
 
 const navItems = [
@@ -15,6 +16,7 @@ const navItems = [
   { to: env.routePurchaseReconcile, label: env.navPurchaseReconcileLabel, icon: RefreshCcw },
   { to: env.routeSalesAnalysis, label: env.navSalesAnalysisLabel, icon: Landmark },
   { to: env.routeCashFlow, label: env.navCashFlowLabel, icon: Wallet },
+  { to: env.routeBankAnalysis, label: env.navBankAnalysisLabel, icon: CreditCard },
   { to: env.routeSalesProducts, label: env.navSalesProductsLabel, icon: Package },
   { to: env.routeSupplierMappings, label: env.navSuppliersLabel, icon: Users },
   { to: env.routeProductMappings, label: env.navProductsLabel, icon: Package },

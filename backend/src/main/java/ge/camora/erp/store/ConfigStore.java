@@ -3,6 +3,7 @@ package ge.camora.erp.store;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ge.camora.erp.config.CamoraProperties;
+import ge.camora.erp.model.config.BankTransactionMapping;
 import ge.camora.erp.model.config.CashFlowCategoryMapping;
 import ge.camora.erp.model.config.ProductMapping;
 import ge.camora.erp.model.config.SalesEvent;
@@ -49,6 +50,7 @@ public class ConfigStore {
     private List<SalesProductExclusion> salesProductExclusions = new ArrayList<>();
     private List<SalesEvent> salesEvents = new ArrayList<>();
     private List<CashFlowCategoryMapping> cashFlowCategoryMappings = new ArrayList<>();
+    private List<BankTransactionMapping> bankTransactionMappings = new ArrayList<>();
 
     public ConfigStore(ObjectMapper objectMapper, CamoraProperties properties) {
         this.objectMapper = objectMapper;
@@ -74,6 +76,8 @@ public class ConfigStore {
         salesEvents = loadJson(configDir.resolve(properties.getConfigFiles().getSalesEvents()),
                                       new TypeReference<>() {});
         cashFlowCategoryMappings = loadJson(configDir.resolve(properties.getConfigFiles().getCashFlowCategoryMappings()),
+                                      new TypeReference<>() {});
+        bankTransactionMappings = loadJson(configDir.resolve(properties.getConfigFiles().getBankTransactionMappings()),
                                       new TypeReference<>() {});
         log.info("ConfigStore loaded: {} supplier mappings, {} product mappings, {} standalone",
                  supplierMappings.size(), productMappings.size(), standaloneSuppliers.size());
@@ -502,6 +506,79 @@ public class ConfigStore {
         }
     }
 
+    public List<BankTransactionMapping> getBankTransactionMappings() {
+        lock.readLock().lock();
+        try {
+            return bankTransactionMappings.stream()
+                .sorted(Comparator.comparing(BankTransactionMapping::getCategory, String.CASE_INSENSITIVE_ORDER)
+                    .thenComparing(BankTransactionMapping::getMatchText, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public BankTransactionMapping upsertBankTransactionMapping(
+        String direction,
+        String matchText,
+        String category,
+        String source
+    ) {
+        String normalizedMatchText = normalizeSalesKey(matchText);
+        String normalizedCategory = normalizeSalesKey(category);
+        String normalizedDirection = normalizeBankDirection(direction);
+        if (normalizedMatchText.isBlank()) {
+            throw new IllegalArgumentException("Bank mapping match text is required");
+        }
+        if (normalizedCategory.isBlank()) {
+            throw new IllegalArgumentException("Bank mapping category is required");
+        }
+        lock.writeLock().lock();
+        try {
+            List<BankTransactionMapping> previous = copyBankTransactionMappings();
+            LocalDateTime now = LocalDateTime.now();
+            for (BankTransactionMapping mapping : bankTransactionMappings) {
+                if (mapping.getDirection().equals(normalizedDirection)
+                    && mapping.getNormalizedMatchText().equals(normalizedMatchText)) {
+                    mapping.setMatchText(matchText.trim());
+                    mapping.setCategory(category.trim());
+                    mapping.setNormalizedCategory(normalizedCategory);
+                    mapping.setSource(source);
+                    mapping.setUpdatedAt(now);
+                    persistBankTransactionMappingsWithRollback(previous);
+                    return mapping;
+                }
+            }
+            BankTransactionMapping created = new BankTransactionMapping(
+                UUID.randomUUID().toString(),
+                normalizedDirection,
+                matchText.trim(),
+                normalizedMatchText,
+                category.trim(),
+                normalizedCategory,
+                source,
+                now,
+                now
+            );
+            bankTransactionMappings.add(created);
+            persistBankTransactionMappingsWithRollback(previous);
+            return created;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void deleteBankTransactionMapping(String id) {
+        lock.writeLock().lock();
+        try {
+            List<BankTransactionMapping> previous = copyBankTransactionMappings();
+            bankTransactionMappings.removeIf(mapping -> mapping.getId().equals(id));
+            persistBankTransactionMappingsWithRollback(previous);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public void deleteSalesEvent(LocalDate date) {
         lock.writeLock().lock();
         try {
@@ -569,6 +646,10 @@ public class ConfigStore {
         writeJson(configDir.resolve(properties.getConfigFiles().getCashFlowCategoryMappings()), cashFlowCategoryMappings);
     }
 
+    private void persistBankTransactionMappings() {
+        writeJson(configDir.resolve(properties.getConfigFiles().getBankTransactionMappings()), bankTransactionMappings);
+    }
+
     private void persistCashFlowCategoryMappingsWithRollback(List<CashFlowCategoryMapping> previous) {
         try {
             persistCashFlowCategoryMappings();
@@ -585,6 +666,31 @@ public class ConfigStore {
                 mapping.getNormalizedSourceCategory(),
                 mapping.getTargetCategory(),
                 mapping.getNormalizedTargetCategory(),
+                mapping.getSource(),
+                mapping.getCreatedAt(),
+                mapping.getUpdatedAt()
+            ))
+            .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private void persistBankTransactionMappingsWithRollback(List<BankTransactionMapping> previous) {
+        try {
+            persistBankTransactionMappings();
+        } catch (RuntimeException exception) {
+            bankTransactionMappings = previous;
+            throw exception;
+        }
+    }
+
+    private List<BankTransactionMapping> copyBankTransactionMappings() {
+        return bankTransactionMappings.stream()
+            .map(mapping -> new BankTransactionMapping(
+                mapping.getId(),
+                mapping.getDirection(),
+                mapping.getMatchText(),
+                mapping.getNormalizedMatchText(),
+                mapping.getCategory(),
+                mapping.getNormalizedCategory(),
                 mapping.getSource(),
                 mapping.getCreatedAt(),
                 mapping.getUpdatedAt()
@@ -634,6 +740,17 @@ public class ConfigStore {
             .trim()
             .replaceAll("\\s+", " ");
         return normalized.toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeBankDirection(String direction) {
+        if (direction == null || direction.isBlank()) {
+            return "BOTH";
+        }
+        String normalized = direction.trim().toUpperCase(Locale.ROOT);
+        if (!normalized.equals("CREDIT") && !normalized.equals("DEBIT") && !normalized.equals("BOTH")) {
+            throw new IllegalArgumentException("Unsupported bank mapping direction: " + direction);
+        }
+        return normalized;
     }
 
     private int suggestionScore(String query, String candidate, int maxDistance) {
