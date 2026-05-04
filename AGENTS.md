@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-This repository has two main applications:
+This repository has two main applications
 
 - `backend/`: Spring Boot 3 API, reconciliation engine, SOAP integrations, and persistence logic.
 - `frontend/`: React 18 + Vite + TypeScript UI.
