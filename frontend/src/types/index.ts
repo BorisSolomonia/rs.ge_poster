@@ -95,6 +95,8 @@ export interface ApiResponse<T> {
   success: boolean
   data: T
   error: string | null
+  code?: string | null
+  timestamp?: string
 }
 
 // ─── Request DTOs ─────────────────────────────────────────────────────────────
@@ -480,6 +482,12 @@ export interface BankAnalysisOverview {
   unmappedDebitReceivers: BankUnmappedGroup[]
   mappings: BankTransactionMapping[]
   transactions: BankTransaction[]
+}
+
+export interface TbcPasswordChangeResult {
+  message: string
+  code: string
+  secretManagerUpdateRequired: boolean
 }
 
 export interface SupplierPaymentMapping {

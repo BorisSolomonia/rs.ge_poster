@@ -85,20 +85,29 @@ public class BogBusinessOnlineClient {
                 .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 400) {
-                throw new IllegalStateException("BOG token HTTP " + response.statusCode() + ": " + snippet(response.body()));
+                throw new BogApiException(
+                    BogApiException.HTTP_ERROR,
+                    "BOG token HTTP " + response.statusCode() + ": " + snippet(response.body())
+                );
             }
             JsonNode json = objectMapper.readTree(response.body());
             String accessToken = json.path("access_token").asText("");
             if (accessToken.isBlank()) {
-                throw new IllegalStateException("BOG token response did not contain access_token");
+                throw new BogApiException(BogApiException.TOKEN_FAILED, "BOG token response did not contain access_token");
             }
             long expiresIn = Math.max(60, json.path("expires_in").asLong(300));
             return new Token(accessToken, Instant.now().plusSeconds(expiresIn));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("BOG token request interrupted", exception);
+            throw new BogApiException(BogApiException.TOKEN_FAILED, "BOG token request interrupted", exception);
+        } catch (BogApiException exception) {
+            throw exception;
         } catch (Exception exception) {
-            throw new IllegalStateException("Failed to fetch BOG access token: " + exception.getMessage(), exception);
+            throw new BogApiException(
+                BogApiException.TOKEN_FAILED,
+                "Failed to fetch BOG access token: " + exception.getMessage(),
+                exception
+            );
         }
     }
 
@@ -113,14 +122,23 @@ public class BogBusinessOnlineClient {
                 .build();
             HttpResponse<String> response = client(config).send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 400) {
-                throw new IllegalStateException("BOG API HTTP " + response.statusCode() + ": " + snippet(response.body()));
+                throw new BogApiException(
+                    BogApiException.HTTP_ERROR,
+                    "BOG API HTTP " + response.statusCode() + ": " + snippet(response.body())
+                );
             }
             return objectMapper.readTree(response.body());
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("BOG statement request interrupted", exception);
+            throw new BogApiException(BogApiException.STATEMENT_FAILED, "BOG statement request interrupted", exception);
+        } catch (BogApiException exception) {
+            throw exception;
         } catch (Exception exception) {
-            throw new IllegalStateException("Failed to fetch BOG statement: " + exception.getMessage(), exception);
+            throw new BogApiException(
+                BogApiException.STATEMENT_FAILED,
+                "Failed to fetch BOG statement: " + exception.getMessage(),
+                exception
+            );
         }
     }
 
@@ -280,7 +298,7 @@ public class BogBusinessOnlineClient {
 
     private void validateConfig(CamoraProperties.BogApi config) {
         if (!config.isEnabled()) {
-            throw new IllegalStateException("BOG API integration is disabled. Set CAMORA_BOG_API_ENABLED=true.");
+            throw new BogApiException(BogApiException.DISABLED, "BOG API integration is disabled. Set CAMORA_BOG_API_ENABLED=true.");
         }
         require(config.getTokenUrl(), "CAMORA_BOG_API_TOKEN_URL");
         require(config.getBaseUrl(), "CAMORA_BOG_API_BASE_URL");
@@ -292,7 +310,7 @@ public class BogBusinessOnlineClient {
 
     private void require(String value, String name) {
         if (value == null || value.isBlank()) {
-            throw new IllegalStateException(name + " is required");
+            throw new BogApiException(BogApiException.CONFIG_MISSING, name + " is required");
         }
     }
 

@@ -111,6 +111,28 @@ Then run:
 Camora - Bank Analysis via backend
 ```
 
+If the response code is `TBC_PASSWORD_CHANGE_REQUIRED`, use the Camora web UI on `/camora/bank-analysis`:
+
+1. Select provider `TBC`.
+2. Run analysis for any small date range.
+3. When the password-change panel appears, enter the fresh Digipass/OTP and a new DBI password.
+4. After success, update `CAMORA_TBC_DBI_PASSWORD` in GCP Secret Manager to the same new password.
+5. Restart or redeploy the backend so future restarts use the final password.
+
+You can also call the backend password-change endpoint directly:
+
+```http
+POST /api/v1/bank-analysis/tbc/password-change
+Content-Type: application/json
+
+{
+  "otp": "123456",
+  "newPassword": "NewStrongPassword1!"
+}
+```
+
+Do not save the OTP in `.env`, Postman environments, GitHub secrets, or Secret Manager. It must be entered only when the password change is performed.
+
 For local backend:
 
 ```text

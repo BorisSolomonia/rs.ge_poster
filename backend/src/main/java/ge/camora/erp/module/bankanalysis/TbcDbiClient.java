@@ -38,7 +38,14 @@ import java.util.stream.IntStream;
 @Component
 public class TbcDbiClient {
 
+    public static final String PASSWORD_CHANGE_REQUIRED = "TBC_PASSWORD_CHANGE_REQUIRED";
+    public static final String INCORRECT_CREDENTIALS = "TBC_INCORRECT_CREDENTIALS";
+    public static final String USER_IS_BLOCKED = "TBC_USER_IS_BLOCKED";
+    static final int FIRST_PAGE_INDEX = 0;
+    private static final int MAX_PAGES_PER_REQUEST = 1000;
+
     private final CamoraProperties properties;
+    private volatile String runtimePassword;
 
     public TbcDbiClient(CamoraProperties properties) {
         this.properties = properties;
@@ -46,12 +53,22 @@ public class TbcDbiClient {
 
     public List<BankTransaction> getAccountMovements(LocalDate dateFrom, LocalDate dateTo) {
         CamoraProperties.TbcDbi config = properties.getTbcDbi();
-        validateConfig(config);
+        validateConfig(config, true);
         int pageSize = Math.max(1, Math.min(config.getPageSize(), 700));
-        int pageIndex = 1;
+        int pageIndex = FIRST_PAGE_INDEX;
         List<BankTransaction> all = new ArrayList<>();
         while (true) {
-            String response = postSoap(config, buildEnvelope(config, dateFrom, dateTo, pageIndex, pageSize));
+            if (pageIndex >= MAX_PAGES_PER_REQUEST) {
+                throw new TbcDbiException(
+                    "TBC_DBI_PAGE_LIMIT_EXCEEDED",
+                    "TBC DBI returned too many pages. Narrow the date range and retry."
+                );
+            }
+            String response = postSoap(
+                config,
+                buildAccountMovementsEnvelope(config, currentPassword(config), dateFrom, dateTo, pageIndex, pageSize),
+                "\"http://www.mygemini.com/schemas/mygemini/GetAccountMovements\""
+            );
             List<BankTransaction> page = parseMovements(response, config);
             all.addAll(page);
             if (page.size() < pageSize) {
@@ -61,7 +78,23 @@ public class TbcDbiClient {
         }
     }
 
-    private String postSoap(CamoraProperties.TbcDbi config, String envelope) {
+    public String changePassword(String otp, String newPassword, String currentPasswordOverride) {
+        CamoraProperties.TbcDbi config = properties.getTbcDbi();
+        String currentPassword = firstNonBlank(currentPasswordOverride, currentPassword(config));
+        validateConfig(config, false);
+        require(currentPassword, "Current TBC DBI password");
+        validatePasswordChangeInput(newPassword, currentPassword);
+        String response = postSoap(
+            config,
+            buildChangePasswordEnvelope(config, currentPassword, otp, newPassword),
+            "\"http://www.mygemini.com/schemas/mygemini/ChangePassword\""
+        );
+        runtimePassword = newPassword;
+        String message = firstResponseText(response, "message", "Message");
+        return message.isBlank() ? "TBC DBI password changed successfully." : message;
+    }
+
+    private String postSoap(CamoraProperties.TbcDbi config, String envelope, String soapAction) {
         try {
             HttpClient client = HttpClient.newBuilder()
                 .sslContext(buildSslContext(config))
@@ -71,24 +104,30 @@ public class TbcDbiClient {
                 .uri(URI.create(config.getEndpoint()))
                 .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                 .header("Content-Type", "text/xml; charset=utf-8")
-                .header("SOAPAction", "\"http://www.mygemini.com/schemas/mygemini/GetAccountMovements\"")
+                .header("SOAPAction", soapAction)
                 .POST(HttpRequest.BodyPublishers.ofString(envelope))
                 .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 400) {
-                throw new IllegalStateException("TBC DBI HTTP " + response.statusCode() + ": " + snippet(response.body()));
-            }
             String body = response.body();
-            String fault = extractSoapFault(body);
-            if (!fault.isBlank()) {
-                throw new IllegalStateException("TBC DBI SOAP fault: " + fault);
+            SoapFault fault = extractSoapFault(body);
+            if (!fault.message().isBlank()) {
+                String code = fault.code().isBlank() ? "TBC_DBI_SOAP_FAULT" : "TBC_" + fault.code();
+                if ("CREDENTIALS_MUST_BE_CHANGED".equals(fault.code())) {
+                    throw new TbcDbiException(PASSWORD_CHANGE_REQUIRED, "TBC DBI password must be changed before fetching movements.");
+                }
+                throw new TbcDbiException(code, "TBC DBI SOAP fault: " + fault.message());
+            }
+            if (response.statusCode() >= 400) {
+                throw new TbcDbiException("TBC_DBI_HTTP_" + response.statusCode(), "TBC DBI HTTP " + response.statusCode() + ": " + snippet(body));
             }
             return body;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("TBC DBI request interrupted", exception);
+            throw new TbcDbiException("TBC_DBI_INTERRUPTED", "TBC DBI request interrupted", exception);
+        } catch (TbcDbiException exception) {
+            throw exception;
         } catch (Exception exception) {
-            throw new IllegalStateException("Failed to fetch TBC DBI movements: " + exception.getMessage(), exception);
+            throw new TbcDbiException("TBC_DBI_REQUEST_FAILED", "Failed to call TBC DBI: " + exception.getMessage(), exception);
         }
     }
 
@@ -105,8 +144,9 @@ public class TbcDbiClient {
         return sslContext;
     }
 
-    private String buildEnvelope(
+    String buildAccountMovementsEnvelope(
         CamoraProperties.TbcDbi config,
+        String password,
         LocalDate dateFrom,
         LocalDate dateTo,
         int pageIndex,
@@ -147,7 +187,7 @@ public class TbcDbiClient {
             </soapenv:Envelope>
             """.formatted(
                 xml(config.getUsername()),
-                xml(config.getPassword()),
+                xml(password),
                 xml(nonce),
                 pageIndex,
                 pageSize,
@@ -155,6 +195,41 @@ public class TbcDbiClient {
                 xml(config.getCurrency()),
                 from,
                 to
+            );
+    }
+
+    private String buildChangePasswordEnvelope(
+        CamoraProperties.TbcDbi config,
+        String currentPassword,
+        String otp,
+        String newPassword
+    ) {
+        String nonceElement = isBlank(otp) ? "" : "<wsse:Nonce>%s</wsse:Nonce>".formatted(xml(otp));
+        return """
+            <?xml version="1.0" encoding="utf-8"?>
+            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+              xmlns:myg="http://www.mygemini.com/schemas/mygemini"
+              xmlns:wsse="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd">
+              <soapenv:Header>
+                <wsse:Security>
+                  <wsse:UsernameToken>
+                    <wsse:Username>%s</wsse:Username>
+                    <wsse:Password>%s</wsse:Password>
+                    %s
+                  </wsse:UsernameToken>
+                </wsse:Security>
+              </soapenv:Header>
+              <soapenv:Body>
+                <myg:ChangePasswordRequestIo>
+                  <myg:newPassword>%s</myg:newPassword>
+                </myg:ChangePasswordRequestIo>
+              </soapenv:Body>
+            </soapenv:Envelope>
+            """.formatted(
+                xml(config.getUsername()),
+                xml(currentPassword),
+                nonceElement,
+                xml(newPassword)
             );
     }
 
@@ -217,13 +292,26 @@ public class TbcDbiClient {
         );
     }
 
-    private String extractSoapFault(String body) {
+    private SoapFault extractSoapFault(String body) {
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
             factory.setNamespaceAware(true);
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
             Document document = factory.newDocumentBuilder().parse(new InputSource(new StringReader(body)));
-            return firstText(document.getDocumentElement(), "faultstring", "FaultString", "Reason", "Text");
+            String faultCode = firstTextRecursive(document.getDocumentElement(), "faultcode", "FaultCode", "Code");
+            return new SoapFault(normalizeFaultCode(faultCode), firstTextRecursive(document.getDocumentElement(), "faultstring", "FaultString", "Reason", "Text"));
+        } catch (Exception ignored) {
+            return new SoapFault("", "");
+        }
+    }
+
+    private String firstResponseText(String body, String... names) {
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            Document document = factory.newDocumentBuilder().parse(new InputSource(new StringReader(body)));
+            return firstTextRecursive(document.getDocumentElement(), names);
         } catch (Exception ignored) {
             return "";
         }
@@ -241,6 +329,21 @@ public class TbcDbiClient {
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (child instanceof Element childElement
+                && wanted.contains(localName(childElement).toLowerCase(Locale.ROOT))) {
+                return childElement.getTextContent() == null ? "" : childElement.getTextContent().trim();
+            }
+        }
+        return "";
+    }
+
+    private String firstTextRecursive(Element element, String... names) {
+        List<String> wanted = IntStream.range(0, names.length)
+            .mapToObj(index -> names[index].toLowerCase(Locale.ROOT))
+            .toList();
+        NodeList nodes = element.getElementsByTagName("*");
+        for (int i = 0; i < nodes.getLength(); i++) {
+            Node node = nodes.item(i);
+            if (node instanceof Element childElement
                 && wanted.contains(localName(childElement).toLowerCase(Locale.ROOT))) {
                 return childElement.getTextContent() == null ? "" : childElement.getTextContent().trim();
             }
@@ -296,19 +399,47 @@ public class TbcDbiClient {
         return "";
     }
 
-    private void validateConfig(CamoraProperties.TbcDbi config) {
+    private void validateConfig(CamoraProperties.TbcDbi config, boolean requireConfiguredPassword) {
         if (!config.isEnabled()) {
             throw new IllegalStateException("TBC DBI integration is disabled. Set CAMORA_TBC_DBI_ENABLED=true.");
         }
         require(config.getEndpoint(), "CAMORA_TBC_DBI_ENDPOINT");
         require(config.getUsername(), "CAMORA_TBC_DBI_USERNAME");
-        require(config.getPassword(), "CAMORA_TBC_DBI_PASSWORD");
+        if (requireConfiguredPassword) {
+            require(config.getPassword(), "CAMORA_TBC_DBI_PASSWORD");
+        }
         if (isBlank(config.getCertificatePath()) && isBlank(config.getCertificateBase64())) {
             throw new IllegalStateException("CAMORA_TBC_DBI_CERTIFICATE_PATH or CAMORA_TBC_DBI_CERTIFICATE_BASE64 is required");
         }
         require(config.getCertificatePassword(), "CAMORA_TBC_DBI_CERTIFICATE_PASSWORD");
         require(config.getAccountNumber(), "CAMORA_TBC_DBI_ACCOUNT_NUMBER");
         require(config.getCurrency(), "CAMORA_TBC_DBI_CURRENCY");
+    }
+
+    private void validatePasswordChangeInput(String newPassword, String currentPassword) {
+        if (isBlank(newPassword)) {
+            throw new IllegalArgumentException("New TBC password is required.");
+        }
+        if (newPassword.length() < 8
+            || !newPassword.matches(".*[A-Z].*")
+            || !newPassword.matches(".*[a-z].*")
+            || !newPassword.matches(".*\\d.*")
+            || !newPassword.matches(".*[^A-Za-z0-9].*")) {
+            throw new IllegalArgumentException("New TBC password must be at least 8 characters and include uppercase, lowercase, number, and symbol.");
+        }
+        if (newPassword.contains("&") || newPassword.contains("<")) {
+            throw new IllegalArgumentException("New TBC password cannot contain '&' or '<' because TBC rejects those XML characters.");
+        }
+        if (newPassword.equals(properties.getTbcDbi().getUsername())) {
+            throw new IllegalArgumentException("New TBC password cannot be the same as username.");
+        }
+        if (newPassword.equals(currentPassword)) {
+            throw new IllegalArgumentException("New TBC password cannot be the same as the current password.");
+        }
+    }
+
+    private String currentPassword(CamoraProperties.TbcDbi config) {
+        return isBlank(runtimePassword) ? config.getPassword() : runtimePassword;
     }
 
     private void require(String value, String name) {
@@ -352,5 +483,20 @@ public class TbcDbiClient {
             return "";
         }
         return value.length() <= 500 ? value : value.substring(0, 500);
+    }
+
+    private String normalizeFaultCode(String code) {
+        if (code == null || code.isBlank()) {
+            return "";
+        }
+        String normalized = code.trim();
+        int colon = normalized.lastIndexOf(':');
+        if (colon >= 0 && colon < normalized.length() - 1) {
+            normalized = normalized.substring(colon + 1);
+        }
+        return normalized.trim();
+    }
+
+    private record SoapFault(String code, String message) {
     }
 }

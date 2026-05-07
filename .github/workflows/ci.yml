@@ -5,6 +5,23 @@ on:
     branches: [main]
 
 jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+
+      - name: Filesystem vulnerability scan
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -36,6 +53,10 @@ jobs:
       - name: Install dependencies
         working-directory: frontend
         run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
 
       - name: Build
         working-directory: frontend

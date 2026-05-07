@@ -58,6 +58,25 @@ jobs:
         working-directory: backend
         run: mvn verify -B
 
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run frontend lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
   build-backend:
     needs: [vm-handshake, test]
     if: ${{ !inputs.rollback }}

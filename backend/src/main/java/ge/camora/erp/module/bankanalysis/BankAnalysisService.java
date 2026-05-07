@@ -20,6 +20,8 @@ import java.util.Map;
 public class BankAnalysisService {
 
     private static final String UNMAPPED = "Unmapped";
+    private static final String CREDIT = "CREDIT";
+    private static final String DEBIT = "DEBIT";
 
     private final TbcDbiClient tbcDbiClient;
     private final BogBusinessOnlineClient bogBusinessOnlineClient;
@@ -39,36 +41,62 @@ public class BankAnalysisService {
     }
 
     public BankAnalysisOverviewDto analyzeTbc(LocalDate dateFrom, LocalDate dateTo) {
-        if (dateTo.isBefore(dateFrom)) {
-            throw new IllegalArgumentException("dateTo must be on or after dateFrom");
-        }
-        List<BankTransactionMapping> mappings = configStore.getBankTransactionMappings();
-        List<AnalyzedTransaction> analyzed = tbcDbiClient.getAccountMovements(dateFrom, dateTo).stream()
-            .map(transaction -> analyzeTransaction(transaction, mappings))
-            .toList();
-
-        BigDecimal totalCredits = sum(analyzed.stream()
-            .filter(transaction -> transaction.transaction().direction().equals("CREDIT"))
-            .map(transaction -> transaction.transaction().amount())
-            .toList());
-        BigDecimal totalDebits = sum(analyzed.stream()
-            .filter(transaction -> transaction.transaction().direction().equals("DEBIT"))
-            .map(transaction -> transaction.transaction().amount())
-            .toList());
-
-        return new BankAnalysisOverviewDto(
+        return analyze(
             dateFrom,
             dateTo,
             "TBC",
             properties.getTbcDbi().getAccountNumber(),
             properties.getTbcDbi().getCurrency(),
+            properties.getTbcDbi().getLargeCreditThreshold(),
+            tbcDbiClient.getAccountMovements(dateFrom, dateTo)
+        );
+    }
+
+    public BankAnalysisOverviewDto analyzeBog(LocalDate dateFrom, LocalDate dateTo) {
+        return analyze(
+            dateFrom,
+            dateTo,
+            "BOG",
+            properties.getBogApi().getAccountNumber(),
+            properties.getBogApi().getCurrency(),
+            properties.getBogApi().getLargeCreditThreshold(),
+            bogBusinessOnlineClient.getStatement(dateFrom, dateTo)
+        );
+    }
+
+    private BankAnalysisOverviewDto analyze(
+        LocalDate dateFrom,
+        LocalDate dateTo,
+        String provider,
+        String accountNumber,
+        String currency,
+        BigDecimal largeCreditThreshold,
+        List<BankTransaction> transactions
+    ) {
+        if (dateTo.isBefore(dateFrom)) {
+            throw new IllegalArgumentException("dateTo must be on or after dateFrom");
+        }
+        List<BankTransactionMapping> mappings = configStore.getBankTransactionMappings();
+        List<AnalyzedTransaction> analyzed = transactions.stream()
+            .map(transaction -> analyzeTransaction(transaction, mappings))
+            .toList();
+
+        BigDecimal totalCredits = sumByDirection(analyzed, CREDIT);
+        BigDecimal totalDebits = sumByDirection(analyzed, DEBIT);
+
+        return new BankAnalysisOverviewDto(
+            dateFrom,
+            dateTo,
+            provider,
+            accountNumber,
+            currency,
             totalCredits,
             totalDebits,
             totalCredits.subtract(totalDebits),
             analyzed.size(),
             categoryTotals(analyzed),
-            unmappedGroups(analyzed, "CREDIT", properties.getTbcDbi().getLargeCreditThreshold()),
-            unmappedGroups(analyzed, "DEBIT", BigDecimal.ZERO),
+            unmappedGroups(analyzed, CREDIT, largeCreditThreshold),
+            unmappedGroups(analyzed, DEBIT, BigDecimal.ZERO),
             mappings,
             analyzed.stream()
                 .sorted(Comparator.comparing((AnalyzedTransaction row) -> row.transaction().date()).reversed())
@@ -77,43 +105,11 @@ public class BankAnalysisService {
         );
     }
 
-    public BankAnalysisOverviewDto analyzeBog(LocalDate dateFrom, LocalDate dateTo) {
-        if (dateTo.isBefore(dateFrom)) {
-            throw new IllegalArgumentException("dateTo must be on or after dateFrom");
-        }
-        List<BankTransactionMapping> mappings = configStore.getBankTransactionMappings();
-        List<AnalyzedTransaction> analyzed = bogBusinessOnlineClient.getStatement(dateFrom, dateTo).stream()
-            .map(transaction -> analyzeTransaction(transaction, mappings))
-            .toList();
-
-        BigDecimal totalCredits = sum(analyzed.stream()
-            .filter(transaction -> transaction.transaction().direction().equals("CREDIT"))
+    private BigDecimal sumByDirection(List<AnalyzedTransaction> transactions, String direction) {
+        return sum(transactions.stream()
+            .filter(transaction -> transaction.transaction().direction().equals(direction))
             .map(transaction -> transaction.transaction().amount())
             .toList());
-        BigDecimal totalDebits = sum(analyzed.stream()
-            .filter(transaction -> transaction.transaction().direction().equals("DEBIT"))
-            .map(transaction -> transaction.transaction().amount())
-            .toList());
-
-        return new BankAnalysisOverviewDto(
-            dateFrom,
-            dateTo,
-            "BOG",
-            properties.getBogApi().getAccountNumber(),
-            properties.getBogApi().getCurrency(),
-            totalCredits,
-            totalDebits,
-            totalCredits.subtract(totalDebits),
-            analyzed.size(),
-            categoryTotals(analyzed),
-            unmappedGroups(analyzed, "CREDIT", properties.getBogApi().getLargeCreditThreshold()),
-            unmappedGroups(analyzed, "DEBIT", BigDecimal.ZERO),
-            mappings,
-            analyzed.stream()
-                .sorted(Comparator.comparing((AnalyzedTransaction row) -> row.transaction().date()).reversed())
-                .map(this::toDto)
-                .toList()
-        );
     }
 
     private AnalyzedTransaction analyzeTransaction(BankTransaction transaction, List<BankTransactionMapping> mappings) {

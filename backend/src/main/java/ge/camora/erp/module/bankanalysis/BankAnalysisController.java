@@ -4,6 +4,8 @@ import ge.camora.erp.model.config.BankTransactionMapping;
 import ge.camora.erp.model.dto.ApiResponse;
 import ge.camora.erp.model.dto.BankAnalysisOverviewDto;
 import ge.camora.erp.model.dto.BankTransactionMappingRequest;
+import ge.camora.erp.model.dto.TbcPasswordChangeRequest;
+import ge.camora.erp.model.dto.TbcPasswordChangeResultDto;
 import ge.camora.erp.store.ConfigStore;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -24,10 +26,12 @@ import java.util.List;
 public class BankAnalysisController {
 
     private final BankAnalysisService bankAnalysisService;
+    private final TbcDbiClient tbcDbiClient;
     private final ConfigStore configStore;
 
-    public BankAnalysisController(BankAnalysisService bankAnalysisService, ConfigStore configStore) {
+    public BankAnalysisController(BankAnalysisService bankAnalysisService, TbcDbiClient tbcDbiClient, ConfigStore configStore) {
         this.bankAnalysisService = bankAnalysisService;
+        this.tbcDbiClient = tbcDbiClient;
         this.configStore = configStore;
     }
 
@@ -37,6 +41,18 @@ public class BankAnalysisController {
         @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
     ) {
         return ResponseEntity.ok(ApiResponse.ok(bankAnalysisService.analyzeTbc(dateFrom, dateTo)));
+    }
+
+    @PostMapping("/tbc/password-change")
+    public ResponseEntity<ApiResponse<TbcPasswordChangeResultDto>> changeTbcPassword(
+        @RequestBody TbcPasswordChangeRequest request
+    ) {
+        String message = tbcDbiClient.changePassword(request.otp(), request.newPassword(), request.currentPasswordOverride());
+        return ResponseEntity.ok(ApiResponse.ok(new TbcPasswordChangeResultDto(
+            message + " Update CAMORA_TBC_DBI_PASSWORD in Secret Manager before restarting or redeploying.",
+            "TBC_PASSWORD_CHANGED",
+            true
+        )));
     }
 
     @GetMapping("/bog")

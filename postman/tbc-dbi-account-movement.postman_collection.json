@@ -109,6 +109,61 @@
           }
         }
       ]
+    },
+    {
+      "name": "Camora - TBC DBI password change",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"otp\": \"{{tbc_dbi_password_change_otp}}\",\n  \"newPassword\": \"{{tbc_dbi_new_password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{camora_base_url}}{{camora_api_prefix}}/bank-analysis/tbc/password-change",
+          "host": [
+            "{{camora_base_url}}"
+          ],
+          "path": [
+            "{{camora_api_prefix}}",
+            "bank-analysis",
+            "tbc",
+            "password-change"
+          ]
+        },
+        "description": "Use only when Camora returns TBC_PASSWORD_CHANGE_REQUIRED. Do not persist OTP after the request. Update CAMORA_TBC_DBI_PASSWORD in Secret Manager after success."
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('HTTP status is 200', function () {",
+              "  pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Password change succeeded', function () {",
+              "  const body = pm.response.json();",
+              "  pm.expect(body.success).to.eql(true);",
+              "  pm.expect(body.data.secretManagerUpdateRequired).to.eql(true);",
+              "});"
+            ]
+          }
+        }
+      ]
     }
   ]
 }
