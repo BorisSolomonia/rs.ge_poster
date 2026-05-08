@@ -1,0 +1,58 @@
+title = "Camora ERP Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "camora-env-secret"
+description = "Camora environment variable containing a credential or certificate"
+regex = '''(?i)CAMORA_[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|CERTIFICATE|SERVICE_ACCOUNT_JSON|CLIENT_SECRET|API_KEY)[A-Z0-9_]*\s*=\s*["']?([^"'\s#]{6,})'''
+entropy = 2.5
+keywords = [
+  "CAMORA_",
+  "PASSWORD",
+  "SECRET",
+  "TOKEN",
+  "CERTIFICATE",
+  "SERVICE_ACCOUNT_JSON",
+  "CLIENT_SECRET",
+]
+tags = ["camora", "env", "secret"]
+
+[[rules]]
+id = "bank-account-env"
+description = "Bank account number in an environment variable"
+regex = '''(?i)CAMORA_[A-Z0-9_]*(ACCOUNT_NUMBER|IBAN)[A-Z0-9_]*\s*=\s*["']?(GE[0-9A-Z]{10,})'''
+keywords = ["ACCOUNT_NUMBER", "IBAN"]
+tags = ["bank", "pii"]
+
+[[rules]]
+id = "google-service-account-json-inline"
+description = "Inline Google service account JSON"
+regex = '''(?i)service_account.*private_key|private_key.*service_account'''
+keywords = ["service_account", "private_key"]
+tags = ["gcp", "service-account"]
+
+[[rules]]
+id = "postman-secret-value"
+description = "Postman environment or collection value that looks like a credential"
+regex = '''(?i)"key"\s*:\s*"(password|secret|token|client_secret|certificate_password|username|account_number)"[\s\S]{0,160}"value"\s*:\s*"[^"]{4,}"'''
+keywords = ["\"key\"", "\"value\"", "password", "secret", "token"]
+tags = ["postman", "secret"]
+
+[allowlist]
+description = "Repository allowlist for documented placeholders only"
+paths = [
+  '''(^|/)frontend/node_modules/''',
+  '''(^|/)backend/target/''',
+  '''(^|/)frontend/dist/''',
+  '''(^|/)\.m2repo/''',
+]
+regexes = [
+  '''CHANGE_ME''',
+  '''REDACTED''',
+  '''placeholder''',
+  '''example\.com''',
+  '''your-[a-z0-9-]+''',
+  '''BASE64_ENCODED_PFX''',
+]

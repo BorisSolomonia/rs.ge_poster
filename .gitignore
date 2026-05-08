@@ -1,11 +1,66 @@
-tones-488112-815340a08b7a.json
-docker/.env.secret.local
-backend/target/
-backend/.m2/
-frontend/node_modules/
-frontend/dist/
-.m2repo/
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+!*.env.example
+backend/.env
+frontend/.env
+docker/.env
+docker/.env.*
+!docker/.env.example
+
+# Certificates, keys, and service-account files
 *.pfx
 *.p12
 *.pem
 *.key
+*.keystore
+*.jks
+*service*account*.json
+*credentials*.json
+*credential*.json
+*secret*.json
+tones-*.json
+
+# Bank/Postman local exports
+postman/
+*.postman_environment.json
+*.postman_collection.json
+
+# Business and finance data exports
+*.xlsx
+*.xls
+*.csv
+*.tsv
+*.ods
+
+# Build outputs and dependency caches
+backend/target/
+backend/.m2/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+.m2repo/
+node_modules/
+dist/
+target/
+
+# Runtime logs and temporary reports
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+gitleaks-report.*
+gitleaks-staged.*
+.gitleaks-baseline.json
+
+# Local IDE and agent state
+.claude/
+.vscode/
+.idea/
+.cursor/
+
+# OS files
+.DS_Store
+Thumbs.db
