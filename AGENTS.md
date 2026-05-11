@@ -13,7 +13,7 @@ Backend code lives in `backend/src/main/java/ge/camora/erp`, with config in `bac
 
 ## Build, Test, and Development Commands
 
-Run from the repository root unless noted:
+Run from the repository root unless noted.
 
 - `npm run dev`: starts the Vite frontend on `http://localhost:5173`.
 - `npm run dev:backend`: runs the Spring Boot backend.
