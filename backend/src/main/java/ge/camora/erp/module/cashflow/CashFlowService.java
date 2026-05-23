@@ -21,6 +21,7 @@ import ge.camora.erp.model.dto.CashFlowUnmappedCategoryDto;
 import ge.camora.erp.model.dto.CashFlowWarningDto;
 import ge.camora.erp.model.dto.CashFlowWarningsResponseDto;
 import ge.camora.erp.store.ConfigStore;
+import ge.camora.erp.util.StringUtil;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -148,6 +149,7 @@ public class CashFlowService {
         if (snapshot.overview().months().isEmpty()) {
             refreshSnapshot();
         }
+        checkStaleness();
         if ((from == null || from.isBlank()) && (to == null || to.isBlank())) {
             return snapshot.overview();
         }
@@ -165,6 +167,7 @@ public class CashFlowService {
     }
 
     public List<CashFlowGroupDto> getCategories(String month) {
+        checkStaleness();
         CashFlowMonthDto monthDto = snapshot.overview().months().stream()
             .filter(item -> item.month().equals(month))
             .findFirst()
@@ -173,6 +176,7 @@ public class CashFlowService {
     }
 
     public CashFlowTransactionsResponseDto getTransactions(String month, String group, String category) {
+        checkStaleness();
         List<CashFlowTransactionDto> transactions = snapshot.rows().stream()
             .filter(row -> row.monthKey().equals(month))
             .filter(row -> group == null || group.isBlank() || row.group().name().equalsIgnoreCase(group))
@@ -184,6 +188,7 @@ public class CashFlowService {
     }
 
     public CashFlowWarningsResponseDto getWarnings(String month) {
+        checkStaleness();
         List<CashFlowWarningDto> warnings = snapshot.warnings().stream()
             .filter(warning -> month == null || month.isBlank() || month.equals(warning.month()))
             .toList();
@@ -211,6 +216,7 @@ public class CashFlowService {
     }
 
     public CashFlowCategoryDebugDto getCategoryDebug(String category, String from, String to) {
+        checkStaleness();
         String normalizedCategory = normalizeCategory(category);
         LocalDate fromDate = parseOverviewBoundary(from, true);
         LocalDate toDate = parseOverviewBoundary(to, false);
@@ -279,6 +285,12 @@ public class CashFlowService {
             months,
             debugRows
         );
+    }
+
+    private void checkStaleness() {
+        if (snapshot.successAt() != null && LocalDateTime.now().isAfter(snapshot.successAt().plusDays(1))) {
+            throw new IllegalStateException("Cash flow data is stale. Last successful sync was at " + snapshot.successAt());
+        }
     }
 
     private ParseResult parseRows(List<List<Object>> rawRows) {
@@ -1001,37 +1013,17 @@ public class CashFlowService {
     }
 
     private boolean isCloseToIncomeKeyword(String normalizedCategory) {
+        if (normalizedCategory.isBlank()) {
+            return false;
+        }
         return properties.getCashFlow().getIncomeKeywords().stream()
             .map(this::normalizeCategory)
             .filter(keyword -> !keyword.isBlank())
             .anyMatch(keyword ->
                 normalizedCategory.contains(keyword)
                     || keyword.contains(normalizedCategory)
-                    || levenshtein(normalizedCategory, keyword) <= 2
+                    || StringUtil.levenshtein(normalizedCategory, keyword) <= 2
             );
-    }
-
-    private int levenshtein(String left, String right) {
-        if (left.isBlank() || right.isBlank()) {
-            return Integer.MAX_VALUE;
-        }
-        int[][] dp = new int[left.length() + 1][right.length() + 1];
-        for (int i = 0; i <= left.length(); i++) {
-            dp[i][0] = i;
-        }
-        for (int j = 0; j <= right.length(); j++) {
-            dp[0][j] = j;
-        }
-        for (int i = 1; i <= left.length(); i++) {
-            for (int j = 1; j <= right.length(); j++) {
-                int cost = left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1;
-                dp[i][j] = Math.min(
-                    Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
-                    dp[i - 1][j - 1] + cost
-                );
-            }
-        }
-        return dp[left.length()][right.length()];
     }
 
     private record ParseResult(List<CashFlowLedgerRow> rows, List<CashFlowWarningDto> warnings) {

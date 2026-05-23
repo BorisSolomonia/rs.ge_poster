@@ -2,7 +2,6 @@ package ge.camora.erp.config;
 
 import ge.camora.erp.model.dto.ApiResponse;
 import ge.camora.erp.module.bankanalysis.BogApiException;
-import ge.camora.erp.module.bankanalysis.TbcDbiClient;
 import ge.camora.erp.module.ingestion.FileParsingException;
 import ge.camora.erp.module.bankanalysis.TbcDbiException;
 import ge.camora.erp.module.rsge.RsgeIntegrationException;
@@ -48,9 +47,9 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleTbcDbi(TbcDbiException ex) {
         log.error("TBC DBI error [{}]: {}", ex.getCode(), ex.getMessage(), ex);
         HttpStatus status = switch (ex.getCode()) {
-            case TbcDbiClient.PASSWORD_CHANGE_REQUIRED -> HttpStatus.CONFLICT;
-            case TbcDbiClient.INCORRECT_CREDENTIALS -> HttpStatus.UNAUTHORIZED;
-            case TbcDbiClient.USER_IS_BLOCKED -> HttpStatus.LOCKED;
+            case TbcDbiException.PASSWORD_CHANGE_REQUIRED -> HttpStatus.CONFLICT;
+            case TbcDbiException.INCORRECT_CREDENTIALS -> HttpStatus.UNAUTHORIZED;
+            case TbcDbiException.USER_IS_BLOCKED -> HttpStatus.LOCKED;
             default -> HttpStatus.BAD_GATEWAY;
         };
         return ResponseEntity.status(status).body(ApiResponse.error(ex.getCode(), ex.getMessage()));

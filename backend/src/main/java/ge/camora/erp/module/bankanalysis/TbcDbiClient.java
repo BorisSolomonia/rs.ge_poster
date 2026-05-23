@@ -38,9 +38,6 @@ import java.util.stream.IntStream;
 @Component
 public class TbcDbiClient {
 
-    public static final String PASSWORD_CHANGE_REQUIRED = "TBC_PASSWORD_CHANGE_REQUIRED";
-    public static final String INCORRECT_CREDENTIALS = "TBC_INCORRECT_CREDENTIALS";
-    public static final String USER_IS_BLOCKED = "TBC_USER_IS_BLOCKED";
     static final int FIRST_PAGE_INDEX = 0;
     private static final int MAX_PAGES_PER_REQUEST = 1000;
 
@@ -83,7 +80,7 @@ public class TbcDbiClient {
         String currentPassword = firstNonBlank(currentPasswordOverride, currentPassword(config));
         validateConfig(config, false);
         require(currentPassword, "Current TBC DBI password");
-        validatePasswordChangeInput(newPassword, currentPassword);
+        validatePasswordChangeInput(otp, newPassword, currentPassword);
         String response = postSoap(
             config,
             buildChangePasswordEnvelope(config, currentPassword, otp, newPassword),
@@ -113,7 +110,7 @@ public class TbcDbiClient {
             if (!fault.message().isBlank()) {
                 String code = fault.code().isBlank() ? "TBC_DBI_SOAP_FAULT" : "TBC_" + fault.code();
                 if ("CREDENTIALS_MUST_BE_CHANGED".equals(fault.code())) {
-                    throw new TbcDbiException(PASSWORD_CHANGE_REQUIRED, "TBC DBI password must be changed before fetching movements.");
+                    throw new TbcDbiException(TbcDbiException.PASSWORD_CHANGE_REQUIRED, "TBC DBI password must be changed before fetching movements.");
                 }
                 throw new TbcDbiException(code, "TBC DBI SOAP fault: " + fault.message());
             }
@@ -416,7 +413,10 @@ public class TbcDbiClient {
         require(config.getCurrency(), "CAMORA_TBC_DBI_CURRENCY");
     }
 
-    private void validatePasswordChangeInput(String newPassword, String currentPassword) {
+    private void validatePasswordChangeInput(String otp, String newPassword, String currentPassword) {
+        if (isBlank(otp)) {
+            throw new IllegalArgumentException("TBC Digipass/Nonce code is required for password change.");
+        }
         if (isBlank(newPassword)) {
             throw new IllegalArgumentException("New TBC password is required.");
         }

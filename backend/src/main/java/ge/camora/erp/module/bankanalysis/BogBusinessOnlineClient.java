@@ -42,7 +42,7 @@ public class BogBusinessOnlineClient {
         int totalCount = firstPage.path("TotalCount").asInt(count);
         long statementId = firstPage.path("Id").asLong(0);
         if (statementId > 0 && count > 0 && totalCount > count) {
-            int totalPages = (int) Math.ceil((double) totalCount / count);
+            int totalPages = (int) Math.ceil((double) totalCount / Math.max(1, config.getTake()));
             for (int page = 2; page <= totalPages; page++) {
                 JsonNode pageNode = getJson(statementPageUrl(config, statementId, page), accessToken, config);
                 transactions.addAll(parseRecords(pageNode, config));

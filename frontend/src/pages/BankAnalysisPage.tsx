@@ -281,14 +281,14 @@ function TbcPasswordChangePanel({
           <h2 className="text-lg font-semibold text-amber-950">TBC DBI password change</h2>
           {errorMessage ? <p className="mt-1 text-sm text-amber-900">{errorMessage}</p> : null}
           <p className="mt-1 text-sm text-amber-800">
-            TBC changes the password in one SOAP request: certificate on the HTTPS connection, username and current temporary DBI password in the SOAP header, optional token code as Nonce when TBC issued one, and the new permanent password in the body. If the saved temporary password is stale, enter it below as an override.
+            TBC changes the password in one SOAP request: certificate on the HTTPS connection, username and current temporary DBI password in the SOAP header, fresh Digipass/token code as Nonce, and the new permanent password in the body. If the saved temporary password is stale, enter it below as an override.
           </p>
           <form onSubmit={submit} className="mt-4 grid gap-3 md:grid-cols-[170px_minmax(220px,300px)_minmax(240px,320px)_auto] md:items-end">
-            <Field label="Token code / Nonce">
+            <Field label="Digipass / Nonce code">
               <input
                 className={inputClass}
                 autoComplete="one-time-code"
-                placeholder="Optional"
+                placeholder="Required"
                 value={otp}
                 onChange={(event) => setOtp(event.target.value)}
               />
@@ -314,7 +314,7 @@ function TbcPasswordChangePanel({
             </Field>
             <button
               className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-amber-700 px-4 text-sm font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
-              disabled={loading || blocked || !newPassword}
+              disabled={loading || blocked || !otp.trim() || !newPassword}
             >
               <KeyRound className="h-4 w-4" />
               {loading ? 'Changing...' : 'Change password'}

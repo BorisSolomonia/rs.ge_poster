@@ -12,6 +12,7 @@ import ge.camora.erp.model.config.StandaloneSupplier;
 import ge.camora.erp.model.config.SupplierMapping;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
 import ge.camora.erp.model.dto.SupplierMappingStatusView;
+import ge.camora.erp.util.StringUtil;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -164,11 +165,23 @@ public class ConfigStore {
 
     public void deleteSupplierMapping(String id) {
         lock.writeLock().lock();
+        List<SupplierMapping> previousSuppliers = new ArrayList<>(supplierMappings);
+        List<ProductMapping> previousProducts = new ArrayList<>(productMappings);
         try {
             supplierMappings.removeIf(m -> m.getId().equals(id));
             productMappings.removeIf(p -> p.getSupplierMappingId().equals(id));
             persistSupplierMappings();
-            persistProductMappings();
+            try {
+                persistProductMappings();
+            } catch (RuntimeException exception) {
+                supplierMappings = previousSuppliers;
+                persistSupplierMappings();
+                throw exception;
+            }
+        } catch (RuntimeException exception) {
+            supplierMappings = previousSuppliers;
+            productMappings = previousProducts;
+            throw exception;
         } finally {
             lock.writeLock().unlock();
         }
@@ -879,27 +892,7 @@ public class ConfigStore {
         if (candidate.contains(query)) {
             return 2;
         }
-        int distance = levenshtein(query, candidate);
+        int distance = StringUtil.levenshtein(query, candidate);
         return distance <= maxDistance ? 10 + distance : Integer.MAX_VALUE;
-    }
-
-    private int levenshtein(String left, String right) {
-        int[][] dp = new int[left.length() + 1][right.length() + 1];
-        for (int i = 0; i <= left.length(); i++) {
-            dp[i][0] = i;
-        }
-        for (int j = 0; j <= right.length(); j++) {
-            dp[0][j] = j;
-        }
-        for (int i = 1; i <= left.length(); i++) {
-            for (int j = 1; j <= right.length(); j++) {
-                int cost = left.charAt(i - 1) == right.charAt(j - 1) ? 0 : 1;
-                dp[i][j] = Math.min(
-                    Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
-                    dp[i - 1][j - 1] + cost
-                );
-            }
-        }
-        return dp[left.length()][right.length()];
     }
 }
