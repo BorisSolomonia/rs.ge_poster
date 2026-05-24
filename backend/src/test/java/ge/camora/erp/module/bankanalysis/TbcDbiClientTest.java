@@ -30,4 +30,101 @@ class TbcDbiClientTest {
         assertThat(envelope).contains("<myg:pageIndex>0</myg:pageIndex>");
         assertThat(envelope).contains("<myg:pageSize>700</myg:pageSize>");
     }
+
+    @Test
+    void parseMovementsWithNestedAmountStructure() {
+        String soapXml = """
+            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:myg="http://www.mygemini.com/schemas/mygemini">
+              <soapenv:Body>
+                <myg:GetAccountMovementsResponseIo>
+                  <myg:accountMovements>
+                    <myg:accountMovementIo>
+                      <myg:amount>
+                        <myg:amount>123.45</myg:amount>
+                        <myg:currency>GEL</myg:currency>
+                      </myg:amount>
+                      <myg:debitCredit>1</myg:debitCredit>
+                      <myg:docDate>2026-05-24</myg:docDate>
+                      <myg:partnerName>John Doe</myg:partnerName>
+                      <myg:description>Invoice payment</myg:description>
+                      <myg:documentKey>REF12345</myg:documentKey>
+                    </myg:accountMovementIo>
+                  </myg:accountMovements>
+                </myg:GetAccountMovementsResponseIo>
+              </soapenv:Body>
+            </soapenv:Envelope>
+            """;
+
+        CamoraProperties properties = new CamoraProperties();
+        CamoraProperties.TbcDbi config = properties.getTbcDbi();
+        config.setAccountNumber("GE00TB0000000000000000GEL");
+        config.setCurrency("GEL");
+
+        TbcDbiClient client = new TbcDbiClient(properties);
+        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config);
+
+        assertThat(transactions).hasSize(1);
+        BankTransaction tx = transactions.get(0);
+        assertThat(tx.amount()).isEqualByComparingTo("123.45");
+        assertThat(tx.direction()).isEqualTo("CREDIT");
+        assertThat(tx.date()).isEqualTo(LocalDate.of(2026, 5, 24));
+        assertThat(tx.counterparty()).isEqualTo("John Doe");
+        assertThat(tx.description()).isEqualTo("Invoice payment");
+        assertThat(tx.reference()).isEqualTo("REF12345");
+    }
+
+    @Test
+    void parseMovementsWithFlatAmountStructureAndSuffix() {
+        String soapXml = """
+            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:myg="http://www.mygemini.com/schemas/mygemini">
+              <soapenv:Body>
+                <myg:accountMovementIo>
+                  <myg:amount>99.99 GEL</myg:amount>
+                  <myg:debitCredit>0</myg:debitCredit>
+                  <myg:docDate>2026-05-20T12:00:00</myg:docDate>
+                  <myg:partnerName>Jane Smith</myg:partnerName>
+                  <myg:description>Monthly fee</myg:description>
+                  <myg:documentKey>REF999</myg:documentKey>
+                </myg:accountMovementIo>
+              </soapenv:Body>
+            </soapenv:Envelope>
+            """;
+
+        CamoraProperties properties = new CamoraProperties();
+        CamoraProperties.TbcDbi config = properties.getTbcDbi();
+        config.setAccountNumber("GE00TB0000000000000000GEL");
+        config.setCurrency("GEL");
+
+        TbcDbiClient client = new TbcDbiClient(properties);
+        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config);
+
+        assertThat(transactions).hasSize(1);
+        BankTransaction tx = transactions.get(0);
+        assertThat(tx.amount()).isEqualByComparingTo("99.99");
+        assertThat(tx.direction()).isEqualTo("DEBIT");
+        assertThat(tx.date()).isEqualTo(LocalDate.of(2026, 5, 20));
+        assertThat(tx.counterparty()).isEqualTo("Jane Smith");
+    }
+
+    @Test
+    void parseMovementsFiltersZeroAmounts() {
+        String soapXml = """
+            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:myg="http://www.mygemini.com/schemas/mygemini">
+              <soapenv:Body>
+                <myg:accountMovementIo>
+                  <myg:amount>0.00</myg:amount>
+                  <myg:debitCredit>1</myg:debitCredit>
+                  <myg:docDate>2026-05-24</myg:docDate>
+                </myg:accountMovementIo>
+              </soapenv:Body>
+            </soapenv:Envelope>
+            """;
+
+        CamoraProperties properties = new CamoraProperties();
+        CamoraProperties.TbcDbi config = properties.getTbcDbi();
+        TbcDbiClient client = new TbcDbiClient(properties);
+        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config);
+
+        assertThat(transactions).isEmpty();
+    }
 }

@@ -230,7 +230,7 @@ public class TbcDbiClient {
             );
     }
 
-    private List<BankTransaction> parseMovements(String body, CamoraProperties.TbcDbi config) {
+    List<BankTransaction> parseMovements(String body, CamoraProperties.TbcDbi config) {
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
             factory.setNamespaceAware(true);
@@ -318,6 +318,45 @@ public class TbcDbiClient {
         return !firstText(element, names).isBlank();
     }
 
+    private String getElementText(Element element) {
+        if (element == null) {
+            return "";
+        }
+        NodeList children = element.getChildNodes();
+        boolean hasElementChildren = false;
+        for (int i = 0; i < children.getLength(); i++) {
+            if (children.item(i) instanceof Element) {
+                hasElementChildren = true;
+                break;
+            }
+        }
+        if (!hasElementChildren) {
+            return element.getTextContent() == null ? "" : element.getTextContent().trim();
+        }
+        String selfName = localName(element);
+        for (int i = 0; i < children.getLength(); i++) {
+            if (children.item(i) instanceof Element childElement
+                && localName(childElement).equalsIgnoreCase(selfName)) {
+                return getElementText(childElement);
+            }
+        }
+        String[] commonTextNames = {"amount", "sum", "value", "text", "amountvalue"};
+        for (String name : commonTextNames) {
+            for (int i = 0; i < children.getLength(); i++) {
+                if (children.item(i) instanceof Element childElement
+                    && localName(childElement).equalsIgnoreCase(name)) {
+                    return getElementText(childElement);
+                }
+            }
+        }
+        for (int i = 0; i < children.getLength(); i++) {
+            if (children.item(i) instanceof Element childElement) {
+                return getElementText(childElement);
+            }
+        }
+        return element.getTextContent() == null ? "" : element.getTextContent().trim();
+    }
+
     private String firstText(Element element, String... names) {
         List<String> wanted = IntStream.range(0, names.length)
             .mapToObj(index -> names[index].toLowerCase(Locale.ROOT))
@@ -327,7 +366,7 @@ public class TbcDbiClient {
             Node child = children.item(i);
             if (child instanceof Element childElement
                 && wanted.contains(localName(childElement).toLowerCase(Locale.ROOT))) {
-                return childElement.getTextContent() == null ? "" : childElement.getTextContent().trim();
+                return getElementText(childElement);
             }
         }
         return "";
@@ -342,7 +381,7 @@ public class TbcDbiClient {
             Node node = nodes.item(i);
             if (node instanceof Element childElement
                 && wanted.contains(localName(childElement).toLowerCase(Locale.ROOT))) {
-                return childElement.getTextContent() == null ? "" : childElement.getTextContent().trim();
+                return getElementText(childElement);
             }
         }
         return "";
@@ -356,12 +395,17 @@ public class TbcDbiClient {
         if (value == null || value.isBlank()) {
             return BigDecimal.ZERO;
         }
-        String normalized = value.trim().replace(",", "");
-        try {
-            return new BigDecimal(normalized).abs();
-        } catch (NumberFormatException exception) {
-            return BigDecimal.ZERO;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("-?\\d+(?:[.,]\\d+)*").matcher(value);
+        if (matcher.find()) {
+            String match = matcher.group();
+            String normalized = match.replace(",", "");
+            try {
+                return new BigDecimal(normalized).abs();
+            } catch (NumberFormatException exception) {
+                return BigDecimal.ZERO;
+            }
         }
+        return BigDecimal.ZERO;
     }
 
     private LocalDate parseDate(String value) {
