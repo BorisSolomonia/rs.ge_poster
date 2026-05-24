@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
 import type React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertCircle, KeyRound, Save, Search } from 'lucide-react'
-import { changeTbcPassword, deleteBankMapping, getBogBankAnalysis, getTbcBankAnalysis, listBankMappings, saveBankMapping } from '../api/bank-analysis.api'
+import { AlertCircle, Save, Search } from 'lucide-react'
+import { deleteBankMapping, getBogBankAnalysis, getTbcBankAnalysis, listBankMappings, saveBankMapping } from '../api/bank-analysis.api'
 import { ApiClientError } from '../api/client'
 import { formatGel, getDefaultDateRange } from '../components/reconciliation/reconciliation.utils'
 import { env } from '../env'
@@ -18,11 +18,6 @@ export default function BankAnalysisPage() {
   const [provider, setProvider] = useState<BankProvider>('TBC')
   const [submittedRange, setSubmittedRange] = useState<{ provider: BankProvider; dateFrom: string; dateTo: string } | null>(null)
   const [mappingDrafts, setMappingDrafts] = useState<Record<string, string>>({})
-  const [otp, setOtp] = useState('')
-  const [newPassword, setNewPassword] = useState('')
-  const [currentPasswordOverride, setCurrentPasswordOverride] = useState('')
-  const [passwordChangeMessage, setPasswordChangeMessage] = useState<string | null>(null)
-  const [passwordChangeCode, setPasswordChangeCode] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   const analysisQuery = useQuery({
@@ -55,28 +50,10 @@ export default function BankAnalysisPage() {
     },
   })
 
-  const passwordChangeMutation = useMutation({
-    mutationFn: () => changeTbcPassword(otp.trim(), newPassword, currentPasswordOverride.trim() || undefined),
-    onMutate: () => {
-      setPasswordChangeMessage(null)
-      setPasswordChangeCode(null)
-    },
-    onSuccess: async (result) => {
-      setOtp('')
-      setNewPassword('')
-      setCurrentPasswordOverride('')
-      setPasswordChangeMessage(result.message)
-      setPasswordChangeCode(result.code)
-      await queryClient.invalidateQueries({ queryKey: ['bank-analysis'] })
-      if (submittedRange?.provider === 'TBC') {
-        await analysisQuery.refetch()
-      }
-    },
-  })
+
 
   const overview = analysisQuery.data
-  const passwordChangeRequired = analysisQuery.error instanceof ApiClientError
-    && analysisQuery.error.code === 'TBC_PASSWORD_CHANGE_REQUIRED'
+
   const groupedTotals = useMemo(() => {
     const totals = overview?.categoryTotals ?? []
     return {
@@ -137,25 +114,7 @@ export default function BankAnalysisPage() {
           </form>
         </div>
       </section>
-
-      <TbcPasswordChangePanel
-        errorMessage={passwordChangeRequired ? analysisQuery.error?.message : undefined}
-        otp={otp}
-        setOtp={setOtp}
-        newPassword={newPassword}
-        setNewPassword={setNewPassword}
-        currentPasswordOverride={currentPasswordOverride}
-        setCurrentPasswordOverride={setCurrentPasswordOverride}
-        onSubmit={() => passwordChangeMutation.mutate()}
-        loading={passwordChangeMutation.isPending}
-        error={passwordChangeMutation.error instanceof ApiClientError ? passwordChangeMutation.error.message : passwordChangeMutation.error?.message}
-        errorCode={passwordChangeMutation.error instanceof ApiClientError ? passwordChangeMutation.error.code : undefined}
-        errorTimestamp={passwordChangeMutation.error instanceof ApiClientError ? passwordChangeMutation.error.timestamp : undefined}
-        success={passwordChangeMessage}
-        successCode={passwordChangeCode}
-      />
-
-      {analysisQuery.error && !passwordChangeRequired ? (
+      {analysisQuery.error ? (
         <ApiErrorNotice error={analysisQuery.error} provider={submittedRange?.provider} />
       ) : null}
 
@@ -232,111 +191,6 @@ export default function BankAnalysisPage() {
         deleting={deleteMappingMutation.isPending}
       />
     </div>
-  )
-}
-
-function TbcPasswordChangePanel({
-  errorMessage,
-  otp,
-  setOtp,
-  newPassword,
-  setNewPassword,
-  currentPasswordOverride,
-  setCurrentPasswordOverride,
-  onSubmit,
-  loading,
-  error,
-  errorCode,
-  errorTimestamp,
-  success,
-  successCode,
-}: {
-  errorMessage?: string
-  otp: string
-  setOtp: (value: string) => void
-  newPassword: string
-  setNewPassword: (value: string) => void
-  currentPasswordOverride: string
-  setCurrentPasswordOverride: (value: string) => void
-  onSubmit: () => void
-  loading: boolean
-  error?: string
-  errorCode?: string
-  errorTimestamp?: string
-  success: string | null
-  successCode: string | null
-}) {
-  function submit(event: React.FormEvent) {
-    event.preventDefault()
-    onSubmit()
-  }
-
-  const blocked = errorCode === 'TBC_USER_IS_BLOCKED'
-
-  return (
-    <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-      <div className="flex items-start gap-3">
-        <KeyRound className="mt-1 h-5 w-5 flex-shrink-0 text-amber-700" />
-        <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-semibold text-amber-950">TBC DBI password change</h2>
-          {errorMessage ? <p className="mt-1 text-sm text-amber-900">{errorMessage}</p> : null}
-          <p className="mt-1 text-sm text-amber-800">
-            TBC changes the password in one SOAP request: certificate on the HTTPS connection, username and current temporary DBI password in the SOAP header, fresh Digipass/token code as Nonce, and the new permanent password in the body. If the saved temporary password is stale, enter it below as an override.
-          </p>
-          <form onSubmit={submit} className="mt-4 grid gap-3 md:grid-cols-[170px_minmax(220px,300px)_minmax(240px,320px)_auto] md:items-end">
-            <Field label="Digipass / Nonce code">
-              <input
-                className={inputClass}
-                autoComplete="one-time-code"
-                placeholder="Required"
-                value={otp}
-                onChange={(event) => setOtp(event.target.value)}
-              />
-            </Field>
-            <Field label="Temporary/current DBI password">
-              <input
-                className={inputClass}
-                type="password"
-                autoComplete="current-password"
-                placeholder="Optional if saved"
-                value={currentPasswordOverride}
-                onChange={(event) => setCurrentPasswordOverride(event.target.value)}
-              />
-            </Field>
-            <Field label="New DBI password">
-              <input
-                className={inputClass}
-                type="password"
-                autoComplete="new-password"
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-              />
-            </Field>
-            <button
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-amber-700 px-4 text-sm font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
-              disabled={loading || blocked || !otp.trim() || !newPassword}
-            >
-              <KeyRound className="h-4 w-4" />
-              {loading ? 'Changing...' : 'Change password'}
-            </button>
-          </form>
-          {error ? (
-            <div className="mt-3 rounded-lg border border-red-200 bg-white/70 p-3 text-sm text-red-800">
-              {errorCode ? <p className="font-semibold">{errorCode}</p> : null}
-              <p>{error}</p>
-              {errorTimestamp ? <p className="mt-1 text-xs text-red-700">Backend timestamp: {errorTimestamp}</p> : null}
-              {blocked ? <p className="mt-1">Stop retrying until TBC unblocks or resets this DBI user.</p> : null}
-            </div>
-          ) : null}
-          {success ? (
-            <div className="mt-3 rounded-lg border border-emerald-200 bg-white/70 p-3 text-sm text-emerald-800">
-              {successCode ? <p className="font-semibold">{successCode}</p> : null}
-              <p>{success}</p>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </section>
   )
 }
 
