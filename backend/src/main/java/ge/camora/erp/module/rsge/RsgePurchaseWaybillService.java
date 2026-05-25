@@ -99,7 +99,9 @@ public class RsgePurchaseWaybillService {
                 MoneyUtil.ZERO,
                 MoneyUtil.ZERO,
                 total,
-                recordDate
+                recordDate,
+                sellerTin == null ? "" : sellerTin,
+                supplierName
             ));
         }
 

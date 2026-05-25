@@ -281,7 +281,7 @@ public class TbcDbiClient {
             currency,
             accountNumber,
             counterparty,
-            "",
+            firstText(element, "partnerTaxCode", "partnerInn", "counterpartyTaxCode", "counterpartyInn", "taxCode"),
             firstText(element, "partnerAccount", "recipientAccount", "payerAccount", "beneficiaryAccount", "senderAccount"),
             description,
             reference,

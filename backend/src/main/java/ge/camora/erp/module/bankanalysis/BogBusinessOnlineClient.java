@@ -142,7 +142,7 @@ public class BogBusinessOnlineClient {
         }
     }
 
-    private List<BankTransaction> parseRecords(JsonNode response, CamoraProperties.BogApi config) {
+    List<BankTransaction> parseRecords(JsonNode response, CamoraProperties.BogApi config) {
         List<BankTransaction> transactions = new ArrayList<>();
         JsonNode records = response.path("Records");
         if (!records.isArray()) {

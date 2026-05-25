@@ -74,6 +74,40 @@ class TbcDbiClientTest {
     }
 
     @Test
+    void parseMovementsUsesPartnerTaxCodeAsCounterpartyInn() {
+        String soapXml = """
+            <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns2="http://www.mygemini.com/schemas/mygemini">
+              <soapenv:Body>
+                <ns2:accountMovementIo>
+                  <ns2:amount>200.00</ns2:amount>
+                  <ns2:debitCredit>0</ns2:debitCredit>
+                  <ns2:docDate>2026-05-20</ns2:docDate>
+                  <ns2:partnerName>Supplier X</ns2:partnerName>
+                  <ns2:partnerTaxCode>123456789</ns2:partnerTaxCode>
+                  <ns2:partnerAccount>GE00TB0000000000000001GEL</ns2:partnerAccount>
+                  <ns2:description>Supplier payment</ns2:description>
+                  <ns2:documentKey>REF-TAX</ns2:documentKey>
+                </ns2:accountMovementIo>
+              </soapenv:Body>
+            </soapenv:Envelope>
+            """;
+
+        CamoraProperties properties = new CamoraProperties();
+        CamoraProperties.TbcDbi config = properties.getTbcDbi();
+        config.setAccountNumber("GE00TB0000000000000000GEL");
+        config.setCurrency("GEL");
+
+        TbcDbiClient client = new TbcDbiClient(properties);
+        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config);
+
+        assertThat(transactions).hasSize(1);
+        BankTransaction tx = transactions.get(0);
+        assertThat(tx.direction()).isEqualTo("DEBIT");
+        assertThat(tx.counterpartyInn()).isEqualTo("123456789");
+        assertThat(tx.counterpartyAccount()).isEqualTo("GE00TB0000000000000001GEL");
+    }
+
+    @Test
     void parseMovementsWithFlatAmountStructureAndSuffix() {
         String soapXml = """
             <soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:myg="http://www.mygemini.com/schemas/mygemini">

@@ -60,6 +60,43 @@ class SupplierDebtServiceTest {
     }
 
     @Test
+    void matchesPurchasesToBankDebitsBySellerTinAndBeneficiaryInn() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchaseWithSellerTin("WB-1", "Supplier X", "123456789", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X Display Name", "123456789")
+        );
+
+        var result = service.analyze(from, to);
+
+        assertThat(result.suppliers()).hasSize(1);
+        assertThat(result.suppliers().get(0).supplierKey()).isEqualTo("tin:123456789");
+        assertThat(result.suppliers().get(0).bogPaidTotal()).isEqualByComparingTo("300.00");
+        assertThat(result.unmatchedPaymentCount()).isZero();
+    }
+
+    @Test
+    void doesNotAutoMatchSameNameWithDifferentTaxCode() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchaseWithSellerTin("WB-1", "Supplier X", "123456789", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X", "987654321")
+        );
+
+        var result = service.analyze(from, to);
+
+        assertThat(result.suppliers().get(0).debtLeft()).isEqualByComparingTo("599.00");
+        assertThat(result.unmatchedPaymentCount()).isEqualTo(1);
+        assertThat(result.unmatchedPaymentTotal()).isEqualByComparingTo("300.00");
+    }
+
+    @Test
     void excludesUnmatchedBogDebitsFromSupplierDebt() {
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 1, 31);
@@ -227,6 +264,21 @@ class SupplierDebtServiceTest {
             BigDecimal.ZERO,
             new BigDecimal(amount),
             LocalDateTime.of(date, java.time.LocalTime.NOON)
+        );
+    }
+
+    private RsgeRecord purchaseWithSellerTin(String waybill, String supplierName, String sellerTin, String amount, LocalDate date) {
+        return new RsgeRecord(
+            waybill,
+            supplierName,
+            "",
+            "",
+            BigDecimal.ZERO,
+            BigDecimal.ZERO,
+            new BigDecimal(amount),
+            LocalDateTime.of(date, java.time.LocalTime.NOON),
+            sellerTin,
+            supplierName
         );
     }
 

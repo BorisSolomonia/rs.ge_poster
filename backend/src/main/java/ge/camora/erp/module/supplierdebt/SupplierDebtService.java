@@ -243,7 +243,7 @@ public class SupplierDebtService {
         List<SupplierDebtSourceStatusDto> statuses = new ArrayList<>();
         BigDecimal purchaseSourceTotal = BigDecimal.ZERO;
         for (RsgeRecord record : purchaseSource.records()) {
-            SupplierIdentity identity = supplierIdentity(record.supplierRaw());
+            SupplierIdentity identity = supplierIdentity(record);
             SupplierBucket bucket = suppliers.computeIfAbsent(identity.key(), ignored -> new SupplierBucket(identity));
             BigDecimal amount = MoneyUtil.round(record.totalPrice());
             purchaseSourceTotal = purchaseSourceTotal.add(amount);
@@ -448,19 +448,6 @@ public class SupplierDebtService {
             }
         }
 
-        String counterparty = ConfigStore.normalizeSalesKey(transaction.counterparty());
-        if (!counterparty.isBlank()) {
-            for (SupplierBucket bucket : suppliers.values()) {
-                String supplierName = ConfigStore.normalizeSalesKey(bucket.identity.name());
-                if (!supplierName.isBlank()
-                    && (counterparty.equals(supplierName)
-                    || counterparty.contains(supplierName)
-                    || supplierName.contains(counterparty))) {
-                    return new PaymentMatch(bucket, "matched supplier name");
-                }
-            }
-        }
-
         String searchText = ConfigStore.normalizeSalesKey(String.join(" ",
             safe(transaction.counterparty()),
             safe(transaction.counterpartyInn()),
@@ -470,6 +457,23 @@ public class SupplierDebtService {
         ));
         for (SupplierPaymentMapping mapping : mappings) {
             if (!provider.equalsIgnoreCase(mapping.getProvider())) {
+                continue;
+            }
+            String mappingTaxCode = normalizeTin(mapping.getMatchText());
+            if (!normalizedInn.isBlank() && !mappingTaxCode.isBlank() && !normalizedInn.equals(mappingTaxCode)) {
+                continue;
+            }
+            if (!normalizedInn.isBlank() && !mappingTaxCode.isBlank()) {
+                SupplierBucket bucket = suppliers.computeIfAbsent(mapping.getSupplierKey(), ignored ->
+                    new SupplierBucket(new SupplierIdentity(
+                        mapping.getSupplierKey(),
+                        normalizeTin(mapping.getSupplierTin()),
+                        blankTo(mapping.getSupplierName(), mapping.getSupplierKey())
+                    ))
+                );
+                return new PaymentMatch(bucket, "matched saved tax-code mapping");
+            }
+            if (!normalizedInn.isBlank()) {
                 continue;
             }
             if (!mapping.getNormalizedMatchText().isBlank()
@@ -500,6 +504,16 @@ public class SupplierDebtService {
             transaction.reference(),
             matchReason
         );
+    }
+
+    private SupplierIdentity supplierIdentity(RsgeRecord record) {
+        SupplierIdentity rawIdentity = supplierIdentity(record.supplierRaw());
+        String sellerTin = normalizeTin(record.supplierTin());
+        if (sellerTin.isBlank()) {
+            return rawIdentity;
+        }
+        String sellerName = blankTo(record.supplierName(), rawIdentity.name());
+        return new SupplierIdentity("tin:" + sellerTin, sellerTin, sellerName);
     }
 
     private SupplierIdentity supplierIdentity(String rawSupplier) {
