@@ -80,6 +80,9 @@ camora:
       comment: "${CAMORA_CASH_FLOW_COL_COMMENT:16}"
       full-date: "${CAMORA_CASH_FLOW_COL_FULL_DATE:17}"
       validation-flag: "${CAMORA_CASH_FLOW_COL_VALIDATION_FLAG:18}"
+  supplier-debt:
+    source-cache-ttl-minutes: "${CAMORA_SUPPLIER_DEBT_SOURCE_CACHE_TTL_MINUTES:15}"
+    maximum-source-cache-size: "${CAMORA_SUPPLIER_DEBT_SOURCE_CACHE_MAX_SIZE:32}"
   tbc-dbi:
     enabled: "${CAMORA_TBC_DBI_ENABLED:false}"
     endpoint: "${CAMORA_TBC_DBI_ENDPOINT:https://secdbi.tbconline.ge/dbi/dbiService}"

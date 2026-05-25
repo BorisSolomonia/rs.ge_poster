@@ -18,6 +18,7 @@ public class CamoraProperties {
     private final Reconciliation reconciliation = new Reconciliation();
     private final SalesAnalysis salesAnalysis = new SalesAnalysis();
     private final CashFlow cashFlow = new CashFlow();
+    private final SupplierDebt supplierDebt = new SupplierDebt();
     private final TbcDbi tbcDbi = new TbcDbi();
     private final BogApi bogApi = new BogApi();
     private final RsgeApi rsgeApi = new RsgeApi();
@@ -69,6 +70,10 @@ public class CamoraProperties {
 
     public CashFlow getCashFlow() {
         return cashFlow;
+    }
+
+    public SupplierDebt getSupplierDebt() {
+        return supplierDebt;
     }
 
     public TbcDbi getTbcDbi() {
@@ -476,6 +481,27 @@ public class CamoraProperties {
 
         public void setDividendKeywords(List<String> dividendKeywords) {
             this.dividendKeywords = dividendKeywords;
+        }
+    }
+
+    public static class SupplierDebt {
+        private long sourceCacheTtlMinutes;
+        private long maximumSourceCacheSize;
+
+        public long getSourceCacheTtlMinutes() {
+            return sourceCacheTtlMinutes;
+        }
+
+        public void setSourceCacheTtlMinutes(long sourceCacheTtlMinutes) {
+            this.sourceCacheTtlMinutes = sourceCacheTtlMinutes;
+        }
+
+        public long getMaximumSourceCacheSize() {
+            return maximumSourceCacheSize;
+        }
+
+        public void setMaximumSourceCacheSize(long maximumSourceCacheSize) {
+            this.maximumSourceCacheSize = maximumSourceCacheSize;
         }
     }
 

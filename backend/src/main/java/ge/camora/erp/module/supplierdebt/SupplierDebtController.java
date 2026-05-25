@@ -36,9 +36,10 @@ public class SupplierDebtController {
     @GetMapping
     public ResponseEntity<ApiResponse<SupplierDebtOverviewDto>> overview(
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
+        @RequestParam(defaultValue = "false") boolean refreshSources
     ) {
-        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.analyze(dateFrom, dateTo)));
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.analyze(dateFrom, dateTo, refreshSources)));
     }
 
     @GetMapping("/cash-payments")

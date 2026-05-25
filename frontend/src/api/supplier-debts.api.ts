@@ -10,16 +10,21 @@ import type {
 
 const BASE = `${env.apiPrefix}/supplier-debts`
 
-function dateParams(dateFrom?: string, dateTo?: string) {
+function dateParams(dateFrom?: string, dateTo?: string, refreshSources?: boolean) {
   return {
     ...(dateFrom ? { dateFrom } : {}),
     ...(dateTo ? { dateTo } : {}),
+    ...(refreshSources ? { refreshSources: true } : {}),
   }
 }
 
-export async function getSupplierDebtOverview(dateFrom?: string, dateTo?: string): Promise<SupplierDebtOverview> {
+export async function getSupplierDebtOverview(
+  dateFrom?: string,
+  dateTo?: string,
+  refreshSources = false,
+): Promise<SupplierDebtOverview> {
   const res = await client.get<ApiResponse<SupplierDebtOverview>>(BASE, {
-    params: dateParams(dateFrom, dateTo),
+    params: dateParams(dateFrom, dateTo, refreshSources),
   })
   return unwrapData(res)
 }

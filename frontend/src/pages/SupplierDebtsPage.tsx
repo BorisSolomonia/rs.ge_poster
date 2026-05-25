@@ -35,10 +35,18 @@ export default function SupplierDebtsPage() {
     amount: '',
     note: '',
   })
+  const debtQueryKey = ['supplier-debts', dateFrom || 'default-opening-date', dateTo || 'today'] as const
 
   const debtQuery = useQuery({
-    queryKey: ['supplier-debts', dateFrom || 'default-opening-date', dateTo || 'today'],
+    queryKey: debtQueryKey,
     queryFn: () => getSupplierDebtOverview(dateFrom || undefined, dateTo || undefined),
+  })
+
+  const sourceRefreshMutation = useMutation({
+    mutationFn: () => getSupplierDebtOverview(dateFrom || undefined, dateTo || undefined, true),
+    onSuccess: (data) => {
+      queryClient.setQueryData(debtQueryKey, data)
+    },
   })
 
   const saveMappingMutation = useMutation({
@@ -89,6 +97,8 @@ export default function SupplierDebtsPage() {
   const selectedCashSupplier = suppliers.find((supplier) => supplier.supplierKey === cashForm.supplierKey)
   const cashAmount = Number(cashForm.amount)
   const canSaveCash = Boolean(selectedCashSupplier && cashForm.date && Number.isFinite(cashAmount) && cashAmount > 0)
+  const loadingSources = debtQuery.isFetching || sourceRefreshMutation.isPending
+  const loadError = sourceRefreshMutation.error instanceof Error ? sourceRefreshMutation.error : debtQuery.error
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-6">
@@ -122,21 +132,21 @@ export default function SupplierDebtsPage() {
             </div>
             <button
               type="button"
-              onClick={() => debtQuery.refetch()}
-              disabled={debtQuery.isFetching}
+              onClick={() => sourceRefreshMutation.mutate()}
+              disabled={loadingSources}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-sky-300 px-4 text-sm font-black text-slate-950 transition hover:bg-sky-200 disabled:cursor-wait disabled:opacity-70"
             >
-              <RefreshCcw className={`h-4 w-4 ${debtQuery.isFetching ? 'animate-spin' : ''}`} />
-              Refresh Creditors
+              <RefreshCcw className={`h-4 w-4 ${loadingSources ? 'animate-spin' : ''}`} />
+              Refresh Bank/RS.ge Sources
             </button>
           </div>
         </div>
       </section>
 
-      {debtQuery.error instanceof Error ? (
+      {loadError instanceof Error ? (
         <div className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
           <AlertCircle className="h-5 w-5 flex-shrink-0" />
-          {debtQuery.error.message}
+          {loadError.message}
         </div>
       ) : null}
 
@@ -154,7 +164,7 @@ export default function SupplierDebtsPage() {
                     {overview.supplierCount} suppliers from {overview.dateFrom} to {overview.dateTo}
                   </p>
                 </div>
-                {debtQuery.isFetching ? <span className="text-sm font-semibold text-slate-500">Refreshing...</span> : null}
+                {loadingSources ? <span className="text-sm font-semibold text-slate-500">Refreshing...</span> : null}
               </div>
 
               <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-100">
@@ -262,7 +272,7 @@ function SourceStatusRail({ overview }: { overview: SupplierDebtOverview }) {
             </div>
             <p className="mt-2 text-xl font-black tabular-nums">{formatGel(status.total)}</p>
             <p className="mt-1 text-xs font-semibold opacity-75">{status.recordCount} records</p>
-            {!ok && status.message ? <p className="mt-2 line-clamp-2 text-xs font-semibold">{status.message}</p> : null}
+            {status.message ? <p className="mt-2 line-clamp-2 text-xs font-semibold">{status.message}</p> : null}
           </div>
         )
       })}

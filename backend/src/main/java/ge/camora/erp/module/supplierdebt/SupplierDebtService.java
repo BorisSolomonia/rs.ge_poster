@@ -1,5 +1,7 @@
 package ge.camora.erp.module.supplierdebt;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
@@ -24,6 +26,9 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -31,6 +36,7 @@ import java.util.regex.Pattern;
 public class SupplierDebtService {
 
     private static final Pattern RAW_SUPPLIER_PATTERN = Pattern.compile("^\\((\\d+)\\)\\s*(.+)$");
+    private static final String RSGE = "RSGE";
     private static final String BOG = "BOG";
     private static final String TBC = "TBC";
     private static final String CASH = "CASH";
@@ -40,6 +46,9 @@ public class SupplierDebtService {
     private final TbcDbiClient tbcDbiClient;
     private final ConfigStore configStore;
     private final CamoraProperties properties;
+    private final Cache<RangeKey, List<RsgeRecord>> purchaseCache;
+    private final Cache<RangeKey, List<BankTransaction>> bogTransactionCache;
+    private final Cache<RangeKey, List<BankTransaction>> tbcTransactionCache;
 
     public SupplierDebtService(
         RsgePurchaseWaybillService rsgePurchaseWaybillService,
@@ -53,6 +62,11 @@ public class SupplierDebtService {
         this.tbcDbiClient = tbcDbiClient;
         this.configStore = configStore;
         this.properties = properties;
+        long cacheTtlMinutes = Math.max(1, properties.getSupplierDebt().getSourceCacheTtlMinutes());
+        long maximumCacheSize = Math.max(1, properties.getSupplierDebt().getMaximumSourceCacheSize());
+        this.purchaseCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
+        this.bogTransactionCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
+        this.tbcTransactionCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
     }
 
     public LocalDate defaultDateFrom() {
@@ -64,6 +78,10 @@ public class SupplierDebtService {
     }
 
     public SupplierDebtOverviewDto analyze(LocalDate dateFrom, LocalDate dateTo) {
+        return analyze(dateFrom, dateTo, false);
+    }
+
+    public SupplierDebtOverviewDto analyze(LocalDate dateFrom, LocalDate dateTo, boolean refreshSources) {
         if (dateFrom == null) {
             dateFrom = defaultDateFrom();
         }
@@ -74,9 +92,28 @@ public class SupplierDebtService {
             throw new IllegalArgumentException("dateTo must be on or after dateFrom");
         }
 
+        RangeKey range = new RangeKey(dateFrom, dateTo);
+        if (refreshSources) {
+            invalidateSourceCaches(range);
+        }
+
+        CompletableFuture<SourceFetchResult<RsgeRecord>> purchaseFuture = CompletableFuture.supplyAsync(() ->
+            fetchSource(RSGE, purchaseCache, range, () -> rsgePurchaseWaybillService.fetchPurchaseRecords(range.dateFrom(), range.dateTo()))
+        );
+        CompletableFuture<SourceFetchResult<BankTransaction>> bogFuture = CompletableFuture.supplyAsync(() ->
+            fetchSource(BOG, bogTransactionCache, range, () -> bogBusinessOnlineClient.getStatement(range.dateFrom(), range.dateTo()))
+        );
+        CompletableFuture<SourceFetchResult<BankTransaction>> tbcFuture = CompletableFuture.supplyAsync(() ->
+            fetchSource(TBC, tbcTransactionCache, range, () -> tbcDbiClient.getAccountMovements(range.dateFrom(), range.dateTo()))
+        );
+
+        SourceFetchResult<RsgeRecord> purchaseSource = purchaseFuture.join();
+        SourceFetchResult<BankTransaction> bogSource = bogFuture.join();
+        SourceFetchResult<BankTransaction> tbcSource = tbcFuture.join();
+
         Map<String, SupplierBucket> suppliers = new LinkedHashMap<>();
         List<SupplierDebtSourceStatusDto> statuses = new ArrayList<>();
-        List<RsgeRecord> purchaseRecords = rsgePurchaseWaybillService.fetchPurchaseRecords(dateFrom, dateTo);
+        List<RsgeRecord> purchaseRecords = purchaseSource.records();
         BigDecimal purchaseSourceTotal = BigDecimal.ZERO;
         for (RsgeRecord record : purchaseRecords) {
             SupplierIdentity identity = supplierIdentity(record.supplierRaw());
@@ -91,12 +128,14 @@ public class SupplierDebtService {
                 identity.name()
             ));
         }
-        statuses.add(success("RSGE", purchaseRecords.size(), purchaseSourceTotal));
+        statuses.add(purchaseSource.failed()
+            ? failed(RSGE, purchaseSource.errorMessage())
+            : success(RSGE, purchaseRecords.size(), purchaseSourceTotal, purchaseSource.cached()));
 
         List<SupplierPaymentMapping> mappings = configStore.getSupplierPaymentMappings();
         List<SupplierDebtPaymentDto> unmatchedPayments = new ArrayList<>();
-        addBankPayments(BOG, dateFrom, dateTo, suppliers, mappings, unmatchedPayments, statuses);
-        addBankPayments(TBC, dateFrom, dateTo, suppliers, mappings, unmatchedPayments, statuses);
+        addBankPayments(bogSource, suppliers, mappings, unmatchedPayments, statuses);
+        addBankPayments(tbcSource, suppliers, mappings, unmatchedPayments, statuses);
         addCashPayments(dateFrom, dateTo, suppliers, statuses);
 
         List<SupplierDebtRowDto> rows = suppliers.values().stream()
@@ -135,38 +174,34 @@ public class SupplierDebtService {
     }
 
     private void addBankPayments(
-        String provider,
-        LocalDate dateFrom,
-        LocalDate dateTo,
+        SourceFetchResult<BankTransaction> source,
         Map<String, SupplierBucket> suppliers,
         List<SupplierPaymentMapping> mappings,
         List<SupplierDebtPaymentDto> unmatchedPayments,
         List<SupplierDebtSourceStatusDto> statuses
     ) {
-        try {
-            List<BankTransaction> transactions = provider.equals(BOG)
-                ? bogBusinessOnlineClient.getStatement(dateFrom, dateTo)
-                : tbcDbiClient.getAccountMovements(dateFrom, dateTo);
-            int debitCount = 0;
-            BigDecimal debitTotal = BigDecimal.ZERO;
-            for (BankTransaction transaction : transactions) {
-                if (!"DEBIT".equals(transaction.direction()) || transaction.amount().compareTo(BigDecimal.ZERO) <= 0) {
-                    continue;
-                }
-                debitCount++;
-                debitTotal = debitTotal.add(MoneyUtil.round(transaction.amount()));
-                PaymentMatch match = matchPayment(provider, transaction, suppliers, mappings);
-                SupplierDebtPaymentDto payment = toPaymentDto(provider, transaction, match.reason());
-                if (match.bucket() == null) {
-                    unmatchedPayments.add(payment);
-                } else {
-                    match.bucket().addPayment(payment);
-                }
-            }
-            statuses.add(success(provider, debitCount, debitTotal));
-        } catch (RuntimeException exception) {
-            statuses.add(failed(provider, exception.getMessage()));
+        if (source.failed()) {
+            statuses.add(failed(source.source(), source.errorMessage()));
+            return;
         }
+
+        int debitCount = 0;
+        BigDecimal debitTotal = BigDecimal.ZERO;
+        for (BankTransaction transaction : source.records()) {
+            if (!"DEBIT".equals(transaction.direction()) || transaction.amount().compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            debitCount++;
+            debitTotal = debitTotal.add(MoneyUtil.round(transaction.amount()));
+            PaymentMatch match = matchPayment(source.source(), transaction, suppliers, mappings);
+            SupplierDebtPaymentDto payment = toPaymentDto(source.source(), transaction, match.reason());
+            if (match.bucket() == null) {
+                unmatchedPayments.add(payment);
+            } else {
+                match.bucket().addPayment(payment);
+            }
+        }
+        statuses.add(success(source.source(), debitCount, debitTotal, source.cached()));
     }
 
     private void addCashPayments(
@@ -199,7 +234,39 @@ public class SupplierDebtService {
                 "manual cash payment"
             ));
         }
-        statuses.add(success(CASH, cashPayments.size(), cashTotal));
+        statuses.add(new SupplierDebtSourceStatusDto(CASH, "OK", "local manual ledger", cashPayments.size(), MoneyUtil.round(cashTotal)));
+    }
+
+    private <T> Cache<RangeKey, List<T>> sourceCache(long cacheTtlMinutes, long maximumCacheSize) {
+        return Caffeine.newBuilder()
+            .maximumSize(maximumCacheSize)
+            .expireAfterWrite(cacheTtlMinutes, TimeUnit.MINUTES)
+            .build();
+    }
+
+    private <T> SourceFetchResult<T> fetchSource(
+        String source,
+        Cache<RangeKey, List<T>> cache,
+        RangeKey range,
+        Supplier<List<T>> loader
+    ) {
+        List<T> cached = cache.getIfPresent(range);
+        if (cached != null) {
+            return new SourceFetchResult<>(source, cached, true, "");
+        }
+        try {
+            List<T> records = List.copyOf(loader.get());
+            cache.put(range, records);
+            return new SourceFetchResult<>(source, records, false, "");
+        } catch (RuntimeException exception) {
+            return new SourceFetchResult<>(source, List.of(), false, exception.getMessage());
+        }
+    }
+
+    private void invalidateSourceCaches(RangeKey range) {
+        purchaseCache.invalidate(range);
+        bogTransactionCache.invalidate(range);
+        tbcTransactionCache.invalidate(range);
     }
 
     private PaymentMatch matchPayment(
@@ -281,8 +348,14 @@ public class SupplierDebtService {
         return new SupplierIdentity("name:" + ConfigStore.normalizeSalesKey(name), "", name);
     }
 
-    private SupplierDebtSourceStatusDto success(String source, int recordCount, BigDecimal total) {
-        return new SupplierDebtSourceStatusDto(source, "OK", "", recordCount, MoneyUtil.round(total));
+    private SupplierDebtSourceStatusDto success(String source, int recordCount, BigDecimal total, boolean cached) {
+        return new SupplierDebtSourceStatusDto(
+            source,
+            "OK",
+            cached ? "cached source data" : "fresh source data",
+            recordCount,
+            MoneyUtil.round(total)
+        );
     }
 
     private SupplierDebtSourceStatusDto failed(String source, String message) {
@@ -313,6 +386,15 @@ public class SupplierDebtService {
     }
 
     private record PaymentMatch(SupplierBucket bucket, String reason) {
+    }
+
+    private record RangeKey(LocalDate dateFrom, LocalDate dateTo) {
+    }
+
+    private record SourceFetchResult<T>(String source, List<T> records, boolean cached, String errorMessage) {
+        private boolean failed() {
+            return errorMessage != null && !errorMessage.isBlank();
+        }
     }
 
     private static class SupplierBucket {

@@ -100,6 +100,34 @@ class SupplierDebtServiceTest {
         assertThat(result.suppliers().get(0).cashPaymentCount()).isEqualTo(1);
     }
 
+    @Test
+    void reusesCachedRemoteSourcesUntilForcedRefresh() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X", "123456789")
+        );
+        tbc.transactions = List.of(
+            debit("100.00", "Supplier X", "123456789")
+        );
+
+        service.analyze(from, to);
+        service.analyze(from, to);
+
+        assertThat(rsge.fetchCount).isEqualTo(1);
+        assertThat(bog.fetchCount).isEqualTo(1);
+        assertThat(tbc.fetchCount).isEqualTo(1);
+
+        service.analyze(from, to, true);
+
+        assertThat(rsge.fetchCount).isEqualTo(2);
+        assertThat(bog.fetchCount).isEqualTo(2);
+        assertThat(tbc.fetchCount).isEqualTo(2);
+    }
+
     private RsgeRecord purchase(String waybill, String supplierRaw, String amount, LocalDate date) {
         return new RsgeRecord(
             waybill,
@@ -131,6 +159,7 @@ class SupplierDebtServiceTest {
 
     private static final class FakeRsgePurchaseWaybillService extends RsgePurchaseWaybillService {
         private List<RsgeRecord> records = List.of();
+        private int fetchCount;
 
         private FakeRsgePurchaseWaybillService() {
             super(null, null);
@@ -138,12 +167,14 @@ class SupplierDebtServiceTest {
 
         @Override
         public List<RsgeRecord> fetchPurchaseRecords(LocalDate startDate, LocalDate endDate) {
+            fetchCount++;
             return records;
         }
     }
 
     private static final class FakeBogBusinessOnlineClient extends BogBusinessOnlineClient {
         private List<BankTransaction> transactions = List.of();
+        private int fetchCount;
 
         private FakeBogBusinessOnlineClient() {
             super(new CamoraProperties(), new ObjectMapper());
@@ -151,12 +182,14 @@ class SupplierDebtServiceTest {
 
         @Override
         public List<BankTransaction> getStatement(LocalDate dateFrom, LocalDate dateTo) {
+            fetchCount++;
             return transactions;
         }
     }
 
     private static final class FakeTbcDbiClient extends TbcDbiClient {
         private List<BankTransaction> transactions = List.of();
+        private int fetchCount;
 
         private FakeTbcDbiClient() {
             super(new CamoraProperties());
@@ -164,6 +197,7 @@ class SupplierDebtServiceTest {
 
         @Override
         public List<BankTransaction> getAccountMovements(LocalDate dateFrom, LocalDate dateTo) {
+            fetchCount++;
             return transactions;
         }
     }
