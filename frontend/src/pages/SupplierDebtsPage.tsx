@@ -1,9 +1,10 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   ChevronDown,
   ChevronRight,
+  ClipboardCheck,
   Landmark,
   Plus,
   RefreshCcw,
@@ -12,16 +13,25 @@ import {
   Wallet,
 } from 'lucide-react'
 import {
+  auditSupplierDebts,
   deleteSupplierCashPayment,
   getSupplierDebtOverview,
+  getSupplierDebtSupplierTransactions,
   saveSupplierCashPayment,
   saveSupplierPaymentMapping,
 } from '../api/supplier-debts.api'
 import { formatGel } from '../components/reconciliation/reconciliation.utils'
 import { env } from '../env'
-import type { SupplierDebtOverview, SupplierDebtPayment, SupplierDebtRow } from '../types'
+import type { SupplierDebtAudit, SupplierDebtOverview, SupplierDebtRow, SupplierDebtUnmatchedGroup } from '../types'
 
 const today = () => new Date().toISOString().slice(0, 10)
+
+function formatDateTime(value: string | null | undefined) {
+  if (!value) {
+    return '-'
+  }
+  return new Date(value).toLocaleString()
+}
 
 export default function SupplierDebtsPage() {
   const queryClient = useQueryClient()
@@ -42,6 +52,12 @@ export default function SupplierDebtsPage() {
     queryFn: () => getSupplierDebtOverview(dateFrom || undefined, dateTo || undefined),
   })
 
+  const supplierDetailsQuery = useQuery({
+    queryKey: ['supplier-debt-transactions', expandedSupplier, dateFrom || 'default-opening-date', dateTo || 'today'],
+    queryFn: () => getSupplierDebtSupplierTransactions(expandedSupplier ?? '', dateFrom || undefined, dateTo || undefined),
+    enabled: Boolean(expandedSupplier),
+  })
+
   const sourceRefreshMutation = useMutation({
     mutationFn: () => getSupplierDebtOverview(dateFrom || undefined, dateTo || undefined, true),
     onSuccess: (data) => {
@@ -49,11 +65,20 @@ export default function SupplierDebtsPage() {
     },
   })
 
+  const auditMutation = useMutation({
+    mutationFn: () => auditSupplierDebts(dateFrom || undefined, dateTo || undefined),
+    onSuccess: (audit) => {
+      queryClient.setQueryData<SupplierDebtOverview>(debtQueryKey, (current) =>
+        current ? { ...current, latestAudit: audit } : current,
+      )
+    },
+  })
+
   const saveMappingMutation = useMutation({
-    mutationFn: ({ payment, supplier }: { payment: SupplierDebtPayment; supplier: SupplierDebtRow }) =>
+    mutationFn: ({ group, supplier }: { group: SupplierDebtUnmatchedGroup; supplier: SupplierDebtRow }) =>
       saveSupplierPaymentMapping({
-        provider: payment.provider,
-        matchText: payment.counterparty || payment.counterpartyInn || payment.counterpartyAccount || payment.description || payment.reference,
+        provider: group.provider,
+        matchText: group.matchText,
         supplierKey: supplier.supplierKey,
         supplierTin: supplier.supplierTin,
         supplierName: supplier.supplierName,
@@ -61,6 +86,7 @@ export default function SupplierDebtsPage() {
     onSuccess: async () => {
       setMappingDrafts({})
       await queryClient.invalidateQueries({ queryKey: ['supplier-debts'] })
+      await queryClient.invalidateQueries({ queryKey: ['supplier-debt-transactions'] })
     },
   })
 
@@ -82,6 +108,7 @@ export default function SupplierDebtsPage() {
     onSuccess: async () => {
       setCashForm((current) => ({ ...current, amount: '', note: '' }))
       await queryClient.invalidateQueries({ queryKey: ['supplier-debts'] })
+      await queryClient.invalidateQueries({ queryKey: ['supplier-debt-transactions'] })
     },
   })
 
@@ -89,6 +116,7 @@ export default function SupplierDebtsPage() {
     mutationFn: deleteSupplierCashPayment,
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['supplier-debts'] })
+      await queryClient.invalidateQueries({ queryKey: ['supplier-debt-transactions'] })
     },
   })
 
@@ -99,6 +127,18 @@ export default function SupplierDebtsPage() {
   const canSaveCash = Boolean(selectedCashSupplier && cashForm.date && Number.isFinite(cashAmount) && cashAmount > 0)
   const loadingSources = debtQuery.isFetching || sourceRefreshMutation.isPending
   const loadError = sourceRefreshMutation.error instanceof Error ? sourceRefreshMutation.error : debtQuery.error
+
+  useEffect(() => {
+    if (!overview?.refreshInProgress) {
+      return
+    }
+    const timeout = window.setTimeout(() => {
+      void queryClient.invalidateQueries({
+        queryKey: ['supplier-debts', dateFrom || 'default-opening-date', dateTo || 'today'],
+      })
+    }, 3000)
+    return () => window.clearTimeout(timeout)
+  }, [dateFrom, dateTo, overview?.refreshInProgress, queryClient])
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-6">
@@ -152,8 +192,15 @@ export default function SupplierDebtsPage() {
 
       {overview ? (
         <>
+          <SnapshotStatus overview={overview} />
           <SourceStatusRail overview={overview} />
           <SummaryGrid overview={overview} />
+          <AuditPanel
+            audit={overview.latestAudit ?? null}
+            isRunning={auditMutation.isPending}
+            error={auditMutation.error instanceof Error ? auditMutation.error.message : null}
+            onRun={() => auditMutation.mutate()}
+          />
 
           <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -208,7 +255,9 @@ export default function SupplierDebtsPage() {
                           </tr>
                           {open ? (
                             <SupplierDebtDetails
-                              supplier={supplier}
+                              supplier={supplierDetailsQuery.data ?? supplier}
+                              isLoading={supplierDetailsQuery.isFetching}
+                              error={supplierDetailsQuery.error instanceof Error ? supplierDetailsQuery.error.message : null}
                               deletingCashId={deleteCashMutation.variables ?? null}
                               onDeleteCash={(id) => deleteCashMutation.mutate(id)}
                             />
@@ -238,17 +287,130 @@ export default function SupplierDebtsPage() {
           </div>
 
           <UnmatchedPaymentsPanel
-            payments={overview.unmatchedPayments}
+            groups={overview.unmatchedPaymentGroups ?? []}
             suppliers={suppliers}
             mappingDrafts={mappingDrafts}
             setMappingDrafts={setMappingDrafts}
-            onSaveMapping={(payment, supplier) => saveMappingMutation.mutate({ payment, supplier })}
+            onSaveMapping={(group, supplier) => saveMappingMutation.mutate({ group, supplier })}
             savingMapping={saveMappingMutation.isPending}
             error={saveMappingMutation.error instanceof Error ? saveMappingMutation.error.message : null}
           />
         </>
       ) : null}
     </div>
+  )
+}
+
+function SnapshotStatus({ overview }: { overview: SupplierDebtOverview }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+      <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <p className="font-black text-slate-950">Saved creditor snapshot</p>
+          <p className="mt-1 text-slate-500">
+            Showing the latest saved balances while the app refreshes RS.ge, BOG, and TBC in the background.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-xs font-bold text-slate-600">
+          <span className="rounded-full bg-slate-100 px-3 py-1">
+            Generated: {formatDateTime(overview.snapshotGeneratedAt)}
+          </span>
+          <span className={`rounded-full px-3 py-1 ${overview.refreshInProgress ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800'}`}>
+            {overview.refreshInProgress ? 'Background refresh running' : 'Snapshot ready'}
+          </span>
+          {overview.lastRefreshCompletedAt ? (
+            <span className="rounded-full bg-slate-100 px-3 py-1">
+              Last refresh: {formatDateTime(overview.lastRefreshCompletedAt)}
+            </span>
+          ) : null}
+        </div>
+      </div>
+      {overview.lastRefreshError ? (
+        <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+          Last refresh error: {overview.lastRefreshError}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function AuditPanel({
+  audit,
+  isRunning,
+  error,
+  onRun,
+}: {
+  audit: SupplierDebtAudit | null
+  isRunning: boolean
+  error: string | null
+  onRun: () => void
+}) {
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <ClipboardCheck className="h-5 w-5 text-slate-500" />
+            <h2 className="text-lg font-black text-slate-950">Random Correctness Check</h2>
+          </div>
+          <p className="mt-1 text-sm text-slate-500">
+            Samples suppliers, recalculates them from fresh source calls, and compares saved debt totals.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onRun}
+          disabled={isRunning}
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
+        >
+          <RefreshCcw className={`h-4 w-4 ${isRunning ? 'animate-spin' : ''}`} />
+          {isRunning ? 'Checking...' : 'Run Random Audit'}
+        </button>
+      </div>
+
+      {error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
+
+      {audit ? (
+        <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-3 py-1 text-xs font-black ${audit.passed ? 'bg-emerald-200 text-emerald-950' : 'bg-red-200 text-red-950'}`}>
+              {audit.passed ? 'PASSED' : 'FAILED'}
+            </span>
+            <span className="text-xs font-bold text-slate-500">
+              {audit.sampledSupplierCount} sampled, {audit.failedSupplierCount} failed, audited {formatDateTime(audit.auditedAt)}
+            </span>
+          </div>
+          {audit.suppliers.length > 0 ? (
+            <div className="mt-3 overflow-x-auto">
+              <table className="min-w-[760px] w-full text-xs">
+                <thead className="text-left font-bold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="py-2 pr-3">Supplier</th>
+                    <th className="py-2 pr-3 text-right">Snapshot Debt</th>
+                    <th className="py-2 pr-3 text-right">Fresh Debt</th>
+                    <th className="py-2 pr-3 text-right">Difference</th>
+                    <th className="py-2 pr-3">Result</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {audit.suppliers.map((supplier) => (
+                    <tr key={supplier.supplierKey}>
+                      <td className="py-2 pr-3 font-semibold text-slate-700">{supplier.supplierName}</td>
+                      <td className="py-2 pr-3 text-right font-bold tabular-nums">{formatGel(supplier.snapshotDebtLeft)}</td>
+                      <td className="py-2 pr-3 text-right font-bold tabular-nums">{formatGel(supplier.freshDebtLeft)}</td>
+                      <td className="py-2 pr-3 text-right font-bold tabular-nums">{formatGel(supplier.debtDifference)}</td>
+                      <td className={supplier.passed ? 'py-2 pr-3 font-black text-emerald-700' : 'py-2 pr-3 font-black text-red-700'}>
+                        {supplier.passed ? 'OK' : 'Mismatch'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   )
 }
 
@@ -416,16 +578,22 @@ function CashPaymentPanel({
 
 function SupplierDebtDetails({
   supplier,
+  isLoading,
+  error,
   deletingCashId,
   onDeleteCash,
 }: {
   supplier: SupplierDebtRow
+  isLoading: boolean
+  error: string | null
   deletingCashId: string | null
   onDeleteCash: (id: string) => void
 }) {
   return (
     <tr>
       <td colSpan={8} className="bg-slate-50 px-4 py-4">
+        {isLoading ? <p className="mb-3 text-sm font-semibold text-slate-500">Loading supplier transactions...</p> : null}
+        {error ? <p className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
         <div className="grid gap-4 lg:grid-cols-2">
           <DetailList
             title="rs.ge Purchases"
@@ -499,7 +667,7 @@ function DetailList({
 }
 
 function UnmatchedPaymentsPanel({
-  payments,
+  groups,
   suppliers,
   mappingDrafts,
   setMappingDrafts,
@@ -507,11 +675,11 @@ function UnmatchedPaymentsPanel({
   savingMapping,
   error,
 }: {
-  payments: SupplierDebtPayment[]
+  groups: SupplierDebtUnmatchedGroup[]
   suppliers: SupplierDebtRow[]
   mappingDrafts: Record<string, string>
   setMappingDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>
-  onSaveMapping: (payment: SupplierDebtPayment, supplier: SupplierDebtRow) => void
+  onSaveMapping: (group: SupplierDebtUnmatchedGroup, supplier: SupplierDebtRow) => void
   savingMapping: boolean
   error: string | null
 }) {
@@ -519,30 +687,44 @@ function UnmatchedPaymentsPanel({
     <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-black text-amber-950">Unmatched Bank Debits</h2>
-          <p className="mt-1 text-sm text-amber-800">Map bank transfers to suppliers so they reduce creditor balances.</p>
+          <h2 className="text-lg font-black text-amber-950">Unmatched Bank Debit Groups</h2>
+          <p className="mt-1 text-sm text-amber-800">
+            Groups reuse provider + TIN/account/name/description. One mapping fixes every repeated transaction in that group.
+          </p>
         </div>
-        <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">{payments.length} open</span>
+        <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">{groups.length} open groups</span>
       </div>
 
       {error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
 
       <div className="mt-4 space-y-3">
-        {payments.map((payment, index) => {
-          const key = payment.id || payment.reference || `${payment.provider}-${payment.date}-${payment.amount}-${index}`
+        {groups.map((group) => {
+          const key = group.groupKey
           const selectedSupplier = suppliers.find((supplier) => supplier.supplierKey === mappingDrafts[key])
           return (
             <div key={key} className="rounded-2xl border border-amber-200 bg-white p-4">
               <div className="grid gap-3 lg:grid-cols-[1fr_260px_auto] lg:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="rounded-full bg-slate-950 px-2 py-1 text-[11px] font-black text-white">{payment.provider}</span>
-                    <p className="truncate text-sm font-black text-slate-900">{payment.counterparty || 'Unknown counterparty'}</p>
+                    <span className="rounded-full bg-slate-950 px-2 py-1 text-[11px] font-black text-white">{group.provider}</span>
+                    <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-900">{group.matchType}</span>
+                    <p className="truncate text-sm font-black text-slate-900">{group.counterparty || group.matchText || 'Unknown counterparty'}</p>
                   </div>
                   <p className="mt-2 text-xs font-semibold text-slate-500">
-                    {payment.date || '-'} - {formatGel(payment.amount)} - {payment.counterpartyInn || payment.counterpartyAccount || payment.reference || 'no identifier'}
+                    {group.transactionCount} transactions - {formatGel(group.amount)} total - largest {formatGel(group.largestTransaction)}
                   </p>
-                  <p className="mt-1 truncate text-xs text-slate-500">{payment.description}</p>
+                  <p className="mt-1 truncate text-xs text-slate-500">
+                    Mapping value: {group.matchText || 'no identifier'}{group.description ? ` - ${group.description}` : ''}
+                  </p>
+                  {group.examples.length > 0 ? (
+                    <div className="mt-2 grid gap-1 text-[11px] font-medium text-slate-500">
+                      {group.examples.map((example, index) => (
+                        <span key={`${group.groupKey}-${example.reference}-${index}`} className="truncate">
+                          {example.date || '-'} - {formatGel(example.amount)} - {example.description || example.reference || example.counterparty}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
                 <select
                   className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-sky-300"
@@ -560,16 +742,16 @@ function UnmatchedPaymentsPanel({
                   type="button"
                   className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={!selectedSupplier || savingMapping}
-                  onClick={() => selectedSupplier && onSaveMapping(payment, selectedSupplier)}
+                  onClick={() => selectedSupplier && onSaveMapping(group, selectedSupplier)}
                 >
                   <Save className="h-4 w-4" />
-                  Save Mapping
+                  Save Group Mapping
                 </button>
               </div>
             </div>
           )
         })}
-        {payments.length === 0 ? <p className="text-sm font-semibold text-amber-800">All bank debit payments are matched.</p> : null}
+        {groups.length === 0 ? <p className="text-sm font-semibold text-amber-800">All bank debit payments are matched.</p> : null}
       </div>
     </section>
   )

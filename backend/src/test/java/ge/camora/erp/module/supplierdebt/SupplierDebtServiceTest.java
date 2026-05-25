@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
+import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
 import ge.camora.erp.model.record.RsgeRecord;
 import ge.camora.erp.module.bankanalysis.BankTransaction;
 import ge.camora.erp.module.bankanalysis.BogBusinessOnlineClient;
@@ -16,6 +17,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,7 +27,15 @@ class SupplierDebtServiceTest {
     private final FakeBogBusinessOnlineClient bog = new FakeBogBusinessOnlineClient();
     private final FakeTbcDbiClient tbc = new FakeTbcDbiClient();
     private final FakeConfigStore configStore = new FakeConfigStore();
-    private final SupplierDebtService service = new SupplierDebtService(rsge, bog, tbc, configStore, new CamoraProperties());
+    private final FakeSupplierDebtSnapshotStore snapshotStore = new FakeSupplierDebtSnapshotStore();
+    private final SupplierDebtService service = new SupplierDebtService(
+        rsge,
+        bog,
+        tbc,
+        configStore,
+        new CamoraProperties(),
+        snapshotStore
+    );
 
     @Test
     void subtractsMatchedBogDebitsFromSupplierPurchases() {
@@ -128,6 +138,85 @@ class SupplierDebtServiceTest {
         assertThat(tbc.fetchCount).isEqualTo(2);
     }
 
+    @Test
+    void storesOverviewSnapshotWithoutTransactionDetails() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X", "123456789")
+        );
+
+        var result = service.overview(from, to, true);
+
+        assertThat(result.snapshotGeneratedAt()).isNotNull();
+        assertThat(result.suppliers()).hasSize(1);
+        assertThat(result.suppliers().get(0).purchases()).isEmpty();
+        assertThat(result.suppliers().get(0).payments()).isEmpty();
+        assertThat(snapshotStore.load()).contains(result);
+    }
+
+    @Test
+    void servesFreshSnapshotWithoutStartingAnotherRefresh() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X", "123456789")
+        );
+
+        service.overview(from, to, true);
+        var saved = service.overview(from, to, false);
+
+        assertThat(saved.refreshInProgress()).isFalse();
+        assertThat(rsge.fetchCount).isEqualTo(1);
+        assertThat(bog.fetchCount).isEqualTo(1);
+        assertThat(tbc.fetchCount).isEqualTo(1);
+    }
+
+
+    @Test
+    void loadsSupplierTransactionDetailsSeparately() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X", "123456789")
+        );
+
+        var result = service.supplierTransactions("tin:123456789", from, to, false);
+
+        assertThat(result.purchases()).hasSize(1);
+        assertThat(result.payments()).hasSize(1);
+    }
+
+    @Test
+    void groupsUnmatchedPaymentsByCounterpartyIdentifier() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            debit("100.00", "Other Supplier", "987654321"),
+            debit("125.00", "Other Supplier", "987654321")
+        );
+
+        var result = service.overview(from, to, true);
+
+        assertThat(result.unmatchedPaymentGroups()).hasSize(1);
+        assertThat(result.unmatchedPaymentGroups().get(0).transactionCount()).isEqualTo(2);
+        assertThat(result.unmatchedPaymentGroups().get(0).amount()).isEqualByComparingTo("225.00");
+        assertThat(result.unmatchedPaymentGroups().get(0).matchType()).isEqualTo("TIN");
+        assertThat(result.unmatchedPaymentGroups().get(0).matchText()).isEqualTo("987654321");
+    }
+
     private RsgeRecord purchase(String waybill, String supplierRaw, String amount, LocalDate date) {
         return new RsgeRecord(
             waybill,
@@ -217,6 +306,25 @@ class SupplierDebtServiceTest {
         @Override
         public List<SupplierCashPayment> getSupplierCashPayments(LocalDate dateFrom, LocalDate dateTo) {
             return cashPayments;
+        }
+    }
+
+    private static final class FakeSupplierDebtSnapshotStore extends SupplierDebtSnapshotStore {
+        private SupplierDebtOverviewDto snapshot;
+
+        private FakeSupplierDebtSnapshotStore() {
+            super(new ObjectMapper(), new CamoraProperties());
+        }
+
+        @Override
+        public Optional<SupplierDebtOverviewDto> load() {
+            return Optional.ofNullable(snapshot);
+        }
+
+        @Override
+        public SupplierDebtOverviewDto save(SupplierDebtOverviewDto snapshot) {
+            this.snapshot = snapshot;
+            return snapshot;
         }
     }
 }

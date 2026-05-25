@@ -24,6 +24,7 @@ camora:
     bank-transaction-mappings: "${CAMORA_BANK_TRANSACTION_MAPPINGS_FILE:bank-transaction-mappings.json}"
     supplier-payment-mappings: "${CAMORA_SUPPLIER_PAYMENT_MAPPINGS_FILE:supplier-payment-mappings.json}"
     supplier-cash-payments: "${CAMORA_SUPPLIER_CASH_PAYMENTS_FILE:supplier-cash-payments.json}"
+    supplier-debt-snapshot: "${CAMORA_SUPPLIER_DEBT_SNAPSHOT_FILE:supplier-debt-snapshot.json}"
   organization-opening-date: "${CAMORA_ORGANIZATION_OPENING_DATE:2025-01-01}"
   cors:
     allowed-origin-patterns: "${CAMORA_CORS_ALLOWED_ORIGIN_PATTERNS:http://localhost:*,http://127.0.0.1:*}"

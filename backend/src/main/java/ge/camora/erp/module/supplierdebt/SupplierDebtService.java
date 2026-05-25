@@ -5,11 +5,14 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
+import ge.camora.erp.model.dto.SupplierDebtAuditDto;
+import ge.camora.erp.model.dto.SupplierDebtAuditSupplierDto;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
 import ge.camora.erp.model.dto.SupplierDebtPaymentDto;
 import ge.camora.erp.model.dto.SupplierDebtPurchaseDto;
 import ge.camora.erp.model.dto.SupplierDebtRowDto;
 import ge.camora.erp.model.dto.SupplierDebtSourceStatusDto;
+import ge.camora.erp.model.dto.SupplierDebtUnmatchedGroupDto;
 import ge.camora.erp.model.record.RsgeRecord;
 import ge.camora.erp.module.bankanalysis.BankTransaction;
 import ge.camora.erp.module.bankanalysis.BogBusinessOnlineClient;
@@ -20,17 +23,23 @@ import ge.camora.erp.util.MoneyUtil;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 @Service
 public class SupplierDebtService {
@@ -40,28 +49,37 @@ public class SupplierDebtService {
     private static final String BOG = "BOG";
     private static final String TBC = "TBC";
     private static final String CASH = "CASH";
+    private static final int UNMATCHED_GROUP_EXAMPLE_LIMIT = 3;
 
     private final RsgePurchaseWaybillService rsgePurchaseWaybillService;
     private final BogBusinessOnlineClient bogBusinessOnlineClient;
     private final TbcDbiClient tbcDbiClient;
     private final ConfigStore configStore;
     private final CamoraProperties properties;
+    private final SupplierDebtSnapshotStore snapshotStore;
     private final Cache<RangeKey, List<RsgeRecord>> purchaseCache;
     private final Cache<RangeKey, List<BankTransaction>> bogTransactionCache;
     private final Cache<RangeKey, List<BankTransaction>> tbcTransactionCache;
+    private final AtomicBoolean refreshInProgress = new AtomicBoolean(false);
+
+    private volatile LocalDateTime lastRefreshStartedAt;
+    private volatile LocalDateTime lastRefreshCompletedAt;
+    private volatile String lastRefreshError = "";
 
     public SupplierDebtService(
         RsgePurchaseWaybillService rsgePurchaseWaybillService,
         BogBusinessOnlineClient bogBusinessOnlineClient,
         TbcDbiClient tbcDbiClient,
         ConfigStore configStore,
-        CamoraProperties properties
+        CamoraProperties properties,
+        SupplierDebtSnapshotStore snapshotStore
     ) {
         this.rsgePurchaseWaybillService = rsgePurchaseWaybillService;
         this.bogBusinessOnlineClient = bogBusinessOnlineClient;
         this.tbcDbiClient = tbcDbiClient;
         this.configStore = configStore;
         this.properties = properties;
+        this.snapshotStore = snapshotStore;
         long cacheTtlMinutes = Math.max(1, properties.getSupplierDebt().getSourceCacheTtlMinutes());
         long maximumCacheSize = Math.max(1, properties.getSupplierDebt().getMaximumSourceCacheSize());
         this.purchaseCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
@@ -72,9 +90,26 @@ public class SupplierDebtService {
     public LocalDate defaultDateFrom() {
         String configured = properties.getOrganizationOpeningDate();
         if (configured == null || configured.isBlank()) {
-            return LocalDate.now().withDayOfYear(1);
+            return LocalDate.of(2025, 1, 1);
         }
         return LocalDate.parse(configured);
+    }
+
+    public SupplierDebtOverviewDto overview(LocalDate dateFrom, LocalDate dateTo, boolean forceRefresh) {
+        RangeKey range = normalizeRange(dateFrom, dateTo);
+        if (forceRefresh) {
+            return refreshSnapshot(range, true);
+        }
+
+        Optional<SupplierDebtOverviewDto> saved = snapshotStore.load();
+        if (saved.isPresent() && canServeSavedSnapshot(saved.get(), range)) {
+            if (shouldStartBackgroundRefresh(saved.get(), range)) {
+                startBackgroundRefresh(range);
+            }
+            return withRefreshMetadata(saved.get(), refreshInProgress.get());
+        }
+
+        return refreshSnapshot(range, true);
     }
 
     public SupplierDebtOverviewDto analyze(LocalDate dateFrom, LocalDate dateTo) {
@@ -82,17 +117,110 @@ public class SupplierDebtService {
     }
 
     public SupplierDebtOverviewDto analyze(LocalDate dateFrom, LocalDate dateTo, boolean refreshSources) {
-        if (dateFrom == null) {
-            dateFrom = defaultDateFrom();
-        }
-        if (dateTo == null) {
-            dateTo = LocalDate.now();
-        }
-        if (dateTo.isBefore(dateFrom)) {
-            throw new IllegalArgumentException("dateTo must be on or after dateFrom");
+        return calculateOverview(normalizeRange(dateFrom, dateTo), refreshSources, true);
+    }
+
+    public SupplierDebtRowDto supplierTransactions(String supplierKey, LocalDate dateFrom, LocalDate dateTo, boolean forceRefresh) {
+        SupplierDebtOverviewDto overview = calculateOverview(normalizeRange(dateFrom, dateTo), forceRefresh, true);
+        return overview.suppliers().stream()
+            .filter(row -> row.supplierKey().equals(supplierKey))
+            .findFirst()
+            .orElseGet(() -> emptySupplierRow(supplierKey));
+    }
+
+    public SupplierDebtAuditDto auditRandom(LocalDate dateFrom, LocalDate dateTo) {
+        RangeKey range = normalizeRange(dateFrom, dateTo);
+        SupplierDebtOverviewDto snapshot = snapshotStore.load()
+            .filter(saved -> canServeSavedSnapshot(saved, range))
+            .orElseGet(() -> refreshSnapshot(range, true));
+        SupplierDebtOverviewDto fresh = calculateOverview(range, true, false);
+
+        List<SupplierDebtRowDto> sample = new ArrayList<>(snapshot.suppliers());
+        Collections.shuffle(sample);
+        int sampleSize = Math.min(10, Math.max(3, (int) Math.ceil(sample.size() * 0.10)));
+        if (sample.size() > sampleSize) {
+            sample = sample.subList(0, sampleSize);
         }
 
-        RangeKey range = new RangeKey(dateFrom, dateTo);
+        Map<String, SupplierDebtRowDto> freshBySupplier = fresh.suppliers().stream()
+            .collect(Collectors.toMap(SupplierDebtRowDto::supplierKey, row -> row, (left, ignored) -> left));
+        List<SupplierDebtAuditSupplierDto> auditedSuppliers = sample.stream()
+            .map(snapshotRow -> auditSupplier(snapshotRow, freshBySupplier.get(snapshotRow.supplierKey())))
+            .toList();
+        int failedCount = (int) auditedSuppliers.stream().filter(row -> !row.passed()).count();
+        SupplierDebtAuditDto audit = new SupplierDebtAuditDto(
+            range.dateFrom(),
+            range.dateTo(),
+            LocalDateTime.now(),
+            failedCount == 0,
+            auditedSuppliers.size(),
+            failedCount,
+            auditedSuppliers
+        );
+        snapshotStore.save(withAudit(snapshot, audit));
+        return audit;
+    }
+
+    private void startBackgroundRefresh(RangeKey range) {
+        if (!refreshInProgress.compareAndSet(false, true)) {
+            return;
+        }
+        LocalDateTime startedAt = LocalDateTime.now();
+        lastRefreshStartedAt = startedAt;
+        lastRefreshError = "";
+        CompletableFuture.runAsync(() -> {
+            try {
+                SupplierDebtOverviewDto refreshed = calculateOverview(range, true, false);
+                LocalDateTime completedAt = LocalDateTime.now();
+                lastRefreshCompletedAt = completedAt;
+                lastRefreshError = "";
+                snapshotStore.save(withSnapshotMetadata(
+                    refreshed,
+                    LocalDateTime.now(),
+                    false,
+                    startedAt,
+                    completedAt,
+                    "",
+                    latestAuditFromSnapshot()
+                ));
+            } catch (RuntimeException exception) {
+                lastRefreshCompletedAt = LocalDateTime.now();
+                lastRefreshError = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
+                snapshotStore.load()
+                    .map(snapshot -> withRefreshError(snapshot, startedAt, lastRefreshCompletedAt, lastRefreshError))
+                    .ifPresent(snapshotStore::save);
+            } finally {
+                refreshInProgress.set(false);
+            }
+        });
+    }
+
+    private SupplierDebtOverviewDto refreshSnapshot(RangeKey range, boolean refreshSources) {
+        LocalDateTime startedAt = LocalDateTime.now();
+        lastRefreshStartedAt = startedAt;
+        lastRefreshError = "";
+        try {
+            SupplierDebtOverviewDto calculated = calculateOverview(range, refreshSources, false);
+            LocalDateTime completedAt = LocalDateTime.now();
+            lastRefreshCompletedAt = completedAt;
+            SupplierDebtOverviewDto snapshot = withSnapshotMetadata(
+                calculated,
+                completedAt,
+                false,
+                startedAt,
+                completedAt,
+                "",
+                latestAuditFromSnapshot()
+            );
+            return snapshotStore.save(snapshot);
+        } catch (RuntimeException exception) {
+            lastRefreshCompletedAt = LocalDateTime.now();
+            lastRefreshError = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
+            throw exception;
+        }
+    }
+
+    private SupplierDebtOverviewDto calculateOverview(RangeKey range, boolean refreshSources, boolean includeDetails) {
         if (refreshSources) {
             invalidateSourceCaches(range);
         }
@@ -113,9 +241,8 @@ public class SupplierDebtService {
 
         Map<String, SupplierBucket> suppliers = new LinkedHashMap<>();
         List<SupplierDebtSourceStatusDto> statuses = new ArrayList<>();
-        List<RsgeRecord> purchaseRecords = purchaseSource.records();
         BigDecimal purchaseSourceTotal = BigDecimal.ZERO;
-        for (RsgeRecord record : purchaseRecords) {
+        for (RsgeRecord record : purchaseSource.records()) {
             SupplierIdentity identity = supplierIdentity(record.supplierRaw());
             SupplierBucket bucket = suppliers.computeIfAbsent(identity.key(), ignored -> new SupplierBucket(identity));
             BigDecimal amount = MoneyUtil.round(record.totalPrice());
@@ -130,16 +257,16 @@ public class SupplierDebtService {
         }
         statuses.add(purchaseSource.failed()
             ? failed(RSGE, purchaseSource.errorMessage())
-            : success(RSGE, purchaseRecords.size(), purchaseSourceTotal, purchaseSource.cached()));
+            : success(RSGE, purchaseSource.records().size(), purchaseSourceTotal, purchaseSource.cached()));
 
         List<SupplierPaymentMapping> mappings = configStore.getSupplierPaymentMappings();
         List<SupplierDebtPaymentDto> unmatchedPayments = new ArrayList<>();
         addBankPayments(bogSource, suppliers, mappings, unmatchedPayments, statuses);
         addBankPayments(tbcSource, suppliers, mappings, unmatchedPayments, statuses);
-        addCashPayments(dateFrom, dateTo, suppliers, statuses);
+        addCashPayments(range.dateFrom(), range.dateTo(), suppliers, statuses);
 
         List<SupplierDebtRowDto> rows = suppliers.values().stream()
-            .map(SupplierBucket::toDto)
+            .map(bucket -> bucket.toDto(includeDetails))
             .sorted(Comparator.comparing(SupplierDebtRowDto::debtLeft).reversed()
                 .thenComparing(SupplierDebtRowDto::supplierName, String.CASE_INSENSITIVE_ORDER))
             .toList();
@@ -152,8 +279,8 @@ public class SupplierDebtService {
         BigDecimal unmatchedTotal = sum(unmatchedPayments.stream().map(SupplierDebtPaymentDto::amount).toList());
 
         return new SupplierDebtOverviewDto(
-            dateFrom,
-            dateTo,
+            range.dateFrom(),
+            range.dateTo(),
             purchaseTotal,
             bogPaidTotal,
             tbcPaidTotal,
@@ -169,7 +296,14 @@ public class SupplierDebtService {
                 .sorted(Comparator.comparing(SupplierDebtPaymentDto::amount).reversed())
                 .toList(),
             mappings,
-            statuses
+            statuses,
+            groupUnmatchedPayments(unmatchedPayments),
+            null,
+            false,
+            null,
+            null,
+            "",
+            null
         );
     }
 
@@ -235,6 +369,37 @@ public class SupplierDebtService {
             ));
         }
         statuses.add(new SupplierDebtSourceStatusDto(CASH, "OK", "local manual ledger", cashPayments.size(), MoneyUtil.round(cashTotal)));
+    }
+
+    private List<SupplierDebtUnmatchedGroupDto> groupUnmatchedPayments(List<SupplierDebtPaymentDto> unmatchedPayments) {
+        Map<String, UnmatchedGroupBucket> buckets = new LinkedHashMap<>();
+        for (SupplierDebtPaymentDto payment : unmatchedPayments) {
+            MatchIdentifier identifier = bestIdentifier(payment);
+            String groupKey = payment.provider() + "|" + identifier.type() + "|" + ConfigStore.normalizeSalesKey(identifier.value());
+            buckets.computeIfAbsent(groupKey, ignored -> new UnmatchedGroupBucket(groupKey, identifier, payment))
+                .add(payment);
+        }
+        return buckets.values().stream()
+            .map(UnmatchedGroupBucket::toDto)
+            .sorted(Comparator.comparing(SupplierDebtUnmatchedGroupDto::amount).reversed())
+            .toList();
+    }
+
+    private MatchIdentifier bestIdentifier(SupplierDebtPaymentDto payment) {
+        String tin = normalizeTin(payment.counterpartyInn());
+        if (!tin.isBlank()) {
+            return new MatchIdentifier("TIN", tin);
+        }
+        if (!safe(payment.counterpartyAccount()).isBlank()) {
+            return new MatchIdentifier("ACCOUNT", payment.counterpartyAccount().trim());
+        }
+        if (!safe(payment.counterparty()).isBlank()) {
+            return new MatchIdentifier("COUNTERPARTY", payment.counterparty().trim());
+        }
+        if (!safe(payment.description()).isBlank()) {
+            return new MatchIdentifier("DESCRIPTION", payment.description().trim());
+        }
+        return new MatchIdentifier("REFERENCE", safe(payment.reference()).trim());
     }
 
     private <T> Cache<RangeKey, List<T>> sourceCache(long cacheTtlMinutes, long maximumCacheSize) {
@@ -348,6 +513,178 @@ public class SupplierDebtService {
         return new SupplierIdentity("name:" + ConfigStore.normalizeSalesKey(name), "", name);
     }
 
+    private SupplierDebtAuditSupplierDto auditSupplier(SupplierDebtRowDto snapshotRow, SupplierDebtRowDto freshRow) {
+        SupplierDebtRowDto effectiveFresh = freshRow == null ? emptySupplierRow(snapshotRow.supplierKey()) : freshRow;
+        BigDecimal debtDifference = MoneyUtil.round(snapshotRow.debtLeft().subtract(effectiveFresh.debtLeft()));
+        boolean passed = same(snapshotRow.purchaseTotal(), effectiveFresh.purchaseTotal())
+            && same(snapshotRow.bogPaidTotal(), effectiveFresh.bogPaidTotal())
+            && same(snapshotRow.tbcPaidTotal(), effectiveFresh.tbcPaidTotal())
+            && same(snapshotRow.cashPaidTotal(), effectiveFresh.cashPaidTotal())
+            && same(snapshotRow.debtLeft(), effectiveFresh.debtLeft());
+        return new SupplierDebtAuditSupplierDto(
+            snapshotRow.supplierKey(),
+            snapshotRow.supplierTin(),
+            snapshotRow.supplierName(),
+            passed,
+            snapshotRow.purchaseTotal(),
+            effectiveFresh.purchaseTotal(),
+            snapshotRow.bogPaidTotal(),
+            effectiveFresh.bogPaidTotal(),
+            snapshotRow.tbcPaidTotal(),
+            effectiveFresh.tbcPaidTotal(),
+            snapshotRow.cashPaidTotal(),
+            effectiveFresh.cashPaidTotal(),
+            snapshotRow.debtLeft(),
+            effectiveFresh.debtLeft(),
+            debtDifference
+        );
+    }
+
+    private boolean same(BigDecimal left, BigDecimal right) {
+        return MoneyUtil.round(left).compareTo(MoneyUtil.round(right)) == 0;
+    }
+
+    private SupplierDebtRowDto emptySupplierRow(String supplierKey) {
+        return new SupplierDebtRowDto(
+            supplierKey,
+            "",
+            supplierKey,
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            null,
+            null,
+            List.of(),
+            List.of()
+        );
+    }
+
+    private boolean canServeSavedSnapshot(SupplierDebtOverviewDto snapshot, RangeKey range) {
+        if (snapshot.dateFrom() == null || snapshot.dateTo() == null) {
+            return false;
+        }
+        if (!range.dateFrom().equals(snapshot.dateFrom())) {
+            return false;
+        }
+        if (range.dateTo().equals(snapshot.dateTo())) {
+            return true;
+        }
+        return range.dateTo().equals(LocalDate.now()) && !snapshot.dateTo().isAfter(range.dateTo());
+    }
+
+    private boolean shouldStartBackgroundRefresh(SupplierDebtOverviewDto snapshot, RangeKey range) {
+        if (refreshInProgress.get()) {
+            return false;
+        }
+        if (range.dateTo().equals(LocalDate.now()) && snapshot.dateTo().isBefore(range.dateTo())) {
+            return true;
+        }
+        if (snapshot.snapshotGeneratedAt() == null) {
+            return true;
+        }
+        long freshnessMinutes = Math.max(1, properties.getSupplierDebt().getSourceCacheTtlMinutes());
+        Duration snapshotAge = Duration.between(snapshot.snapshotGeneratedAt(), LocalDateTime.now());
+        return snapshotAge.toMinutes() >= freshnessMinutes;
+    }
+
+    private RangeKey normalizeRange(LocalDate dateFrom, LocalDate dateTo) {
+        LocalDate effectiveDateFrom = dateFrom == null ? defaultDateFrom() : dateFrom;
+        LocalDate effectiveDateTo = dateTo == null ? LocalDate.now() : dateTo;
+        if (effectiveDateTo.isBefore(effectiveDateFrom)) {
+            throw new IllegalArgumentException("dateTo must be on or after dateFrom");
+        }
+        return new RangeKey(effectiveDateFrom, effectiveDateTo);
+    }
+
+    private SupplierDebtAuditDto latestAuditFromSnapshot() {
+        return snapshotStore.load().map(SupplierDebtOverviewDto::latestAudit).orElse(null);
+    }
+
+    private SupplierDebtOverviewDto withRefreshMetadata(SupplierDebtOverviewDto overview, boolean inProgress) {
+        return withSnapshotMetadata(
+            overview,
+            overview.snapshotGeneratedAt(),
+            inProgress,
+            lastRefreshStartedAt == null ? overview.lastRefreshStartedAt() : lastRefreshStartedAt,
+            lastRefreshCompletedAt == null ? overview.lastRefreshCompletedAt() : lastRefreshCompletedAt,
+            lastRefreshError == null || lastRefreshError.isBlank() ? overview.lastRefreshError() : lastRefreshError,
+            overview.latestAudit()
+        );
+    }
+
+    private SupplierDebtOverviewDto withRefreshError(
+        SupplierDebtOverviewDto overview,
+        LocalDateTime startedAt,
+        LocalDateTime completedAt,
+        String error
+    ) {
+        return withSnapshotMetadata(
+            overview,
+            overview.snapshotGeneratedAt(),
+            false,
+            startedAt,
+            completedAt,
+            error,
+            overview.latestAudit()
+        );
+    }
+
+    private SupplierDebtOverviewDto withAudit(SupplierDebtOverviewDto overview, SupplierDebtAuditDto audit) {
+        return withSnapshotMetadata(
+            overview,
+            overview.snapshotGeneratedAt(),
+            false,
+            overview.lastRefreshStartedAt(),
+            overview.lastRefreshCompletedAt(),
+            overview.lastRefreshError(),
+            audit
+        );
+    }
+
+    private SupplierDebtOverviewDto withSnapshotMetadata(
+        SupplierDebtOverviewDto overview,
+        LocalDateTime snapshotGeneratedAt,
+        boolean refreshInProgress,
+        LocalDateTime lastRefreshStartedAt,
+        LocalDateTime lastRefreshCompletedAt,
+        String lastRefreshError,
+        SupplierDebtAuditDto latestAudit
+    ) {
+        return new SupplierDebtOverviewDto(
+            overview.dateFrom(),
+            overview.dateTo(),
+            overview.purchaseTotal(),
+            overview.bogPaidTotal(),
+            overview.tbcPaidTotal(),
+            overview.cashPaidTotal(),
+            overview.bankPaidTotal(),
+            overview.paidTotal(),
+            overview.debtTotal(),
+            overview.supplierCount(),
+            overview.unmatchedPaymentTotal(),
+            overview.unmatchedPaymentCount(),
+            overview.suppliers(),
+            overview.unmatchedPayments(),
+            overview.mappings(),
+            overview.sourceStatuses(),
+            overview.unmatchedPaymentGroups() == null ? List.of() : overview.unmatchedPaymentGroups(),
+            snapshotGeneratedAt,
+            refreshInProgress,
+            lastRefreshStartedAt,
+            lastRefreshCompletedAt,
+            lastRefreshError == null ? "" : lastRefreshError,
+            latestAudit
+        );
+    }
+
     private SupplierDebtSourceStatusDto success(String source, int recordCount, BigDecimal total, boolean cached) {
         return new SupplierDebtSourceStatusDto(
             source,
@@ -397,6 +734,9 @@ public class SupplierDebtService {
         }
     }
 
+    private record MatchIdentifier(String type, String value) {
+    }
+
     private static class SupplierBucket {
         private final SupplierIdentity identity;
         private final List<SupplierDebtPurchaseDto> purchases = new ArrayList<>();
@@ -432,7 +772,7 @@ public class SupplierDebtService {
             }
         }
 
-        private SupplierDebtRowDto toDto() {
+        private SupplierDebtRowDto toDto(boolean includeDetails) {
             LocalDate lastPurchaseDate = purchases.stream()
                 .map(SupplierDebtPurchaseDto::date)
                 .filter(date -> date != null)
@@ -461,12 +801,60 @@ public class SupplierDebtService {
                 MoneyUtil.round(purchaseTotal.subtract(paidTotal)),
                 lastPurchaseDate,
                 lastPaymentDate,
-                purchases.stream()
-                    .sorted(Comparator.comparing(SupplierDebtPurchaseDto::date, Comparator.nullsLast(Comparator.reverseOrder())))
-                    .toList(),
-                payments.stream()
-                    .sorted(Comparator.comparing(SupplierDebtPaymentDto::date, Comparator.nullsLast(Comparator.reverseOrder())))
-                    .toList()
+                includeDetails
+                    ? purchases.stream()
+                        .sorted(Comparator.comparing(SupplierDebtPurchaseDto::date, Comparator.nullsLast(Comparator.reverseOrder())))
+                        .toList()
+                    : List.of(),
+                includeDetails
+                    ? payments.stream()
+                        .sorted(Comparator.comparing(SupplierDebtPaymentDto::date, Comparator.nullsLast(Comparator.reverseOrder())))
+                        .toList()
+                    : List.of()
+            );
+        }
+    }
+
+    private static class UnmatchedGroupBucket {
+        private final String groupKey;
+        private final MatchIdentifier identifier;
+        private final SupplierDebtPaymentDto firstPayment;
+        private final List<SupplierDebtPaymentDto> examples = new ArrayList<>();
+        private BigDecimal amount = BigDecimal.ZERO;
+        private BigDecimal largestTransaction = BigDecimal.ZERO;
+        private int transactionCount;
+
+        private UnmatchedGroupBucket(String groupKey, MatchIdentifier identifier, SupplierDebtPaymentDto firstPayment) {
+            this.groupKey = groupKey;
+            this.identifier = identifier;
+            this.firstPayment = firstPayment;
+        }
+
+        private void add(SupplierDebtPaymentDto payment) {
+            amount = amount.add(payment.amount());
+            if (payment.amount().compareTo(largestTransaction) > 0) {
+                largestTransaction = payment.amount();
+            }
+            transactionCount++;
+            if (examples.size() < UNMATCHED_GROUP_EXAMPLE_LIMIT) {
+                examples.add(payment);
+            }
+        }
+
+        private SupplierDebtUnmatchedGroupDto toDto() {
+            return new SupplierDebtUnmatchedGroupDto(
+                groupKey,
+                firstPayment.provider(),
+                identifier.value(),
+                identifier.type(),
+                firstPayment.counterparty(),
+                firstPayment.counterpartyInn(),
+                firstPayment.counterpartyAccount(),
+                firstPayment.description(),
+                MoneyUtil.round(amount),
+                transactionCount,
+                MoneyUtil.round(largestTransaction),
+                examples
             );
         }
     }

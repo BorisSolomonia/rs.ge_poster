@@ -4,7 +4,9 @@ import type {
   ApiResponse,
   SupplierCashPayment,
   SupplierCashPaymentInput,
+  SupplierDebtAudit,
   SupplierDebtOverview,
+  SupplierDebtRow,
   SupplierPaymentMapping,
 } from '../types'
 
@@ -25,6 +27,25 @@ export async function getSupplierDebtOverview(
 ): Promise<SupplierDebtOverview> {
   const res = await client.get<ApiResponse<SupplierDebtOverview>>(BASE, {
     params: dateParams(dateFrom, dateTo, refreshSources),
+  })
+  return unwrapData(res)
+}
+
+export async function getSupplierDebtSupplierTransactions(
+  supplierKey: string,
+  dateFrom?: string,
+  dateTo?: string,
+  refreshSources = false,
+): Promise<SupplierDebtRow> {
+  const res = await client.get<ApiResponse<SupplierDebtRow>>(`${BASE}/suppliers/${encodeURIComponent(supplierKey)}/transactions`, {
+    params: dateParams(dateFrom, dateTo, refreshSources),
+  })
+  return unwrapData(res)
+}
+
+export async function auditSupplierDebts(dateFrom?: string, dateTo?: string): Promise<SupplierDebtAudit> {
+  const res = await client.post<ApiResponse<SupplierDebtAudit>>(`${BASE}/audit-random`, null, {
+    params: dateParams(dateFrom, dateTo),
   })
   return unwrapData(res)
 }

@@ -126,6 +126,7 @@ public class CamoraProperties {
         private String bankTransactionMappings;
         private String supplierPaymentMappings;
         private String supplierCashPayments;
+        private String supplierDebtSnapshot;
 
         public String getSupplierMappings() {
             return supplierMappings;
@@ -197,6 +198,14 @@ public class CamoraProperties {
 
         public void setSupplierCashPayments(String supplierCashPayments) {
             this.supplierCashPayments = supplierCashPayments;
+        }
+
+        public String getSupplierDebtSnapshot() {
+            return supplierDebtSnapshot;
+        }
+
+        public void setSupplierDebtSnapshot(String supplierDebtSnapshot) {
+            this.supplierDebtSnapshot = supplierDebtSnapshot;
         }
     }
 

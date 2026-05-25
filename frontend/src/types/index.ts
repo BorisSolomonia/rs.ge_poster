@@ -553,6 +553,49 @@ export interface SupplierDebtSourceStatus {
   total: number
 }
 
+export interface SupplierDebtUnmatchedGroup {
+  groupKey: string
+  provider: string
+  matchText: string
+  matchType: string
+  counterparty: string
+  counterpartyInn: string
+  counterpartyAccount: string
+  description: string
+  amount: number
+  transactionCount: number
+  largestTransaction: number
+  examples: SupplierDebtPayment[]
+}
+
+export interface SupplierDebtAuditSupplier {
+  supplierKey: string
+  supplierTin: string
+  supplierName: string
+  passed: boolean
+  snapshotPurchaseTotal: number
+  freshPurchaseTotal: number
+  snapshotBogPaidTotal: number
+  freshBogPaidTotal: number
+  snapshotTbcPaidTotal: number
+  freshTbcPaidTotal: number
+  snapshotCashPaidTotal: number
+  freshCashPaidTotal: number
+  snapshotDebtLeft: number
+  freshDebtLeft: number
+  debtDifference: number
+}
+
+export interface SupplierDebtAudit {
+  dateFrom: string
+  dateTo: string
+  auditedAt: string
+  passed: boolean
+  sampledSupplierCount: number
+  failedSupplierCount: number
+  suppliers: SupplierDebtAuditSupplier[]
+}
+
 export interface SupplierDebtOverview {
   dateFrom: string
   dateTo: string
@@ -570,6 +613,13 @@ export interface SupplierDebtOverview {
   unmatchedPayments: SupplierDebtPayment[]
   mappings: SupplierPaymentMapping[]
   sourceStatuses: SupplierDebtSourceStatus[]
+  unmatchedPaymentGroups: SupplierDebtUnmatchedGroup[]
+  snapshotGeneratedAt: string | null
+  refreshInProgress: boolean
+  lastRefreshStartedAt: string | null
+  lastRefreshCompletedAt: string | null
+  lastRefreshError: string
+  latestAudit: SupplierDebtAudit | null
 }
 
 export interface SupplierCashPayment {

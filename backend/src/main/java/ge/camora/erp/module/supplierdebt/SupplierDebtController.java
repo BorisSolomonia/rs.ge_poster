@@ -4,7 +4,9 @@ import ge.camora.erp.model.config.SupplierPaymentMapping;
 import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.dto.ApiResponse;
 import ge.camora.erp.model.dto.SupplierCashPaymentRequest;
+import ge.camora.erp.model.dto.SupplierDebtAuditDto;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
+import ge.camora.erp.model.dto.SupplierDebtRowDto;
 import ge.camora.erp.model.dto.SupplierPaymentMappingRequest;
 import ge.camora.erp.store.ConfigStore;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -39,7 +41,30 @@ public class SupplierDebtController {
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
         @RequestParam(defaultValue = "false") boolean refreshSources
     ) {
-        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.analyze(dateFrom, dateTo, refreshSources)));
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.overview(dateFrom, dateTo, refreshSources)));
+    }
+
+    @GetMapping("/suppliers/{supplierKey}/transactions")
+    public ResponseEntity<ApiResponse<SupplierDebtRowDto>> supplierTransactions(
+        @PathVariable String supplierKey,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
+        @RequestParam(defaultValue = "false") boolean refreshSources
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.supplierTransactions(
+            supplierKey,
+            dateFrom,
+            dateTo,
+            refreshSources
+        )));
+    }
+
+    @PostMapping("/audit-random")
+    public ResponseEntity<ApiResponse<SupplierDebtAuditDto>> auditRandom(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.auditRandom(dateFrom, dateTo)));
     }
 
     @GetMapping("/cash-payments")
