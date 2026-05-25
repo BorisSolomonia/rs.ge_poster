@@ -512,6 +512,7 @@ export interface SupplierDebtPurchase {
 }
 
 export interface SupplierDebtPayment {
+  id: string
   date: string | null
   amount: number
   provider: string
@@ -529,6 +530,12 @@ export interface SupplierDebtRow {
   supplierName: string
   purchaseTotal: number
   purchaseCount: number
+  bogPaidTotal: number
+  bogPaymentCount: number
+  tbcPaidTotal: number
+  tbcPaymentCount: number
+  cashPaidTotal: number
+  cashPaymentCount: number
   paidTotal: number
   paymentCount: number
   debtLeft: number
@@ -538,10 +545,22 @@ export interface SupplierDebtRow {
   payments: SupplierDebtPayment[]
 }
 
+export interface SupplierDebtSourceStatus {
+  source: string
+  status: string
+  message: string
+  recordCount: number
+  total: number
+}
+
 export interface SupplierDebtOverview {
   dateFrom: string
   dateTo: string
   purchaseTotal: number
+  bogPaidTotal: number
+  tbcPaidTotal: number
+  cashPaidTotal: number
+  bankPaidTotal: number
   paidTotal: number
   debtTotal: number
   supplierCount: number
@@ -550,4 +569,27 @@ export interface SupplierDebtOverview {
   suppliers: SupplierDebtRow[]
   unmatchedPayments: SupplierDebtPayment[]
   mappings: SupplierPaymentMapping[]
+  sourceStatuses: SupplierDebtSourceStatus[]
+}
+
+export interface SupplierCashPayment {
+  id: string
+  supplierKey: string
+  supplierTin: string
+  supplierName: string
+  date: string
+  amount: number
+  note: string
+  source: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SupplierCashPaymentInput {
+  supplierKey: string
+  supplierTin: string
+  supplierName: string
+  date: string
+  amount: number
+  note: string
 }

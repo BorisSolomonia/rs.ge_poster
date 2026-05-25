@@ -25,6 +25,7 @@ public class CamoraProperties {
     private final Platforms platforms = new Platforms();
     private final Messages messages = new Messages();
     private BigDecimal matchThreshold;
+    private String organizationOpeningDate;
 
     public String getApiPrefix() {
         return apiPrefix;
@@ -102,6 +103,14 @@ public class CamoraProperties {
         this.matchThreshold = matchThreshold;
     }
 
+    public String getOrganizationOpeningDate() {
+        return organizationOpeningDate;
+    }
+
+    public void setOrganizationOpeningDate(String organizationOpeningDate) {
+        this.organizationOpeningDate = organizationOpeningDate;
+    }
+
     public static class ConfigFiles {
         private String supplierMappings;
         private String productMappings;
@@ -111,6 +120,7 @@ public class CamoraProperties {
         private String cashFlowCategoryMappings;
         private String bankTransactionMappings;
         private String supplierPaymentMappings;
+        private String supplierCashPayments;
 
         public String getSupplierMappings() {
             return supplierMappings;
@@ -174,6 +184,14 @@ public class CamoraProperties {
 
         public void setSupplierPaymentMappings(String supplierPaymentMappings) {
             this.supplierPaymentMappings = supplierPaymentMappings;
+        }
+
+        public String getSupplierCashPayments() {
+            return supplierCashPayments;
+        }
+
+        public void setSupplierCashPayments(String supplierCashPayments) {
+            this.supplierCashPayments = supplierCashPayments;
         }
     }
 

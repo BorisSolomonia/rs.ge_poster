@@ -9,6 +9,7 @@ import ge.camora.erp.model.config.ProductMapping;
 import ge.camora.erp.model.config.SalesEvent;
 import ge.camora.erp.model.config.SalesProductExclusion;
 import ge.camora.erp.model.config.StandaloneSupplier;
+import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.config.SupplierMapping;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
 import ge.camora.erp.model.dto.SupplierMappingStatusView;
@@ -54,6 +55,7 @@ public class ConfigStore {
     private List<CashFlowCategoryMapping> cashFlowCategoryMappings = new ArrayList<>();
     private List<BankTransactionMapping> bankTransactionMappings = new ArrayList<>();
     private List<SupplierPaymentMapping> supplierPaymentMappings = new ArrayList<>();
+    private List<SupplierCashPayment> supplierCashPayments = new ArrayList<>();
 
     public ConfigStore(ObjectMapper objectMapper, CamoraProperties properties) {
         this.objectMapper = objectMapper;
@@ -83,6 +85,8 @@ public class ConfigStore {
         bankTransactionMappings = loadJson(configDir.resolve(properties.getConfigFiles().getBankTransactionMappings()),
                                       new TypeReference<>() {});
         supplierPaymentMappings = loadJson(configDir.resolve(properties.getConfigFiles().getSupplierPaymentMappings()),
+                                      new TypeReference<>() {});
+        supplierCashPayments = loadJson(configDir.resolve(properties.getConfigFiles().getSupplierCashPayments()),
                                       new TypeReference<>() {});
         log.info("ConfigStore loaded: {} supplier mappings, {} product mappings, {} standalone",
                  supplierMappings.size(), productMappings.size(), standaloneSuppliers.size());
@@ -675,6 +679,74 @@ public class ConfigStore {
         }
     }
 
+    public List<SupplierCashPayment> getSupplierCashPayments(LocalDate dateFrom, LocalDate dateTo) {
+        lock.readLock().lock();
+        try {
+            return supplierCashPayments.stream()
+                .filter(payment -> payment.getDate() != null)
+                .filter(payment -> !payment.getDate().isBefore(dateFrom) && !payment.getDate().isAfter(dateTo))
+                .sorted(Comparator.comparing(SupplierCashPayment::getDate).reversed()
+                    .thenComparing(SupplierCashPayment::getSupplierName, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public SupplierCashPayment addSupplierCashPayment(
+        String supplierKey,
+        String supplierTin,
+        String supplierName,
+        LocalDate date,
+        java.math.BigDecimal amount,
+        String note,
+        String source
+    ) {
+        String normalizedSupplierKey = normalizeSalesKey(supplierKey);
+        if (normalizedSupplierKey.isBlank()) {
+            throw new IllegalArgumentException("Cash payment supplier is required");
+        }
+        if (date == null) {
+            throw new IllegalArgumentException("Cash payment date is required");
+        }
+        if (amount == null || amount.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Cash payment amount must be greater than zero");
+        }
+        lock.writeLock().lock();
+        try {
+            List<SupplierCashPayment> previous = copySupplierCashPayments();
+            LocalDateTime now = LocalDateTime.now();
+            SupplierCashPayment created = new SupplierCashPayment(
+                UUID.randomUUID().toString(),
+                supplierKey.trim(),
+                supplierTin == null ? "" : supplierTin.trim(),
+                supplierName == null || supplierName.isBlank() ? supplierKey.trim() : supplierName.trim(),
+                date,
+                amount,
+                note == null ? "" : note.trim(),
+                source,
+                now,
+                now
+            );
+            supplierCashPayments.add(created);
+            persistSupplierCashPaymentsWithRollback(previous);
+            return created;
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
+    public void deleteSupplierCashPayment(String id) {
+        lock.writeLock().lock();
+        try {
+            List<SupplierCashPayment> previous = copySupplierCashPayments();
+            supplierCashPayments.removeIf(payment -> payment.getId().equals(id));
+            persistSupplierCashPaymentsWithRollback(previous);
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public void deleteSalesEvent(LocalDate date) {
         lock.writeLock().lock();
         try {
@@ -750,6 +822,10 @@ public class ConfigStore {
         writeJson(configDir.resolve(properties.getConfigFiles().getSupplierPaymentMappings()), supplierPaymentMappings);
     }
 
+    private void persistSupplierCashPayments() {
+        writeJson(configDir.resolve(properties.getConfigFiles().getSupplierCashPayments()), supplierCashPayments);
+    }
+
     private void persistCashFlowCategoryMappingsWithRollback(List<CashFlowCategoryMapping> previous) {
         try {
             persistCashFlowCategoryMappings();
@@ -820,6 +896,32 @@ public class ConfigStore {
                 mapping.getSource(),
                 mapping.getCreatedAt(),
                 mapping.getUpdatedAt()
+            ))
+            .collect(Collectors.toCollection(ArrayList::new));
+    }
+
+    private void persistSupplierCashPaymentsWithRollback(List<SupplierCashPayment> previous) {
+        try {
+            persistSupplierCashPayments();
+        } catch (RuntimeException exception) {
+            supplierCashPayments = previous;
+            throw exception;
+        }
+    }
+
+    private List<SupplierCashPayment> copySupplierCashPayments() {
+        return supplierCashPayments.stream()
+            .map(payment -> new SupplierCashPayment(
+                payment.getId(),
+                payment.getSupplierKey(),
+                payment.getSupplierTin(),
+                payment.getSupplierName(),
+                payment.getDate(),
+                payment.getAmount(),
+                payment.getNote(),
+                payment.getSource(),
+                payment.getCreatedAt(),
+                payment.getUpdatedAt()
             ))
             .collect(Collectors.toCollection(ArrayList::new));
     }

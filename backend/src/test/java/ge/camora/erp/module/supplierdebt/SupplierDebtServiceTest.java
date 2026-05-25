@@ -2,10 +2,12 @@ package ge.camora.erp.module.supplierdebt;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ge.camora.erp.config.CamoraProperties;
+import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
 import ge.camora.erp.model.record.RsgeRecord;
 import ge.camora.erp.module.bankanalysis.BankTransaction;
 import ge.camora.erp.module.bankanalysis.BogBusinessOnlineClient;
+import ge.camora.erp.module.bankanalysis.TbcDbiClient;
 import ge.camora.erp.module.rsge.RsgePurchaseWaybillService;
 import ge.camora.erp.store.ConfigStore;
 import org.junit.jupiter.api.Test;
@@ -21,8 +23,9 @@ class SupplierDebtServiceTest {
 
     private final FakeRsgePurchaseWaybillService rsge = new FakeRsgePurchaseWaybillService();
     private final FakeBogBusinessOnlineClient bog = new FakeBogBusinessOnlineClient();
+    private final FakeTbcDbiClient tbc = new FakeTbcDbiClient();
     private final FakeConfigStore configStore = new FakeConfigStore();
-    private final SupplierDebtService service = new SupplierDebtService(rsge, bog, configStore);
+    private final SupplierDebtService service = new SupplierDebtService(rsge, bog, tbc, configStore, new CamoraProperties());
 
     @Test
     void subtractsMatchedBogDebitsFromSupplierPurchases() {
@@ -38,6 +41,8 @@ class SupplierDebtServiceTest {
         var result = service.analyze(from, to);
 
         assertThat(result.purchaseTotal()).isEqualByComparingTo("599.00");
+        assertThat(result.bogPaidTotal()).isEqualByComparingTo("300.00");
+        assertThat(result.tbcPaidTotal()).isEqualByComparingTo("0.00");
         assertThat(result.paidTotal()).isEqualByComparingTo("300.00");
         assertThat(result.debtTotal()).isEqualByComparingTo("299.00");
         assertThat(result.suppliers()).hasSize(1);
@@ -61,6 +66,38 @@ class SupplierDebtServiceTest {
         assertThat(result.debtTotal()).isEqualByComparingTo("599.00");
         assertThat(result.unmatchedPaymentTotal()).isEqualByComparingTo("300.00");
         assertThat(result.unmatchedPaymentCount()).isEqualTo(1);
+    }
+
+    @Test
+    void subtractsTbcAndCashPaymentsFromSupplierDebt() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        tbc.transactions = List.of(
+            debit("150.00", "Supplier X", "123456789")
+        );
+        configStore.cashPayments = List.of(new SupplierCashPayment(
+            "cash-1",
+            "tin:123456789",
+            "123456789",
+            "Supplier X",
+            LocalDate.of(2025, 1, 12),
+            new BigDecimal("49.00"),
+            "cash receipt",
+            "user",
+            LocalDateTime.now(),
+            LocalDateTime.now()
+        ));
+
+        var result = service.analyze(from, to);
+
+        assertThat(result.tbcPaidTotal()).isEqualByComparingTo("150.00");
+        assertThat(result.cashPaidTotal()).isEqualByComparingTo("49.00");
+        assertThat(result.paidTotal()).isEqualByComparingTo("199.00");
+        assertThat(result.debtTotal()).isEqualByComparingTo("400.00");
+        assertThat(result.suppliers().get(0).cashPaymentCount()).isEqualTo(1);
     }
 
     private RsgeRecord purchase(String waybill, String supplierRaw, String amount, LocalDate date) {
@@ -118,7 +155,22 @@ class SupplierDebtServiceTest {
         }
     }
 
+    private static final class FakeTbcDbiClient extends TbcDbiClient {
+        private List<BankTransaction> transactions = List.of();
+
+        private FakeTbcDbiClient() {
+            super(new CamoraProperties());
+        }
+
+        @Override
+        public List<BankTransaction> getAccountMovements(LocalDate dateFrom, LocalDate dateTo) {
+            return transactions;
+        }
+    }
+
     private static final class FakeConfigStore extends ConfigStore {
+        private List<SupplierCashPayment> cashPayments = List.of();
+
         private FakeConfigStore() {
             super(new ObjectMapper(), new CamoraProperties());
         }
@@ -126,6 +178,11 @@ class SupplierDebtServiceTest {
         @Override
         public List<SupplierPaymentMapping> getSupplierPaymentMappings() {
             return List.of();
+        }
+
+        @Override
+        public List<SupplierCashPayment> getSupplierCashPayments(LocalDate dateFrom, LocalDate dateTo) {
+            return cashPayments;
         }
     }
 }

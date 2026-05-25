@@ -11,6 +11,7 @@ const PurchaseReconcilePage = lazy(() => import('./pages/PurchaseReconcilePage')
 const SalesAnalysisPage = lazy(() => import('./pages/SalesAnalysisPage'))
 const CashFlowPage = lazy(() => import('./pages/CashFlowPage'))
 const BankAnalysisPage = lazy(() => import('./pages/BankAnalysisPage'))
+const SupplierDebtsPage = lazy(() => import('./pages/SupplierDebtsPage'))
 const SalesProductsPage = lazy(() => import('./pages/SalesProductsPage'))
 const SupplierMappingPage = lazy(() => import('./pages/SupplierMappingPage'))
 const ProductMappingPage = lazy(() => import('./pages/ProductMappingPage'))
@@ -38,6 +39,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path={env.routeSalesAnalysis} element={<SalesAnalysisPage />} />
               <Route path={env.routeCashFlow} element={<CashFlowPage />} />
               <Route path={env.routeBankAnalysis} element={<BankAnalysisPage />} />
+              <Route path={env.routeSupplierDebts} element={<SupplierDebtsPage />} />
               <Route path={env.routeSalesProducts} element={<SalesProductsPage />} />
               <Route path={env.routeSupplierMappings} element={<SupplierMappingPage />} />
               <Route path={env.routeProductMappings} element={<ProductMappingPage />} />

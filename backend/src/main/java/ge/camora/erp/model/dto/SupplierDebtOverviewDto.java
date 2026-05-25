@@ -10,6 +10,10 @@ public record SupplierDebtOverviewDto(
     LocalDate dateFrom,
     LocalDate dateTo,
     BigDecimal purchaseTotal,
+    BigDecimal bogPaidTotal,
+    BigDecimal tbcPaidTotal,
+    BigDecimal cashPaidTotal,
+    BigDecimal bankPaidTotal,
     BigDecimal paidTotal,
     BigDecimal debtTotal,
     int supplierCount,
@@ -17,6 +21,7 @@ public record SupplierDebtOverviewDto(
     int unmatchedPaymentCount,
     List<SupplierDebtRowDto> suppliers,
     List<SupplierDebtPaymentDto> unmatchedPayments,
-    List<SupplierPaymentMapping> mappings
+    List<SupplierPaymentMapping> mappings,
+    List<SupplierDebtSourceStatusDto> sourceStatuses
 ) {
 }

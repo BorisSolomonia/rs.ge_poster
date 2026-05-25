@@ -1,7 +1,9 @@
 package ge.camora.erp.module.supplierdebt;
 
 import ge.camora.erp.model.config.SupplierPaymentMapping;
+import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.dto.ApiResponse;
+import ge.camora.erp.model.dto.SupplierCashPaymentRequest;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
 import ge.camora.erp.model.dto.SupplierPaymentMappingRequest;
 import ge.camora.erp.store.ConfigStore;
@@ -33,10 +35,41 @@ public class SupplierDebtController {
 
     @GetMapping
     public ResponseEntity<ApiResponse<SupplierDebtOverviewDto>> overview(
-        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
-        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
     ) {
         return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.analyze(dateFrom, dateTo)));
+    }
+
+    @GetMapping("/cash-payments")
+    public ResponseEntity<ApiResponse<List<SupplierCashPayment>>> cashPayments(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
+    ) {
+        LocalDate effectiveDateFrom = dateFrom == null ? supplierDebtService.defaultDateFrom() : dateFrom;
+        LocalDate effectiveDateTo = dateTo == null ? LocalDate.now() : dateTo;
+        return ResponseEntity.ok(ApiResponse.ok(configStore.getSupplierCashPayments(effectiveDateFrom, effectiveDateTo)));
+    }
+
+    @PostMapping("/cash-payments")
+    public ResponseEntity<ApiResponse<SupplierCashPayment>> addCashPayment(
+        @RequestBody SupplierCashPaymentRequest request
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(configStore.addSupplierCashPayment(
+            request.supplierKey(),
+            request.supplierTin(),
+            request.supplierName(),
+            request.date(),
+            request.amount(),
+            request.note(),
+            "user"
+        )));
+    }
+
+    @DeleteMapping("/cash-payments/{id}")
+    public ResponseEntity<ApiResponse<Void>> deleteCashPayment(@PathVariable String id) {
+        configStore.deleteSupplierCashPayment(id);
+        return ResponseEntity.ok(ApiResponse.ok(null));
     }
 
     @GetMapping("/mappings")

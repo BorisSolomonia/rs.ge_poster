@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 public record SupplierDebtPaymentDto(
+    String id,
     LocalDate date,
     BigDecimal amount,
     String provider,

@@ -188,7 +188,7 @@ function SupplierDebtPanel({
             <h2 className="text-xl font-bold text-slate-950">Supplier Debt Analysis</h2>
           </div>
           <p className="mt-1 text-sm text-slate-500">
-            rs.ge purchase debt minus matched BOG debit payments for the selected dates.
+            rs.ge purchase debt minus matched BOG/TBC debit payments and cash payments for the selected dates.
           </p>
         </div>
         {loading ? <span className="text-sm font-semibold text-slate-500">Loading...</span> : null}
@@ -202,9 +202,9 @@ function SupplierDebtPanel({
         <>
           <div className="mt-5 grid gap-3 md:grid-cols-4">
             <DebtMetric label="Purchases" value={formatGel(overview.purchaseTotal)} />
-            <DebtMetric label="Paid from BOG" value={formatGel(overview.paidTotal)} />
+            <DebtMetric label="Paid" value={formatGel(overview.paidTotal)} />
             <DebtMetric label="Debt Left" value={formatGel(overview.debtTotal)} tone={overview.debtTotal > 0 ? 'bad' : 'good'} />
-            <DebtMetric label="Unmatched BOG Debits" value={formatGel(overview.unmatchedPaymentTotal)} />
+            <DebtMetric label="Unmatched Bank Debits" value={formatGel(overview.unmatchedPaymentTotal)} />
           </div>
 
           <div className="mt-5 overflow-x-auto rounded-xl border border-slate-100">
@@ -291,11 +291,11 @@ function SupplierDebtDetails({ supplier }: { supplier: SupplierDebtRow }) {
             }))}
           />
           <DetailList
-            title="BOG Payments"
+            title="Payments"
             rows={supplier.payments.map((payment) => ({
-              key: payment.reference || `${payment.date}-${payment.amount}`,
+              key: payment.id || payment.reference || `${payment.date}-${payment.amount}`,
               date: payment.date,
-              text: payment.counterparty || payment.description,
+              text: `${payment.provider}: ${payment.counterparty || payment.description}`,
               amount: payment.amount,
             }))}
           />
@@ -340,8 +340,8 @@ function UnmatchedPaymentsPanel({
 }) {
   return (
     <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
-      <h3 className="font-semibold text-amber-950">Unmatched BOG Debits</h3>
-      <p className="mt-1 text-sm text-amber-800">These payments are excluded from supplier paid totals until mapped.</p>
+      <h3 className="font-semibold text-amber-950">Unmatched Bank Debits</h3>
+      <p className="mt-1 text-sm text-amber-800">These bank payments are excluded from supplier paid totals until mapped.</p>
       <div className="mt-4 space-y-3">
         {payments.map((payment, index) => {
           const key = payment.reference || `${payment.date}-${payment.amount}-${index}`
@@ -380,7 +380,7 @@ function UnmatchedPaymentsPanel({
             </div>
           )
         })}
-        {payments.length === 0 ? <p className="text-sm text-amber-800">All BOG debit payments are matched.</p> : null}
+        {payments.length === 0 ? <p className="text-sm text-amber-800">All bank debit payments are matched.</p> : null}
       </div>
     </div>
   )

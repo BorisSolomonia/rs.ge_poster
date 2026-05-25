@@ -31,7 +31,9 @@
       "Bash(timeout 8 bash -c \"while ! curl -s http://localhost:5173/ > /dev/null 2>&1; do sleep 1; done; echo ''Frontend ready''\")",
       "Bash(python -c:*)",
       "Bash(timeout 20 bash:*)",
-      "Bash(grep -E \"\\\\.env$|node_modules\")"
+      "Bash(grep -E \"\\\\.env$|node_modules\")",
+      "Bash(./mvnw -q test)",
+      "Bash(mvn -q test)"
     ]
   }
 }
