@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
+  Activity,
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
@@ -9,9 +10,12 @@ import {
   Plus,
   RefreshCcw,
   Save,
+  Search,
+  ShieldCheck,
   Trash2,
   Wallet,
 } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import {
   auditSupplierDebts,
   deleteSupplierCashPayment,
@@ -26,19 +30,37 @@ import type { SupplierDebtAudit, SupplierDebtOverview, SupplierDebtRow, Supplier
 
 const today = () => new Date().toISOString().slice(0, 10)
 
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+})
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) {
     return '-'
   }
-  return new Date(value).toLocaleString()
+  return dateTimeFormatter.format(new Date(value))
+}
+
+function matchesSupplierFilter(supplier: SupplierDebtRow, query: string) {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) {
+    return true
+  }
+  return [supplier.supplierName, supplier.supplierTin, supplier.supplierKey]
+    .filter(Boolean)
+    .some((value) => value.toLowerCase().includes(normalizedQuery))
 }
 
 export default function SupplierDebtsPage() {
   const queryClient = useQueryClient()
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo] = useState(today())
-  const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [dateFrom, setDateFrom] = useState(() => searchParams.get('from') ?? '')
+  const [dateTo, setDateTo] = useState(() => searchParams.get('to') ?? today())
+  const [expandedSupplier, setExpandedSupplier] = useState<string | null>(() => searchParams.get('supplier'))
+  const [supplierFilter, setSupplierFilter] = useState(() => searchParams.get('q') ?? '')
   const [mappingDrafts, setMappingDrafts] = useState<Record<string, string>>({})
+  const [pendingCashDeleteId, setPendingCashDeleteId] = useState<string | null>(null)
   const [cashForm, setCashForm] = useState({
     supplierKey: '',
     date: today(),
@@ -127,6 +149,42 @@ export default function SupplierDebtsPage() {
   const canSaveCash = Boolean(selectedCashSupplier && cashForm.date && Number.isFinite(cashAmount) && cashAmount > 0)
   const loadingSources = debtQuery.isFetching || sourceRefreshMutation.isPending
   const loadError = sourceRefreshMutation.error instanceof Error ? sourceRefreshMutation.error : debtQuery.error
+  const filteredSuppliers = suppliers.filter((supplier) => matchesSupplierFilter(supplier, supplierFilter))
+  const topDebtSupplier = suppliers.find((supplier) => supplier.debtLeft > 0)
+  const visibleDebtTotal = filteredSuppliers.reduce((total, supplier) => total + supplier.debtLeft, 0)
+
+  function syncSearchParams(patch: Record<string, string | null>) {
+    const next = new URLSearchParams(searchParams)
+    Object.entries(patch).forEach(([key, value]) => {
+      if (!value) {
+        next.delete(key)
+      } else {
+        next.set(key, value)
+      }
+    })
+    setSearchParams(next, { replace: true })
+  }
+
+  function updateDateFrom(value: string) {
+    setDateFrom(value)
+    syncSearchParams({ from: value || null })
+  }
+
+  function updateDateTo(value: string) {
+    setDateTo(value)
+    syncSearchParams({ to: value || null })
+  }
+
+  function updateSupplierFilter(value: string) {
+    setSupplierFilter(value)
+    syncSearchParams({ q: value || null })
+  }
+
+  function toggleSupplier(supplierKey: string) {
+    const nextSupplier = expandedSupplier === supplierKey ? null : supplierKey
+    setExpandedSupplier(nextSupplier)
+    syncSearchParams({ supplier: nextSupplier })
+  }
 
   useEffect(() => {
     if (!overview?.refreshInProgress) {
@@ -141,32 +199,53 @@ export default function SupplierDebtsPage() {
   }, [dateFrom, dateTo, overview?.refreshInProgress, queryClient])
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-6">
-      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-slate-950 text-white shadow-xl">
-        <div className="grid gap-6 p-6 lg:grid-cols-[1fr_auto] lg:p-8">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.32em] text-sky-300">Supplier ledger</p>
-            <h1 className="mt-3 text-3xl font-black tracking-tight sm:text-4xl">{env.supplierDebtsTitle}</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">{env.supplierDebtsInfo}</p>
+    <main className="mx-auto max-w-[1500px] space-y-6 overflow-x-hidden">
+      <section className="relative overflow-hidden rounded-[2rem] border border-slate-900 bg-[#101820] text-white shadow-2xl shadow-slate-300/50">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_20%,rgba(56,189,248,0.26),transparent_30%),radial-gradient(circle_at_82%_10%,rgba(245,158,11,0.22),transparent_28%),linear-gradient(135deg,rgba(255,255,255,0.10)_0,transparent_42%)]" />
+        <div className="absolute -bottom-24 left-8 h-48 w-48 rounded-full border border-white/10" />
+        <div className="relative grid gap-8 p-6 lg:grid-cols-[1fr_390px] lg:p-8">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-[0.34em] text-cyan-200">Supplier Ledger Control Room</p>
+            <h1 className="mt-3 max-w-4xl text-balance text-3xl font-black tracking-tight sm:text-5xl">{env.supplierDebtsTitle}</h1>
+            <p className="mt-4 max-w-3xl text-pretty text-sm leading-6 text-slate-300">{env.supplierDebtsInfo}</p>
+            {overview ? (
+              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                <HeroStat label="Outstanding" value={formatGel(overview.debtTotal)} tone={overview.debtTotal > 0 ? 'bad' : 'good'} />
+                <HeroStat label="Top Creditor" value={topDebtSupplier?.supplierName ?? 'No Open Debt'} />
+                <HeroStat
+                  label="Unmatched"
+                  value={`${overview.unmatchedPaymentGroups?.length ?? 0} Groups`}
+                  tone={(overview.unmatchedPaymentGroups?.length ?? 0) > 0 ? 'warn' : 'good'}
+                />
+              </div>
+            ) : null}
           </div>
-          <div className="grid min-w-[280px] gap-3 rounded-3xl border border-white/10 bg-white/10 p-4 backdrop-blur">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
+          <div className="grid gap-4 rounded-3xl border border-white/15 bg-white/10 p-4 shadow-2xl shadow-black/20 backdrop-blur">
+            <div className="flex items-center gap-2 text-sm font-black text-white">
+              <Activity className="h-4 w-4 text-cyan-200" aria-hidden="true" />
+              Source Refresh Window
+            </div>
+            <div className="grid gap-3">
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-300">
                 Date From
                 <input
                   type="date"
+                  name="supplier-debt-date-from"
+                  autoComplete="off"
                   value={dateFrom}
-                  onChange={(event) => setDateFrom(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-white px-3 text-sm font-semibold text-slate-950 outline-none focus:ring-2 focus:ring-sky-300"
+                  onChange={(event) => updateDateFrom(event.target.value)}
+                  className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-white px-3 text-sm font-semibold text-slate-950 transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200"
                 />
               </label>
               <label className="text-xs font-semibold uppercase tracking-wide text-slate-300">
                 Date To
                 <input
                   type="date"
+                  name="supplier-debt-date-to"
+                  autoComplete="off"
                   value={dateTo}
-                  onChange={(event) => setDateTo(event.target.value)}
-                  className="mt-1 h-10 w-full rounded-xl border border-white/10 bg-white px-3 text-sm font-semibold text-slate-950 outline-none focus:ring-2 focus:ring-sky-300"
+                  onChange={(event) => updateDateTo(event.target.value)}
+                  className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-white px-3 text-sm font-semibold text-slate-950 transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200"
                 />
               </label>
             </div>
@@ -174,9 +253,9 @@ export default function SupplierDebtsPage() {
               type="button"
               onClick={() => sourceRefreshMutation.mutate()}
               disabled={loadingSources}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-sky-300 px-4 text-sm font-black text-slate-950 transition hover:bg-sky-200 disabled:cursor-wait disabled:opacity-70"
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-cyan-200 px-4 text-sm font-black text-slate-950 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200/70 disabled:cursor-wait disabled:opacity-70"
             >
-              <RefreshCcw className={`h-4 w-4 ${loadingSources ? 'animate-spin' : ''}`} />
+              <RefreshCcw className={`h-4 w-4 ${loadingSources ? 'animate-spin' : ''}`} aria-hidden="true" />
               Refresh Bank/RS.ge Sources
             </button>
           </div>
@@ -184,9 +263,9 @@ export default function SupplierDebtsPage() {
       </section>
 
       {loadError instanceof Error ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
-          <AlertCircle className="h-5 w-5 flex-shrink-0" />
-          {loadError.message}
+        <div className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700" aria-live="polite">
+          <AlertCircle className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
+          {loadError.message}. Check source credentials, then refresh again.
         </div>
       ) : null}
 
@@ -205,13 +284,25 @@ export default function SupplierDebtsPage() {
           <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
             <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-xl font-black text-slate-950">Creditor Balances</h2>
                   <p className="text-sm text-slate-500">
-                    {overview.supplierCount} suppliers from {overview.dateFrom} to {overview.dateTo}
+                    {filteredSuppliers.length} of {overview.supplierCount} suppliers shown · visible debt {formatGel(visibleDebtTotal)}
                   </p>
                 </div>
-                {loadingSources ? <span className="text-sm font-semibold text-slate-500">Refreshing...</span> : null}
+                <label className="relative min-w-0 sm:w-80">
+                  <span className="sr-only">Search Suppliers</span>
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                  <input
+                    type="search"
+                    name="supplier-debt-search"
+                    autoComplete="off"
+                    value={supplierFilter}
+                    onChange={(event) => updateSupplierFilter(event.target.value)}
+                    placeholder="Search supplier or TIN…"
+                    className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-semibold text-slate-900 transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
+                  />
+                </label>
               </div>
 
               <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-100">
@@ -229,19 +320,21 @@ export default function SupplierDebtsPage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {suppliers.map((supplier) => {
+                    {filteredSuppliers.map((supplier) => {
                       const open = expandedSupplier === supplier.supplierKey
                       return (
                         <React.Fragment key={supplier.supplierKey}>
-                          <tr
-                            className="cursor-pointer transition hover:bg-sky-50/60"
-                            onClick={() => setExpandedSupplier(open ? null : supplier.supplierKey)}
-                          >
+                          <tr className="transition-colors hover:bg-cyan-50/70">
                             <td className="px-4 py-3 font-bold text-slate-900">
-                              <span className="inline-flex items-center gap-2">
-                                {open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                                {supplier.supplierName}
-                              </span>
+                              <button
+                                type="button"
+                                aria-expanded={open}
+                                onClick={() => toggleSupplier(supplier.supplierKey)}
+                                className="inline-flex max-w-full items-center gap-2 rounded-xl text-left transition-colors hover:text-cyan-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
+                              >
+                                {open ? <ChevronDown className="h-4 w-4" aria-hidden="true" /> : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
+                                <span className="max-w-[360px] truncate">{supplier.supplierName}</span>
+                              </button>
                             </td>
                             <td className="px-4 py-3 font-mono text-xs text-slate-500">{supplier.supplierTin || '-'}</td>
                             <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatGel(supplier.purchaseTotal)}</td>
@@ -259,15 +352,21 @@ export default function SupplierDebtsPage() {
                               isLoading={supplierDetailsQuery.isFetching}
                               error={supplierDetailsQuery.error instanceof Error ? supplierDetailsQuery.error.message : null}
                               deletingCashId={deleteCashMutation.variables ?? null}
-                              onDeleteCash={(id) => deleteCashMutation.mutate(id)}
+                              pendingCashDeleteId={pendingCashDeleteId}
+                              onRequestCashDelete={setPendingCashDeleteId}
+                              onCancelCashDelete={() => setPendingCashDeleteId(null)}
+                              onConfirmCashDelete={(id) => {
+                                setPendingCashDeleteId(null)
+                                deleteCashMutation.mutate(id)
+                              }}
                             />
                           ) : null}
                         </React.Fragment>
                       )
                     })}
-                    {suppliers.length === 0 ? (
+                    {filteredSuppliers.length === 0 ? (
                       <tr>
-                        <td className="px-4 py-5 text-slate-500" colSpan={8}>No supplier purchase debt found for this range.</td>
+                        <td className="px-4 py-5 text-slate-500" colSpan={8}>No suppliers match this search and date range.</td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -297,16 +396,44 @@ export default function SupplierDebtsPage() {
           />
         </>
       ) : null}
+    </main>
+  )
+}
+
+function HeroStat({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string
+  tone?: 'good' | 'bad' | 'warn'
+}) {
+  const toneClass =
+    tone === 'good'
+      ? 'border-emerald-300/30 bg-emerald-300/10 text-emerald-100'
+      : tone === 'bad'
+        ? 'border-red-300/30 bg-red-300/10 text-red-100'
+        : tone === 'warn'
+          ? 'border-amber-300/30 bg-amber-300/10 text-amber-100'
+          : 'border-white/10 bg-white/10 text-white'
+  return (
+    <div className={`min-w-0 rounded-2xl border p-3 ${toneClass}`}>
+      <p className="text-[11px] font-black uppercase tracking-[0.22em] opacity-70">{label}</p>
+      <p className="mt-2 truncate text-lg font-black tabular-nums">{value}</p>
     </div>
   )
 }
 
 function SnapshotStatus({ overview }: { overview: SupplierDebtOverview }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm" aria-live="polite">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="font-black text-slate-950">Saved creditor snapshot</p>
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 font-black text-slate-950">
+            <ShieldCheck className="h-4 w-4 text-emerald-600" aria-hidden="true" />
+            Saved Creditor Snapshot
+          </p>
           <p className="mt-1 text-slate-500">
             Showing the latest saved balances while the app refreshes RS.ge, BOG, and TBC in the background.
           </p>
@@ -316,7 +443,7 @@ function SnapshotStatus({ overview }: { overview: SupplierDebtOverview }) {
             Generated: {formatDateTime(overview.snapshotGeneratedAt)}
           </span>
           <span className={`rounded-full px-3 py-1 ${overview.refreshInProgress ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800'}`}>
-            {overview.refreshInProgress ? 'Background refresh running' : 'Snapshot ready'}
+            {overview.refreshInProgress ? 'Background Refresh Running' : 'Snapshot Ready'}
           </span>
           {overview.lastRefreshCompletedAt ? (
             <span className="rounded-full bg-slate-100 px-3 py-1">
@@ -350,7 +477,7 @@ function AuditPanel({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <ClipboardCheck className="h-5 w-5 text-slate-500" />
+            <ClipboardCheck className="h-5 w-5 text-slate-500" aria-hidden="true" />
             <h2 className="text-lg font-black text-slate-950">Random Correctness Check</h2>
           </div>
           <p className="mt-1 text-sm text-slate-500">
@@ -364,7 +491,7 @@ function AuditPanel({
           className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
         >
           <RefreshCcw className={`h-4 w-4 ${isRunning ? 'animate-spin' : ''}`} />
-          {isRunning ? 'Checking...' : 'Run Random Audit'}
+          {isRunning ? 'Checking…' : 'Run Random Audit'}
         </button>
       </div>
 
@@ -478,7 +605,7 @@ function MetricCard({
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
-        {icon ? <span className="text-slate-400">{icon}</span> : null}
+        {icon ? <span className="text-slate-400" aria-hidden="true">{icon}</span> : null}
       </div>
       <p className={`mt-3 text-2xl font-black tabular-nums ${colors}`}>{formatGel(value)}</p>
     </div>
@@ -505,7 +632,7 @@ function CashPaymentPanel({
   return (
     <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-center gap-2">
-        <Wallet className="h-5 w-5 text-amber-600" />
+        <Wallet className="h-5 w-5 text-amber-600" aria-hidden="true" />
         <h2 className="text-lg font-black text-slate-950">Add Cash Payment</h2>
       </div>
       <p className="mt-2 text-sm text-slate-500">Record manual supplier payments that did not pass through BOG or TBC.</p>
@@ -514,7 +641,9 @@ function CashPaymentPanel({
         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
           Supplier
           <select
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-sky-300"
+            name="supplier-debt-cash-supplier"
+            autoComplete="off"
+            className="mt-1 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
             value={form.supplierKey}
             onChange={(event) => setForm((current) => ({ ...current, supplierKey: event.target.value }))}
           >
@@ -531,9 +660,11 @@ function CashPaymentPanel({
           Payment Date
           <input
             type="date"
+            name="supplier-debt-cash-date"
+            autoComplete="off"
             value={form.date}
             onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))}
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-sky-300"
+            className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
           />
         </label>
 
@@ -541,22 +672,27 @@ function CashPaymentPanel({
           Amount
           <input
             type="number"
+            name="supplier-debt-cash-amount"
             min="0"
             step="0.01"
+            inputMode="decimal"
+            autoComplete="off"
             value={form.amount}
             onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
-            className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-sky-300"
-            placeholder="0.00"
+            className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 text-sm font-semibold transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
+            placeholder="0.00…"
           />
         </label>
 
         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
           Note
           <textarea
+            name="supplier-debt-cash-note"
+            autoComplete="off"
             value={form.note}
             onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
-            className="mt-1 min-h-24 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium outline-none focus:ring-2 focus:ring-sky-300"
-            placeholder="Optional receipt number, cashier note, or context"
+            className="mt-1 min-h-24 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
+            placeholder="Optional receipt number, cashier note, or context…"
           />
         </label>
       </div>
@@ -567,10 +703,10 @@ function CashPaymentPanel({
         type="button"
         disabled={!canSave || isSaving}
         onClick={onSave}
-        className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <Plus className="h-4 w-4" />
-        {isSaving ? 'Saving...' : 'Save Cash Payment'}
+        <Plus className="h-4 w-4" aria-hidden="true" />
+        {isSaving ? 'Saving…' : 'Save Cash Payment'}
       </button>
     </aside>
   )
@@ -581,22 +717,28 @@ function SupplierDebtDetails({
   isLoading,
   error,
   deletingCashId,
-  onDeleteCash,
+  pendingCashDeleteId,
+  onRequestCashDelete,
+  onCancelCashDelete,
+  onConfirmCashDelete,
 }: {
   supplier: SupplierDebtRow
   isLoading: boolean
   error: string | null
   deletingCashId: string | null
-  onDeleteCash: (id: string) => void
+  pendingCashDeleteId: string | null
+  onRequestCashDelete: (id: string) => void
+  onCancelCashDelete: () => void
+  onConfirmCashDelete: (id: string) => void
 }) {
   return (
     <tr>
       <td colSpan={8} className="bg-slate-50 px-4 py-4">
-        {isLoading ? <p className="mb-3 text-sm font-semibold text-slate-500">Loading supplier transactions...</p> : null}
+        {isLoading ? <p className="mb-3 text-sm font-semibold text-slate-500">Loading supplier transactions…</p> : null}
         {error ? <p className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
         <div className="grid gap-4 lg:grid-cols-2">
           <DetailList
-            title="rs.ge Purchases"
+            title="RS.ge Purchases"
             rows={supplier.purchases.map((purchase) => ({
               key: purchase.waybillNumber,
               date: purchase.date,
@@ -616,7 +758,10 @@ function SupplierDebtDetails({
               removable: payment.provider === 'CASH',
             }))}
             deletingId={deletingCashId}
-            onDelete={onDeleteCash}
+            pendingDeleteId={pendingCashDeleteId}
+            onRequestDelete={onRequestCashDelete}
+            onCancelDelete={onCancelCashDelete}
+            onConfirmDelete={onConfirmCashDelete}
           />
         </div>
       </td>
@@ -628,12 +773,18 @@ function DetailList({
   title,
   rows,
   deletingId,
-  onDelete,
+  pendingDeleteId,
+  onRequestDelete,
+  onCancelDelete,
+  onConfirmDelete,
 }: {
   title: string
   rows: { key: string; date: string | null; provider: string; text: string; amount: number; removable?: boolean }[]
   deletingId?: string | null
-  onDelete?: (id: string) => void
+  pendingDeleteId?: string | null
+  onRequestDelete?: (id: string) => void
+  onCancelDelete?: () => void
+  onConfirmDelete?: (id: string) => void
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white">
@@ -645,16 +796,36 @@ function DetailList({
             <span className="rounded-full bg-slate-100 px-2 py-1 text-center font-black text-slate-600">{row.provider}</span>
             <span className="truncate text-slate-700">{row.text || '-'}</span>
             <span className="text-right font-bold tabular-nums">{formatGel(row.amount)}</span>
-            {row.removable && onDelete ? (
-              <button
-                type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 disabled:opacity-50"
-                disabled={deletingId === row.key}
-                onClick={() => onDelete(row.key)}
-                aria-label="Delete cash payment"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+            {row.removable && onRequestDelete && onConfirmDelete && onCancelDelete ? (
+              pendingDeleteId === row.key ? (
+                <span className="inline-flex items-center justify-end gap-1">
+                  <button
+                    type="button"
+                    className="h-8 rounded-lg bg-red-600 px-2 text-[11px] font-black text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:opacity-50"
+                    disabled={deletingId === row.key}
+                    onClick={() => onConfirmDelete(row.key)}
+                  >
+                    Confirm
+                  </button>
+                  <button
+                    type="button"
+                    className="h-8 rounded-lg px-2 text-[11px] font-black text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-100"
+                    onClick={onCancelDelete}
+                  >
+                    Cancel
+                  </button>
+                </span>
+              ) : (
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:opacity-50"
+                  disabled={deletingId === row.key}
+                  onClick={() => onRequestDelete(row.key)}
+                  aria-label="Delete cash payment"
+                >
+                  <Trash2 className="h-4 w-4" aria-hidden="true" />
+                </button>
+              )
             ) : (
               <span className="h-8 w-8" />
             )}
@@ -727,7 +898,9 @@ function UnmatchedPaymentsPanel({
                   ) : null}
                 </div>
                 <select
-                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-sky-300"
+                  name={`supplier-debt-mapping-${group.groupKey}`}
+                  autoComplete="off"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
                   value={mappingDrafts[key] ?? ''}
                   onChange={(event) => setMappingDrafts((current) => ({ ...current, [key]: event.target.value }))}
                 >
@@ -740,11 +913,11 @@ function UnmatchedPaymentsPanel({
                 </select>
                 <button
                   type="button"
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
                   disabled={!selectedSupplier || savingMapping}
                   onClick={() => selectedSupplier && onSaveMapping(group, selectedSupplier)}
                 >
-                  <Save className="h-4 w-4" />
+                  <Save className="h-4 w-4" aria-hidden="true" />
                   Save Group Mapping
                 </button>
               </div>

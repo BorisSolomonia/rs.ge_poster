@@ -1,7 +1,12 @@
 import { env } from '../../env'
 
+const gelFormatter = new Intl.NumberFormat('en-GB', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 export function formatGel(value: number) {
-  return `${value.toFixed(2)} GEL`
+  return `${gelFormatter.format(value)} GEL`
 }
 
 export function getDefaultDateRange() {
