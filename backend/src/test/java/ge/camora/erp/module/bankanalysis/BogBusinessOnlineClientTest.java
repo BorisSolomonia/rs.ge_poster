@@ -158,7 +158,7 @@ class BogBusinessOnlineClientTest {
         config.setStatementRetryDelayMillis(0);
         RetryingBogClient client = new RetryingBogClient(properties, new ObjectMapper());
 
-        var transactions = client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 2));
+        var transactions = client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 1));
 
         assertThat(transactions).hasSize(1);
         assertThat(transactions.get(0).amount()).isEqualByComparingTo("125.00");
@@ -205,14 +205,40 @@ class BogBusinessOnlineClientTest {
         config.setCurrency("GEL");
         config.setTake(1);
         config.setTimeoutSeconds(5);
+        config.setStatementPaginationEnabled(true);
         PagingBogClient client = new PagingBogClient(properties, new ObjectMapper());
 
-        var transactions = client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 2));
+        var transactions = client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 1));
 
         assertThat(transactions).hasSize(1);
         assertThat(client.statementPaths).hasSize(2);
         assertThat(client.statementPaths).anyMatch(path -> path.endsWith("/42/2/true"));
         assertThat(client.statementPaths).noneMatch(path -> path.endsWith("/42/3/true"));
+    }
+
+    @Test
+    void statementSplitsDateRangeInsteadOfCallingPageEndpointWhenPaginationIsDisabled() {
+        CamoraProperties properties = new CamoraProperties();
+        CamoraProperties.BogApi config = properties.getBogApi();
+        config.setEnabled(true);
+        config.setTokenUrl("https://bog.example/auth");
+        config.setBaseUrl("https://bog.example/api");
+        config.setClientId("client");
+        config.setClientSecret("secret");
+        config.setAccountNumber("GE00BG0000000000000000GEL");
+        config.setCurrency("GEL");
+        config.setTake(1);
+        config.setTimeoutSeconds(5);
+        SplitBogClient client = new SplitBogClient(properties, new ObjectMapper());
+
+        var transactions = client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 2));
+
+        assertThat(transactions).hasSize(2);
+        assertThat(client.statementPaths).hasSize(3);
+        assertThat(client.statementPaths).anyMatch(path -> path.contains("/2026-02-01/2026-02-02/false/true/1"));
+        assertThat(client.statementPaths).anyMatch(path -> path.contains("/2026-02-01/2026-02-01/false/true/1"));
+        assertThat(client.statementPaths).anyMatch(path -> path.contains("/2026-02-02/2026-02-02/false/true/1"));
+        assertThat(client.statementPaths).noneMatch(path -> path.endsWith("/42/2/true"));
     }
 
     @Test
@@ -346,6 +372,42 @@ class BogBusinessOnlineClientTest {
         }
     }
 
+    private static final class SplitBogClient extends BogBusinessOnlineClient {
+        private final List<String> statementPaths = new ArrayList<>();
+
+        private SplitBogClient(CamoraProperties properties, ObjectMapper objectMapper) {
+            super(properties, objectMapper);
+        }
+
+        @Override
+        HttpResponse<String> send(HttpClient client, HttpRequest request) throws Exception {
+            String path = request.uri().getPath();
+            if (path.contains("/auth")) {
+                return response(request, 200, "{\"access_token\":\"token\",\"expires_in\":300}");
+            }
+            if (path.contains("/statement/v2")) {
+                statementPaths.add(path);
+                if (path.contains("/2026-02-01/2026-02-02/")) {
+                    return response(request, 200, """
+                        {
+                          "Id": 42,
+                          "Count": 1,
+                          "TotalCount": 2,
+                          "Records": []
+                        }
+                        """);
+                }
+                if (path.contains("/2026-02-01/2026-02-01/")) {
+                    return response(request, 200, statementResponse("2026-02-01", "111.00"));
+                }
+                if (path.contains("/2026-02-02/2026-02-02/")) {
+                    return response(request, 200, statementResponse("2026-02-02", "222.00"));
+                }
+            }
+            throw new IOException("Unexpected request " + request.uri());
+        }
+    }
+
     private static final class EmptyBogClient extends BogBusinessOnlineClient {
         private final List<String> statementPaths = new ArrayList<>();
 
@@ -371,6 +433,29 @@ class BogBusinessOnlineClientTest {
             }
             throw new IOException("Unexpected request " + request.uri());
         }
+    }
+
+    private static String statementResponse(String date, String amount) {
+        return """
+            {
+              "Count": 1,
+              "TotalCount": 1,
+              "Records": [
+                {
+                  "EntryAmountDebit": "%s",
+                  "EntryDate": "%s",
+                  "DocumentSourceCurrency": "GEL",
+                  "EntryAccountNumber": "GE00BG0000000000000000GEL",
+                  "BeneficiaryDetails": {
+                    "Name": "Supplier X",
+                    "Inn": "123456789",
+                    "AccountNumber": "GE00BG0000000000000001GEL"
+                  },
+                  "EntryDocumentNumber": "BOG-REF"
+                }
+              ]
+            }
+            """.formatted(amount, date);
     }
 
     private static final class ForbiddenBogClient extends BogBusinessOnlineClient {

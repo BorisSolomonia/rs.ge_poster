@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -57,6 +58,23 @@ public class BogBusinessOnlineClient {
         List<BankTransaction> transactions = new ArrayList<>(parseRecords(firstPage, config));
         int count = firstPage.path("Count").asInt(transactions.size());
         int totalCount = firstPage.path("TotalCount").asInt(count);
+        if (totalCount <= count || totalCount <= transactions.size()) {
+            return transactions;
+        }
+        if (dateFrom.isBefore(dateTo)) {
+            LocalDate midpoint = dateFrom.plusDays(ChronoUnit.DAYS.between(dateFrom, dateTo) / 2);
+            List<BankTransaction> splitTransactions = new ArrayList<>(getStatementRange(config, dateFrom, midpoint));
+            splitTransactions.addAll(getStatementRange(config, midpoint.plusDays(1), dateTo));
+            return splitTransactions;
+        }
+        if (!config.isStatementPaginationEnabled()) {
+            throw new BogApiException(
+                BogApiException.STATEMENT_FAILED,
+                "BOG statement for " + dateFrom + " returned " + count + " of " + totalCount
+                    + " records, but statement pagination is disabled because BOG denied the page endpoint. "
+                    + "Set CAMORA_BOG_API_STATEMENT_PAGINATION_ENABLED=true only if BOG enables /statement/v2/{account}/{currency}/{id}/{page}/{orderByDate} for this client."
+            );
+        }
         long statementId = firstPage.path("Id").asLong(0);
         if (statementId > 0 && count > 0 && totalCount > count) {
             int totalPages = (int) Math.ceil((double) totalCount / Math.max(1, count));

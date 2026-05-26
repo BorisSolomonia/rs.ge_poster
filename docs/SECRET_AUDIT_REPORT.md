@@ -29,8 +29,8 @@ Values are intentionally redacted. This report lists only file paths, variable n
 
 These files exist locally and are currently ignored, but they must never be uploaded or copied to GitHub:
 
-- `tones-488112-815340a08b7a.json`: Google service-account JSON with private-key fields.
-- `Shps verapani.pfx`: TBC client certificate.
+- Local Google service-account JSON with private-key fields.
+- Local TBC client certificate file.
 - `docker/.env.secret.local`: local secret environment file with service account JSON and bank/API settings.
 
 ## Gitleaks Guardrails Added

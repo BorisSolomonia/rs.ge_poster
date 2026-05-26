@@ -6,13 +6,14 @@ useDefault = true
 [[rules]]
 id = "camora-env-secret"
 description = "Camora environment variable containing a credential or certificate"
-regex = '''(?i)CAMORA_[A-Z0-9_]*(PASSWORD|SECRET|TOKEN|PRIVATE_KEY|CERTIFICATE|SERVICE_ACCOUNT_JSON|CLIENT_SECRET|API_KEY)[A-Z0-9_]*\s*=\s*["']?([^"'\s#]{6,})'''
+regex = '''(?i)CAMORA_[A-Z0-9_]*(PASSWORD|SECRET|PRIVATE_KEY|CERTIFICATE|SERVICE_ACCOUNT_JSON|CLIENT_SECRET|API_KEY|ACCESS_TOKEN|REFRESH_TOKEN)[A-Z0-9_]*\s*=\s*["']?([^"'\s#]{6,})'''
 entropy = 2.5
 keywords = [
   "CAMORA_",
   "PASSWORD",
   "SECRET",
-  "TOKEN",
+  "ACCESS_TOKEN",
+  "REFRESH_TOKEN",
   "CERTIFICATE",
   "SERVICE_ACCOUNT_JSON",
   "CLIENT_SECRET",
@@ -52,6 +53,9 @@ regexes = [
   '''CHANGE_ME''',
   '''REDACTED''',
   '''placeholder''',
+  '''<[A-Z0-9_]+>''',
+  '''C:/Users/<USER>/certs/company\.pfx''',
+  '''C:\\Users\\<USER>\\certs\\company\.pfx''',
   '''example\.com''',
   '''your-[a-z0-9-]+''',
   '''BASE64_ENCODED_PFX''',

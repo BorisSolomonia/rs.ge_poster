@@ -262,7 +262,7 @@ BOG response contains:
 
 ```json
 {
-  "Id": 5808539328053003,
+  "Id": 1234567890,
   "Count": 1000,
   "TotalCount": 3033,
   "Records": []
@@ -293,7 +293,7 @@ Accept: application/json
 Example:
 
 ```text
-https://api.businessonline.ge/api/statement/v2/<IBAN>/GEL/5808539328053003/2/true
+https://api.businessonline.ge/api/statement/v2/<IBAN>/GEL/<STATEMENT_ID>/2/true
 ```
 
 Important:

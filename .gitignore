@@ -3,7 +3,6 @@
 .env.*
 !.env.example
 *.env.secret.local
-!.env.*
 !*.env.example
 backend/.env
 backend/.env.*
@@ -63,6 +62,7 @@ gitleaks-staged.*
 
 # Local IDE and agent state
 .claude/
+.architecture-audit/
 .vscode/
 .idea/
 .cursor/
