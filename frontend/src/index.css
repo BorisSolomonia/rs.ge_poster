@@ -27,8 +27,14 @@
   box-sizing: border-box;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   min-width: 320px;
+  overflow-x: hidden;
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: Aptos, 'Segoe UI Variable', 'Trebuchet MS', sans-serif;
@@ -45,6 +51,13 @@ textarea {
 
 button {
   touch-action: manipulation;
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
 }
 
 table {

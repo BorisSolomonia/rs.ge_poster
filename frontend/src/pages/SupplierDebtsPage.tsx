@@ -574,7 +574,7 @@ function SupplierMobileCard({
         <button
           type="button"
           onClick={onOpenManualPayments}
-          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-900 transition-colors hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100"
+          className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-900 transition-colors hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100"
         >
           <Wallet className="h-4 w-4" aria-hidden="true" />
           Manual payments ({supplier.cashPaymentCount})
@@ -899,7 +899,7 @@ function ManualPaymentsModal({
   const cashTotal = supplier.cashPaidTotal || fallbackSupplier.cashPaidTotal
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true">
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+      <div className="max-h-[92dvh] w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-slate-950 px-4 py-3 text-white sm:px-5">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -912,14 +912,14 @@ function ManualPaymentsModal({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-200 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/20"
+            className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-xl text-slate-200 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/20"
             aria-label="Close manual payments"
           >
             <X className="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
 
-        <div className="grid max-h-[calc(92vh-78px)] gap-4 overflow-y-auto p-4 sm:grid-cols-[1fr_290px] sm:p-5">
+        <div className="grid max-h-[calc(92dvh-78px)] gap-4 overflow-y-auto p-4 sm:grid-cols-[1fr_290px] sm:p-5">
           <section className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50">
             <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
               <div>
@@ -965,7 +965,7 @@ function ManualPaymentsModal({
                   autoComplete="off"
                   value={form.date}
                   onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))}
-                  className="mt-1 h-10 w-full rounded-xl border border-amber-200 bg-white px-3 text-xs font-semibold text-slate-900 transition focus-visible:border-amber-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100"
+                  className="mt-1 min-h-12 w-full rounded-xl border border-amber-200 bg-white px-3 text-xs font-semibold text-slate-900 transition focus-visible:border-amber-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100 sm:h-10 sm:min-h-0"
                 />
               </label>
 
@@ -980,7 +980,7 @@ function ManualPaymentsModal({
                   autoComplete="off"
                   value={form.amount}
                   onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
-                  className="mt-1 h-10 w-full rounded-xl border border-amber-200 bg-white px-3 text-xs font-semibold text-slate-900 transition focus-visible:border-amber-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100"
+                  className="mt-1 min-h-12 w-full rounded-xl border border-amber-200 bg-white px-3 text-xs font-semibold text-slate-900 transition focus-visible:border-amber-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100 sm:h-10 sm:min-h-0"
                   placeholder="0.00"
                 />
               </label>
@@ -1004,7 +1004,7 @@ function ManualPaymentsModal({
               type="button"
               disabled={!canSave || isSaving}
               onClick={onSave}
-              className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-black text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+              className="mt-4 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-black text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-10"
             >
               <Plus className="h-4 w-4" aria-hidden="true" />
               {isSaving ? 'Saving...' : 'Save Manual Payment'}
@@ -1242,7 +1242,7 @@ function DetailList({
                 <span className="inline-flex flex-wrap items-center gap-1 sm:justify-end">
                   <button
                     type="button"
-                    className="min-h-11 rounded-lg bg-red-600 px-3 text-[11px] font-black text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:opacity-50 sm:h-8 sm:min-h-0 sm:px-2"
+                    className="min-h-12 rounded-lg bg-red-600 px-3 text-[11px] font-black text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:opacity-50 sm:h-8 sm:min-h-0 sm:px-2"
                     disabled={deletingId === row.key}
                     onClick={() => onConfirmDelete(row.key)}
                   >
@@ -1250,7 +1250,7 @@ function DetailList({
                   </button>
                   <button
                     type="button"
-                    className="min-h-11 rounded-lg px-3 text-[11px] font-black text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-100 sm:h-8 sm:min-h-0 sm:px-2"
+                    className="min-h-12 rounded-lg px-3 text-[11px] font-black text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-100 sm:h-8 sm:min-h-0 sm:px-2"
                     onClick={onCancelDelete}
                   >
                     Cancel
@@ -1259,7 +1259,7 @@ function DetailList({
               ) : (
                 <button
                   type="button"
-                  className="inline-flex min-h-11 w-11 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:opacity-50 sm:h-8 sm:min-h-0 sm:w-8"
+                  className="inline-flex min-h-12 w-12 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:opacity-50 sm:h-8 sm:min-h-0 sm:w-8"
                   disabled={deletingId === row.key}
                   onClick={() => onRequestDelete(row.key)}
                   aria-label="Delete cash payment"

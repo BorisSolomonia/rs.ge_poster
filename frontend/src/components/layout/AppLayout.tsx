@@ -39,7 +39,7 @@ export default function AppLayout() {
           </div>
           <button
             type="button"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm"
+            className="inline-flex h-12 w-12 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm"
             aria-label={mobileNavOpen ? 'Close navigation' : 'Open navigation'}
             onClick={() => setMobileNavOpen((open) => !open)}
           >
@@ -50,7 +50,7 @@ export default function AppLayout() {
 
       <div className="flex min-h-screen">
         <aside
-          className={`fixed inset-y-0 left-0 z-50 flex w-72 -translate-x-full flex-col border-r border-white/70 bg-slate-950 text-white shadow-2xl transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
+          className={`fixed inset-y-0 left-0 z-50 flex w-[min(18rem,90vw)] -translate-x-full flex-col border-r border-white/70 bg-slate-950 text-white shadow-2xl transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:w-72 lg:translate-x-0 ${
             mobileNavOpen ? 'translate-x-0' : ''
           }`}
         >
@@ -61,7 +61,7 @@ export default function AppLayout() {
             </div>
             <button
               type="button"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-white/10 text-slate-200 lg:hidden"
+              className="inline-flex h-12 w-12 items-center justify-center rounded-xl border border-white/10 text-slate-200 lg:hidden"
               aria-label="Close navigation"
               onClick={() => setMobileNavOpen(false)}
             >
@@ -76,7 +76,7 @@ export default function AppLayout() {
                 end={end}
                 onClick={() => setMobileNavOpen(false)}
                 className={({ isActive }) =>
-                  `flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition-all ${
+                  `flex min-h-12 items-center gap-3 rounded-2xl px-4 py-3 text-sm font-semibold transition-all ${
                     isActive
                       ? 'bg-sky-400 text-slate-950 shadow-lg shadow-sky-950/20'
                       : 'text-slate-300 hover:bg-white/10 hover:text-white'

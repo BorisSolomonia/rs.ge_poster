@@ -8,7 +8,7 @@ import { formatGel, getDefaultDateRange } from '../components/reconciliation/rec
 import { env } from '../env'
 import type { BankDirection, BankTransactionMapping, BankUnmappedGroup } from '../types'
 
-const inputClass = 'h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100'
+const inputClass = 'min-h-12 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:h-10 sm:min-h-0'
 type BankProvider = 'TBC' | 'BOG'
 
 export default function BankAnalysisPage() {
@@ -84,7 +84,7 @@ export default function BankAnalysisPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-4 px-3 py-4 sm:space-y-6 sm:p-6">
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
@@ -105,7 +105,7 @@ export default function BankAnalysisPage() {
               <input className={inputClass} type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
             </Field>
             <button
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+              className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50 sm:h-10 sm:min-h-0 sm:w-auto"
               disabled={analysisQuery.isFetching}
             >
               <Search className="h-4 w-4" />
@@ -280,7 +280,7 @@ function UnmappedPanel({
                   </p>
                   {group.description ? <p className="mt-1 line-clamp-2 text-xs text-slate-500">{group.description}</p> : null}
                 </div>
-                <div className="flex min-w-[280px] gap-2">
+                <div className="flex w-full min-w-0 flex-col gap-2 sm:min-w-[280px] sm:flex-row lg:w-auto">
                   <input
                     className={inputClass}
                     placeholder={env.bankAnalysisMappingCategoryPlaceholder}
@@ -290,7 +290,7 @@ function UnmappedPanel({
                     }
                   />
                   <button
-                    className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                    className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-blue-600 px-3 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 sm:h-10 sm:min-h-0"
                     disabled={saving || !(mappingDrafts[key] ?? '').trim()}
                     onClick={() => onSave(group)}
                   >
