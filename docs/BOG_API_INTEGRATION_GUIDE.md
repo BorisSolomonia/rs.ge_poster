@@ -278,46 +278,31 @@ TotalCount  total records available
 Records     transactions
 ```
 
-If `TotalCount` is bigger than `Count`, fetch more pages.
-
-## 9. Fetch More Pages
-
-Page URL:
+If `TotalCount` is bigger than `Count`, do not call BOG's page endpoint by default.
+Some BOG clients receive tokens for the first statement request but get HTTP 403 for:
 
 ```http
 GET <baseUrl>/statement/v2/{accountNumber}/{currency}/{id}/{page}/{orderByDate}
-Authorization: Bearer <access_token>
-Accept: application/json
 ```
 
-Example:
+Camora avoids that endpoint. It splits the requested date range into smaller date ranges until each response is complete.
+If one single day still returns `TotalCount > Count`, Camora fails with a clear error instead of silently undercounting bank payments.
 
-```text
-https://api.businessonline.ge/api/statement/v2/<IBAN>/GEL/<STATEMENT_ID>/2/true
-```
-
-Important:
-
-```text
-First response is page 1.
-Next page number is 2.
-Continue until all pages are read.
-```
+## 9. Split Large Statement Ranges
 
 Java logic:
 
 ```java
-int count = firstPage.path("Count").asInt(transactions.size());
-int totalCount = firstPage.path("TotalCount").asInt(count);
-long statementId = firstPage.path("Id").asLong(0);
-
-if (statementId > 0 && count > 0 && totalCount > count) {
-    int totalPages = (int) Math.ceil((double) totalCount / count);
-    for (int page = 2; page <= totalPages; page++) {
-        JsonNode pageNode = getJson(statementPageUrl(config, statementId, page), accessToken, config);
-        transactions.addAll(parseRecords(pageNode, config));
-    }
+if (totalCount <= count || totalCount <= transactions.size()) {
+    return transactions;
 }
+if (dateFrom.isBefore(dateTo)) {
+    LocalDate midpoint = dateFrom.plusDays(ChronoUnit.DAYS.between(dateFrom, dateTo) / 2);
+    List<BankTransaction> splitTransactions = new ArrayList<>(getStatementRange(config, dateFrom, midpoint));
+    splitTransactions.addAll(getStatementRange(config, midpoint.plusDays(1), dateTo));
+    return splitTransactions;
+}
+throw new BogApiException(...);
 ```
 
 ## 10. Convert BOG Records To Camora Transactions

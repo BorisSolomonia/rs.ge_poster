@@ -67,23 +67,13 @@ public class BogBusinessOnlineClient {
             splitTransactions.addAll(getStatementRange(config, midpoint.plusDays(1), dateTo));
             return splitTransactions;
         }
-        if (!config.isStatementPaginationEnabled()) {
-            throw new BogApiException(
-                BogApiException.STATEMENT_FAILED,
-                "BOG statement for " + dateFrom + " returned " + count + " of " + totalCount
-                    + " records, but statement pagination is disabled because BOG denied the page endpoint. "
-                    + "Set CAMORA_BOG_API_STATEMENT_PAGINATION_ENABLED=true only if BOG enables /statement/v2/{account}/{currency}/{id}/{page}/{orderByDate} for this client."
-            );
-        }
-        long statementId = firstPage.path("Id").asLong(0);
-        if (statementId > 0 && count > 0 && totalCount > count) {
-            int totalPages = (int) Math.ceil((double) totalCount / Math.max(1, count));
-            for (int page = 2; page <= totalPages; page++) {
-                JsonNode pageNode = getJsonWithTokenRefresh(statementPageUrl(config, statementId, page), config);
-                transactions.addAll(parseRecords(pageNode, config));
-            }
-        }
-        return transactions;
+        throw new BogApiException(
+            BogApiException.STATEMENT_FAILED,
+            "BOG statement for " + dateFrom + " returned " + count + " of " + totalCount
+                + " records. Camora did not call BOG's statement page endpoint because this BOG client denies it. "
+                + "Increase CAMORA_BOG_API_TAKE if BOG allows a larger value, or ask BOG to enable "
+                + "/statement/v2/{account}/{currency}/{id}/{page}/{orderByDate} for this client."
+        );
     }
 
     private String accessToken(CamoraProperties.BogApi config) {
@@ -364,15 +354,6 @@ public class BogBusinessOnlineClient {
             + dateTo + "/"
             + includeToday + "/true/"
             + Math.max(1, config.getTake());
-    }
-
-    private String statementPageUrl(CamoraProperties.BogApi config, long statementId, int page) {
-        return trimSlash(config.getBaseUrl())
-            + "/statement/v2/"
-            + encode(config.getAccountNumber()) + "/"
-            + encode(config.getCurrency()) + "/"
-            + statementId + "/"
-            + page + "/true";
     }
 
     private HttpClient client(CamoraProperties.BogApi config) {

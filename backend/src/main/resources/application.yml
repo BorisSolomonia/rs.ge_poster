@@ -111,7 +111,6 @@ camora:
     statement-retry-attempts: "${CAMORA_BOG_API_STATEMENT_RETRY_ATTEMPTS:4}"
     statement-retry-delay-millis: "${CAMORA_BOG_API_STATEMENT_RETRY_DELAY_MILLIS:750}"
     statement-chunk-days: "${CAMORA_BOG_API_STATEMENT_CHUNK_DAYS:31}"
-    statement-pagination-enabled: "${CAMORA_BOG_API_STATEMENT_PAGINATION_ENABLED:false}"
     large-credit-threshold: "${CAMORA_BOG_API_LARGE_CREDIT_THRESHOLD:1000.00}"
   rsge-api:
     endpoint: "${CAMORA_RSGE_ENDPOINT:https://services.rs.ge/WayBillService/WayBillService.asmx}"

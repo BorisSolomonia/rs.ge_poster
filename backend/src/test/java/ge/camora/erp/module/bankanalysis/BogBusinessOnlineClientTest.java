@@ -193,7 +193,7 @@ class BogBusinessOnlineClientTest {
     }
 
     @Test
-    void statementPaginationUsesReturnedCountInsteadOfConfiguredTake() {
+    void singleDayOverflowDoesNotCallDeniedPageEndpoint() {
         CamoraProperties properties = new CamoraProperties();
         CamoraProperties.BogApi config = properties.getBogApi();
         config.setEnabled(true);
@@ -205,14 +205,14 @@ class BogBusinessOnlineClientTest {
         config.setCurrency("GEL");
         config.setTake(1);
         config.setTimeoutSeconds(5);
-        config.setStatementPaginationEnabled(true);
         PagingBogClient client = new PagingBogClient(properties, new ObjectMapper());
 
-        var transactions = client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 1));
+        assertThatThrownBy(() -> client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 1)))
+            .isInstanceOf(BogApiException.class)
+            .hasFieldOrPropertyWithValue("code", BogApiException.STATEMENT_FAILED)
+            .hasMessageContaining("did not call BOG's statement page endpoint");
 
-        assertThat(transactions).hasSize(1);
-        assertThat(client.statementPaths).hasSize(2);
-        assertThat(client.statementPaths).anyMatch(path -> path.endsWith("/42/2/true"));
+        assertThat(client.statementPaths).hasSize(1);
         assertThat(client.statementPaths).noneMatch(path -> path.endsWith("/42/3/true"));
     }
 
