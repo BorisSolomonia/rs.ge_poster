@@ -197,6 +197,12 @@ export default function BankAnalysisPage() {
 function ApiErrorNotice({ error, provider }: { error: unknown; provider?: BankProvider }) {
   const apiError = error instanceof ApiClientError ? error : null
   const message = error instanceof Error ? error.message : 'Unknown error'
+  const responseDetails = apiError?.details && typeof apiError.details === 'object'
+    ? (apiError.details as { technicalDetails?: unknown })
+    : null
+  const technicalDetails = typeof responseDetails?.technicalDetails === 'string' ? responseDetails.technicalDetails : ''
+  const rawPayload = apiError?.details ? JSON.stringify(apiError.details, null, 2) : ''
+  const details = technicalDetails || rawPayload
   return (
     <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
       <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
@@ -208,6 +214,14 @@ function ApiErrorNotice({ error, provider }: { error: unknown; provider?: BankPr
           {apiError?.code ? <span className="rounded-full bg-white/70 px-2 py-1">Code: {apiError.code}</span> : null}
           {apiError?.timestamp ? <span className="rounded-full bg-white/70 px-2 py-1">Backend: {apiError.timestamp}</span> : null}
         </div>
+        {details ? (
+          <details className="mt-3 rounded-xl border border-amber-300 bg-white/70 p-3 text-xs">
+            <summary className="cursor-pointer font-bold uppercase tracking-wide">Show Full Trace</summary>
+            <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-3 font-mono text-[11px] leading-5 text-slate-100">
+              {details}
+            </pre>
+          </details>
+        ) : null}
       </div>
     </div>
   )

@@ -6,6 +6,7 @@ public record SupplierDebtSourceStatusDto(
     String source,
     String status,
     String message,
+    String technicalDetails,
     int recordCount,
     BigDecimal total
 ) {

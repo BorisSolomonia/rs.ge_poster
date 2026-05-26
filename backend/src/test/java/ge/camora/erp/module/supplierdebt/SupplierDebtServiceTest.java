@@ -254,6 +254,27 @@ class SupplierDebtServiceTest {
         assertThat(result.unmatchedPaymentGroups().get(0).matchText()).isEqualTo("987654321");
     }
 
+    @Test
+    void exposesSourceFailureTechnicalTrace() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.failure = new RuntimeException("Failed to fetch BOG statement: Received RST_STREAM: Internal error");
+
+        var result = service.analyze(from, to, true);
+
+        var bogStatus = result.sourceStatuses().stream()
+            .filter(status -> status.source().equals("BOG"))
+            .findFirst()
+            .orElseThrow();
+        assertThat(bogStatus.status()).isEqualTo("FAILED");
+        assertThat(bogStatus.message()).contains("RST_STREAM");
+        assertThat(bogStatus.technicalDetails()).contains("RuntimeException");
+        assertThat(bogStatus.technicalDetails()).contains("Received RST_STREAM");
+    }
+
     private RsgeRecord purchase(String waybill, String supplierRaw, String amount, LocalDate date) {
         return new RsgeRecord(
             waybill,
@@ -315,6 +336,7 @@ class SupplierDebtServiceTest {
 
     private static final class FakeBogBusinessOnlineClient extends BogBusinessOnlineClient {
         private List<BankTransaction> transactions = List.of();
+        private RuntimeException failure;
         private int fetchCount;
 
         private FakeBogBusinessOnlineClient() {
@@ -324,6 +346,9 @@ class SupplierDebtServiceTest {
         @Override
         public List<BankTransaction> getStatement(LocalDate dateFrom, LocalDate dateTo) {
             fetchCount++;
+            if (failure != null) {
+                throw failure;
+            }
             return transactions;
         }
     }

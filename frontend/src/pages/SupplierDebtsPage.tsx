@@ -53,6 +53,17 @@ function matchesSupplierFilter(supplier: SupplierDebtRow, query: string) {
     .some((value) => value.toLowerCase().includes(normalizedQuery))
 }
 
+type SupplierDebtDetailsContentProps = {
+  supplier: SupplierDebtRow
+  isLoading: boolean
+  error: string | null
+  deletingCashId: string | null
+  pendingCashDeleteId: string | null
+  onRequestCashDelete: (id: string) => void
+  onCancelCashDelete: () => void
+  onConfirmCashDelete: (id: string) => void
+}
+
 export default function SupplierDebtsPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -200,17 +211,17 @@ export default function SupplierDebtsPage() {
   }, [dateFrom, dateTo, overview?.refreshInProgress, queryClient])
 
   return (
-    <main className="mx-auto max-w-[1500px] space-y-6 overflow-x-hidden">
-      <section className="relative overflow-hidden rounded-[2rem] border border-slate-900 bg-[#101820] text-white shadow-2xl shadow-slate-300/50">
+    <main className="mx-auto max-w-[1500px] space-y-4 overflow-x-hidden text-[13px] sm:space-y-5 sm:text-sm">
+      <section className="relative overflow-hidden rounded-3xl border border-slate-900 bg-[#101820] text-white shadow-2xl shadow-slate-300/50 sm:rounded-[2rem]">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_20%,rgba(56,189,248,0.26),transparent_30%),radial-gradient(circle_at_82%_10%,rgba(245,158,11,0.22),transparent_28%),linear-gradient(135deg,rgba(255,255,255,0.10)_0,transparent_42%)]" />
         <div className="absolute -bottom-24 left-8 h-48 w-48 rounded-full border border-white/10" />
-        <div className="relative grid gap-8 p-6 lg:grid-cols-[1fr_390px] lg:p-8">
+        <div className="relative grid gap-5 p-4 sm:p-5 lg:grid-cols-[1fr_360px] lg:p-6">
           <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-[0.34em] text-cyan-200">Supplier Ledger Control Room</p>
-            <h1 className="mt-3 max-w-4xl text-balance text-3xl font-black tracking-tight sm:text-5xl">{env.supplierDebtsTitle}</h1>
-            <p className="mt-4 max-w-3xl text-pretty text-sm leading-6 text-slate-300">{env.supplierDebtsInfo}</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-200 sm:text-xs sm:tracking-[0.34em]">Supplier Ledger Control Room</p>
+            <h1 className="mt-3 max-w-4xl text-balance text-2xl font-black tracking-tight sm:text-4xl">{env.supplierDebtsTitle}</h1>
+            <p className="mt-3 max-w-3xl text-pretty text-[13px] leading-5 text-slate-300 sm:text-sm sm:leading-6">{env.supplierDebtsInfo}</p>
             {overview ? (
-              <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className="mt-5 grid gap-2 sm:grid-cols-3">
                 <HeroStat label="Outstanding" value={formatGel(overview.debtTotal)} tone={overview.debtTotal > 0 ? 'bad' : 'good'} />
                 <HeroStat label="Top Creditor" value={topDebtSupplier?.supplierName ?? 'No Open Debt'} />
                 <HeroStat
@@ -221,8 +232,8 @@ export default function SupplierDebtsPage() {
               </div>
             ) : null}
           </div>
-          <div className="grid gap-4 rounded-3xl border border-white/15 bg-white/10 p-4 shadow-2xl shadow-black/20 backdrop-blur">
-            <div className="flex items-center gap-2 text-sm font-black text-white">
+          <div className="grid gap-3 rounded-2xl border border-white/15 bg-white/10 p-3 shadow-2xl shadow-black/20 backdrop-blur sm:rounded-3xl sm:p-4">
+            <div className="flex items-center gap-2 text-[13px] font-black text-white sm:text-sm">
               <Activity className="h-4 w-4 text-cyan-200" aria-hidden="true" />
               Source Refresh Window
             </div>
@@ -254,7 +265,7 @@ export default function SupplierDebtsPage() {
               type="button"
               onClick={() => sourceRefreshMutation.mutate()}
               disabled={loadingSources}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-cyan-200 px-4 text-sm font-black text-slate-950 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200/70 disabled:cursor-wait disabled:opacity-70"
+              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-cyan-200 px-4 py-2 text-[13px] font-black text-slate-950 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200/70 disabled:cursor-wait disabled:opacity-70 sm:text-sm"
             >
               <RefreshCcw className={`h-4 w-4 ${loadingSources ? 'animate-spin' : ''}`} aria-hidden="true" />
               Refresh Bank/RS.ge Sources
@@ -264,7 +275,7 @@ export default function SupplierDebtsPage() {
       </section>
 
       {loadError instanceof Error ? (
-        <div className="flex items-center gap-2 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700" aria-live="polite">
+        <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-[13px] font-semibold text-red-700 sm:p-4 sm:text-sm" aria-live="polite">
           <AlertCircle className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
           {loadError.message}. Check source credentials, then refresh again.
         </div>
@@ -282,16 +293,16 @@ export default function SupplierDebtsPage() {
             onRun={() => auditMutation.mutate()}
           />
 
-          <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
-            <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <h2 className="text-xl font-black text-slate-950">Creditor Balances</h2>
-                  <p className="text-sm text-slate-500">
+                  <h2 className="text-lg font-black text-slate-950 sm:text-xl">Creditor Balances</h2>
+                  <p className="text-[13px] text-slate-500 sm:text-sm">
                     {filteredSuppliers.length} of {overview.supplierCount} suppliers shown · visible debt {formatGel(visibleDebtTotal)}
                   </p>
                 </div>
-                <label className="relative min-w-0 sm:w-80">
+                <label className="relative min-w-0 sm:w-72">
                   <span className="sr-only">Search Suppliers</span>
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
                   <input
@@ -301,13 +312,41 @@ export default function SupplierDebtsPage() {
                     value={supplierFilter}
                     onChange={(event) => updateSupplierFilter(event.target.value)}
                     placeholder="Search supplier or TIN…"
-                    className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm font-semibold text-slate-900 transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
+                    className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-[13px] font-semibold text-slate-900 transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100 sm:text-sm"
                   />
                 </label>
               </div>
 
-              <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-100">
-                <table className="min-w-[1080px] w-full text-sm">
+              <div className="mt-4 grid gap-3 md:hidden">
+                {filteredSuppliers.map((supplier) => {
+                  const open = expandedSupplier === supplier.supplierKey
+                  return (
+                    <SupplierMobileCard
+                      key={supplier.supplierKey}
+                      supplier={supplier}
+                      detailsSupplier={supplierDetailsQuery.data ?? supplier}
+                      open={open}
+                      isLoading={supplierDetailsQuery.isFetching}
+                      error={supplierDetailsQuery.error instanceof Error ? supplierDetailsQuery.error.message : null}
+                      deletingCashId={deleteCashMutation.variables ?? null}
+                      pendingCashDeleteId={pendingCashDeleteId}
+                      onToggle={() => toggleSupplier(supplier.supplierKey)}
+                      onRequestCashDelete={setPendingCashDeleteId}
+                      onCancelCashDelete={() => setPendingCashDeleteId(null)}
+                      onConfirmCashDelete={(id) => {
+                        setPendingCashDeleteId(null)
+                        deleteCashMutation.mutate(id)
+                      }}
+                    />
+                  )
+                })}
+                {filteredSuppliers.length === 0 ? (
+                  <p className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-slate-500">No suppliers match this search and date range.</p>
+                ) : null}
+              </div>
+
+              <div className="mt-5 hidden overflow-x-auto rounded-2xl border border-slate-100 md:block">
+                <table className="min-w-[980px] w-full text-xs lg:text-sm">
                   <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-4 py-3">Supplier</th>
@@ -426,9 +465,101 @@ function HeroStat({
   )
 }
 
+function SupplierMobileCard({
+  supplier,
+  detailsSupplier,
+  open,
+  isLoading,
+  error,
+  deletingCashId,
+  pendingCashDeleteId,
+  onToggle,
+  onRequestCashDelete,
+  onCancelCashDelete,
+  onConfirmCashDelete,
+}: SupplierDebtDetailsContentProps & {
+  detailsSupplier: SupplierDebtRow
+  open: boolean
+  onToggle: () => void
+}) {
+  const debtTone = supplier.debtLeft > 0 ? 'text-red-700' : 'text-emerald-700'
+  return (
+    <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex min-h-14 w-full items-start justify-between gap-3 px-3 py-3 text-left transition-colors hover:bg-cyan-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
+      >
+        <span className="flex min-w-0 items-start gap-2">
+          {open ? <ChevronDown className="mt-0.5 h-4 w-4 flex-shrink-0 text-cyan-700" aria-hidden="true" /> : <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden="true" />}
+          <span className="min-w-0">
+            <span className="line-clamp-2 text-[13px] font-black leading-5 text-slate-950">{supplier.supplierName}</span>
+            <span className="mt-1 block font-mono text-[11px] font-semibold text-slate-500">{supplier.supplierTin || 'No TIN'}</span>
+          </span>
+        </span>
+        <span className={`shrink-0 text-right text-[13px] font-black tabular-nums ${debtTone}`}>
+          {formatGel(supplier.debtLeft)}
+        </span>
+      </button>
+
+      <div className="grid grid-cols-2 gap-2 border-t border-slate-100 bg-slate-50/70 p-3 text-[11px]">
+        <MobileMetric label="Purchases" value={formatGel(supplier.purchaseTotal)} />
+        <MobileMetric label="BOG" value={formatGel(supplier.bogPaidTotal)} tone="good" />
+        <MobileMetric label="TBC" value={formatGel(supplier.tbcPaidTotal)} tone="info" />
+        <MobileMetric label="Cash" value={formatGel(supplier.cashPaidTotal)} tone="warn" />
+        <MobileMetric label="Rows" value={`${supplier.purchaseCount} / ${supplier.paymentCount}`} />
+        <MobileMetric label="Left" value={formatGel(supplier.debtLeft)} tone={supplier.debtLeft > 0 ? 'bad' : 'good'} />
+      </div>
+
+      {open ? (
+        <div className="border-t border-slate-100 bg-slate-50 p-3">
+          <SupplierDebtDetailsContent
+            supplier={detailsSupplier}
+            isLoading={isLoading}
+            error={error}
+            deletingCashId={deletingCashId}
+            pendingCashDeleteId={pendingCashDeleteId}
+            onRequestCashDelete={onRequestCashDelete}
+            onCancelCashDelete={onCancelCashDelete}
+            onConfirmCashDelete={onConfirmCashDelete}
+          />
+        </div>
+      ) : null}
+    </article>
+  )
+}
+
+function MobileMetric({
+  label,
+  value,
+  tone,
+}: {
+  label: string
+  value: string
+  tone?: 'good' | 'bad' | 'warn' | 'info'
+}) {
+  const color =
+    tone === 'good'
+      ? 'text-emerald-700'
+      : tone === 'bad'
+        ? 'text-red-700'
+        : tone === 'warn'
+          ? 'text-amber-700'
+          : tone === 'info'
+            ? 'text-cyan-700'
+            : 'text-slate-900'
+  return (
+    <div className="min-w-0 rounded-xl border border-slate-100 bg-white px-2 py-2">
+      <p className="truncate font-black uppercase tracking-wide text-slate-400">{label}</p>
+      <p className={`mt-1 truncate font-black tabular-nums ${color}`}>{value}</p>
+    </div>
+  )
+}
+
 function SnapshotStatus({ overview }: { overview: SupplierDebtOverview }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm shadow-sm" aria-live="polite">
+    <div className="rounded-2xl border border-slate-200 bg-white p-3 text-[13px] shadow-sm sm:p-4 sm:text-sm" aria-live="polite">
       <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
         <div className="min-w-0">
           <p className="flex items-center gap-2 font-black text-slate-950">
@@ -439,22 +570,22 @@ function SnapshotStatus({ overview }: { overview: SupplierDebtOverview }) {
             Showing the latest saved balances while the app refreshes RS.ge, BOG, and TBC in the background.
           </p>
         </div>
-        <div className="flex flex-wrap gap-2 text-xs font-bold text-slate-600">
-          <span className="rounded-full bg-slate-100 px-3 py-1">
+        <div className="flex flex-wrap gap-2 text-[11px] font-bold text-slate-600 sm:text-xs">
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 sm:px-3">
             Generated: {formatDateTime(overview.snapshotGeneratedAt)}
           </span>
           <span className={`rounded-full px-3 py-1 ${overview.refreshInProgress ? 'bg-sky-100 text-sky-800' : 'bg-emerald-100 text-emerald-800'}`}>
             {overview.refreshInProgress ? 'Background Refresh Running' : 'Snapshot Ready'}
           </span>
           {overview.lastRefreshCompletedAt ? (
-            <span className="rounded-full bg-slate-100 px-3 py-1">
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 sm:px-3">
               Last refresh: {formatDateTime(overview.lastRefreshCompletedAt)}
             </span>
           ) : null}
         </div>
       </div>
       {overview.lastRefreshError ? (
-        <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+        <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] font-semibold text-red-700 sm:text-sm">
           Last refresh error: {overview.lastRefreshError}
         </p>
       ) : null}
@@ -474,14 +605,14 @@ function AuditPanel({
   onRun: () => void
 }) {
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <div className="flex items-center gap-2">
             <ClipboardCheck className="h-5 w-5 text-slate-500" aria-hidden="true" />
-            <h2 className="text-lg font-black text-slate-950">Random Correctness Check</h2>
+            <h2 className="text-base font-black text-slate-950 sm:text-lg">Random Correctness Check</h2>
           </div>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-[13px] text-slate-500 sm:text-sm">
             Samples suppliers, recalculates them from fresh source calls, and compares saved debt totals.
           </p>
         </div>
@@ -489,17 +620,17 @@ function AuditPanel({
           type="button"
           onClick={onRun}
           disabled={isRunning}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-[13px] font-black text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60 sm:text-sm"
         >
           <RefreshCcw className={`h-4 w-4 ${isRunning ? 'animate-spin' : ''}`} />
           {isRunning ? 'Checking…' : 'Run Random Audit'}
         </button>
       </div>
 
-      {error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
+      {error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] font-semibold text-red-700 sm:text-sm">{error}</p> : null}
 
       {audit ? (
-        <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-4">
+        <div className="mt-4 rounded-2xl border border-slate-100 bg-slate-50 p-3 sm:p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`rounded-full px-3 py-1 text-xs font-black ${audit.passed ? 'bg-emerald-200 text-emerald-950' : 'bg-red-200 text-red-950'}`}>
               {audit.passed ? 'PASSED' : 'FAILED'}
@@ -509,7 +640,25 @@ function AuditPanel({
             </span>
           </div>
           {audit.suppliers.length > 0 ? (
-            <div className="mt-3 overflow-x-auto">
+            <>
+            <div className="mt-3 grid gap-2 sm:hidden">
+              {audit.suppliers.map((supplier) => (
+                <div key={supplier.supplierKey} className="rounded-xl border border-slate-200 bg-white p-3 text-[11px]">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="line-clamp-2 font-black text-slate-800">{supplier.supplierName}</p>
+                    <span className={supplier.passed ? 'shrink-0 font-black text-emerald-700' : 'shrink-0 font-black text-red-700'}>
+                      {supplier.passed ? 'OK' : 'Mismatch'}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    <MobileMetric label="Snapshot" value={formatGel(supplier.snapshotDebtLeft)} />
+                    <MobileMetric label="Fresh" value={formatGel(supplier.freshDebtLeft)} />
+                    <MobileMetric label="Diff" value={formatGel(supplier.debtDifference)} tone={supplier.passed ? 'good' : 'bad'} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 hidden overflow-x-auto sm:block">
               <table className="min-w-[760px] w-full text-xs">
                 <thead className="text-left font-bold uppercase tracking-wide text-slate-500">
                   <tr>
@@ -535,6 +684,7 @@ function AuditPanel({
                 </tbody>
               </table>
             </div>
+            </>
           ) : null}
         </div>
       ) : null}
@@ -544,25 +694,34 @@ function AuditPanel({
 
 function SourceStatusRail({ overview }: { overview: SupplierDebtOverview }) {
   return (
-    <div className="grid gap-3 md:grid-cols-4">
+    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
       {overview.sourceStatuses.map((status) => {
         const ok = status.status === 'OK'
+        const details = status.technicalDetails || status.message
         return (
           <div
             key={status.source}
-            className={`rounded-2xl border p-4 shadow-sm ${
+            className={`rounded-2xl border p-3 shadow-sm sm:p-4 ${
               ok ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : 'border-red-200 bg-red-50 text-red-950'
             }`}
           >
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-black">{status.source}</p>
+              <p className="text-[13px] font-black sm:text-sm">{status.source}</p>
               <span className={`rounded-full px-2 py-1 text-[11px] font-black ${ok ? 'bg-emerald-200 text-emerald-900' : 'bg-red-200 text-red-900'}`}>
                 {status.status}
               </span>
             </div>
-            <p className="mt-2 text-xl font-black tabular-nums">{formatGel(status.total)}</p>
+            <p className="mt-2 text-lg font-black tabular-nums sm:text-xl">{formatGel(status.total)}</p>
             <p className="mt-1 text-xs font-semibold opacity-75">{status.recordCount} records</p>
-            {status.message ? <p className="mt-2 line-clamp-2 text-xs font-semibold">{status.message}</p> : null}
+            {status.message ? <p className="mt-2 text-xs font-semibold">{status.message}</p> : null}
+            {!ok && details ? (
+              <details className="mt-3 rounded-xl border border-current/20 bg-white/50 p-3 text-xs">
+                <summary className="cursor-pointer font-black uppercase tracking-wide">Show Full Trace</summary>
+                <pre className="mt-3 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-3 font-mono text-[11px] leading-5 text-slate-100">
+                  {details}
+                </pre>
+              </details>
+            ) : null}
           </div>
         )
       })}
@@ -572,7 +731,7 @@ function SourceStatusRail({ overview }: { overview: SupplierDebtOverview }) {
 
 function SummaryGrid({ overview }: { overview: SupplierDebtOverview }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-6">
       <MetricCard label="Purchases" value={overview.purchaseTotal} icon={<Landmark className="h-5 w-5" />} />
       <MetricCard label="BOG Paid" value={overview.bogPaidTotal} tone="good" />
       <MetricCard label="TBC Paid" value={overview.tbcPaidTotal} tone="good" />
@@ -603,12 +762,12 @@ function MetricCard({
           ? 'text-amber-700'
           : 'text-slate-950'
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
         {icon ? <span className="text-slate-400" aria-hidden="true">{icon}</span> : null}
       </div>
-      <p className={`mt-3 text-2xl font-black tabular-nums ${colors}`}>{formatGel(value)}</p>
+      <p className={`mt-2 text-lg font-black tabular-nums sm:text-xl ${colors}`}>{formatGel(value)}</p>
     </div>
   )
 }
@@ -631,14 +790,14 @@ function CashPaymentPanel({
   onSave: () => void
 }) {
   return (
-    <aside className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <aside className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
       <div className="flex items-center gap-2">
         <Wallet className="h-5 w-5 text-amber-600" aria-hidden="true" />
-        <h2 className="text-lg font-black text-slate-950">Add Cash Payment</h2>
+        <h2 className="text-base font-black text-slate-950 sm:text-lg">Add Cash Payment</h2>
       </div>
-      <p className="mt-2 text-sm text-slate-500">Record manual supplier payments that did not pass through BOG or TBC.</p>
+      <p className="mt-2 text-[13px] text-slate-500 sm:text-sm">Record manual supplier payments that did not pass through BOG or TBC.</p>
 
-      <div className="mt-5 space-y-4">
+      <div className="mt-4 space-y-3 sm:mt-5 sm:space-y-4">
         <label className="block text-xs font-bold uppercase tracking-wide text-slate-500">
           Supplier
           <select
@@ -698,13 +857,13 @@ function CashPaymentPanel({
         </label>
       </div>
 
-      {error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
+      {error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] font-semibold text-red-700 sm:text-sm">{error}</p> : null}
 
       <button
         type="button"
         disabled={!canSave || isSaving}
         onClick={onSave}
-        className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-5 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-[13px] font-black text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
       >
         <Plus className="h-4 w-4" aria-hidden="true" />
         {isSaving ? 'Saving…' : 'Save Cash Payment'}
@@ -722,16 +881,7 @@ function SupplierDebtDetails({
   onRequestCashDelete,
   onCancelCashDelete,
   onConfirmCashDelete,
-}: {
-  supplier: SupplierDebtRow
-  isLoading: boolean
-  error: string | null
-  deletingCashId: string | null
-  pendingCashDeleteId: string | null
-  onRequestCashDelete: (id: string) => void
-  onCancelCashDelete: () => void
-  onConfirmCashDelete: (id: string) => void
-}) {
+}: SupplierDebtDetailsContentProps) {
   return (
     <tr>
       <td colSpan={8} className="bg-slate-50 px-4 py-4">
@@ -770,6 +920,52 @@ function SupplierDebtDetails({
   )
 }
 
+function SupplierDebtDetailsContent({
+  supplier,
+  isLoading,
+  error,
+  deletingCashId,
+  pendingCashDeleteId,
+  onRequestCashDelete,
+  onCancelCashDelete,
+  onConfirmCashDelete,
+}: SupplierDebtDetailsContentProps) {
+  return (
+    <>
+      {isLoading ? <p className="mb-3 text-[13px] font-semibold text-slate-500 sm:text-sm">Loading supplier transactions...</p> : null}
+      {error ? <p className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] font-semibold text-red-700 sm:text-sm">{error}</p> : null}
+      <div className="grid gap-3 lg:grid-cols-2">
+        <DetailList
+          title="RS.ge Purchases"
+          rows={supplier.purchases.map((purchase) => ({
+            key: purchase.waybillNumber,
+            date: purchase.date,
+            provider: 'RSGE',
+            text: purchase.waybillNumber,
+            amount: purchase.amount,
+          }))}
+        />
+        <DetailList
+          title="Payments"
+          rows={supplier.payments.map((payment) => ({
+            key: payment.id || payment.reference || `${payment.date}-${payment.amount}`,
+            date: payment.date,
+            provider: payment.provider,
+            text: payment.counterparty || payment.description || payment.reference,
+            amount: payment.amount,
+            removable: payment.provider === 'CASH',
+          }))}
+          deletingId={deletingCashId}
+          pendingDeleteId={pendingCashDeleteId}
+          onRequestDelete={onRequestCashDelete}
+          onCancelDelete={onCancelCashDelete}
+          onConfirmDelete={onConfirmCashDelete}
+        />
+      </div>
+    </>
+  )
+}
+
 function DetailList({
   title,
   rows,
@@ -792,17 +988,17 @@ function DetailList({
       <div className="border-b border-slate-100 px-3 py-2 text-sm font-bold text-slate-700">{title}</div>
       <div className="max-h-72 overflow-auto divide-y divide-slate-100">
         {rows.map((row, index) => (
-          <div key={`${row.key}-${index}`} className="grid grid-cols-[90px_64px_1fr_120px_auto] items-center gap-2 px-3 py-2 text-xs">
+          <div key={`${row.key}-${index}`} className="grid gap-1 px-3 py-2 text-[11px] sm:grid-cols-[90px_64px_1fr_120px_auto] sm:items-center sm:gap-2 sm:text-xs">
             <span className="text-slate-500">{row.date || '-'}</span>
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-center font-black text-slate-600">{row.provider}</span>
-            <span className="truncate text-slate-700">{row.text || '-'}</span>
-            <span className="text-right font-bold tabular-nums">{formatGel(row.amount)}</span>
+            <span className="w-fit rounded-full bg-slate-100 px-2 py-1 text-center font-black text-slate-600">{row.provider}</span>
+            <span className="min-w-0 truncate text-slate-700">{row.text || '-'}</span>
+            <span className="font-bold tabular-nums sm:text-right">{formatGel(row.amount)}</span>
             {row.removable && onRequestDelete && onConfirmDelete && onCancelDelete ? (
               pendingDeleteId === row.key ? (
-                <span className="inline-flex items-center justify-end gap-1">
+                <span className="inline-flex flex-wrap items-center gap-1 sm:justify-end">
                   <button
                     type="button"
-                    className="h-8 rounded-lg bg-red-600 px-2 text-[11px] font-black text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:opacity-50"
+                    className="min-h-11 rounded-lg bg-red-600 px-3 text-[11px] font-black text-white transition-colors hover:bg-red-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:opacity-50 sm:h-8 sm:min-h-0 sm:px-2"
                     disabled={deletingId === row.key}
                     onClick={() => onConfirmDelete(row.key)}
                   >
@@ -810,7 +1006,7 @@ function DetailList({
                   </button>
                   <button
                     type="button"
-                    className="h-8 rounded-lg px-2 text-[11px] font-black text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-100"
+                    className="min-h-11 rounded-lg px-3 text-[11px] font-black text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-100 sm:h-8 sm:min-h-0 sm:px-2"
                     onClick={onCancelDelete}
                   >
                     Cancel
@@ -819,7 +1015,7 @@ function DetailList({
               ) : (
                 <button
                   type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:opacity-50"
+                  className="inline-flex min-h-11 w-11 items-center justify-center rounded-lg text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:opacity-50 sm:h-8 sm:min-h-0 sm:w-8"
                   disabled={deletingId === row.key}
                   onClick={() => onRequestDelete(row.key)}
                   aria-label="Delete cash payment"
@@ -828,7 +1024,7 @@ function DetailList({
                 </button>
               )
             ) : (
-              <span className="h-8 w-8" />
+              <span className="hidden h-8 w-8 sm:block" />
             )}
           </div>
         ))}
@@ -856,31 +1052,31 @@ function UnmatchedPaymentsPanel({
   error: string | null
 }) {
   return (
-    <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+    <section className="rounded-3xl border border-amber-200 bg-amber-50 p-4 shadow-sm sm:p-5">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-lg font-black text-amber-950">Unmatched Bank Debit Groups</h2>
-          <p className="mt-1 text-sm text-amber-800">
+          <h2 className="text-base font-black text-amber-950 sm:text-lg">Unmatched Bank Debit Groups</h2>
+          <p className="mt-1 text-[13px] text-amber-800 sm:text-sm">
             Groups reuse provider + TIN/account/name/description. One mapping fixes every repeated transaction in that group.
           </p>
         </div>
         <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">{groups.length} open groups</span>
       </div>
 
-      {error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
+      {error ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] font-semibold text-red-700 sm:text-sm">{error}</p> : null}
 
       <div className="mt-4 space-y-3">
         {groups.map((group) => {
           const key = group.groupKey
           const selectedSupplier = suppliers.find((supplier) => supplier.supplierKey === mappingDrafts[key])
           return (
-            <div key={key} className="rounded-2xl border border-amber-200 bg-white p-4">
+            <div key={key} className="rounded-2xl border border-amber-200 bg-white p-3 sm:p-4">
               <div className="grid gap-3 lg:grid-cols-[1fr_260px_auto] lg:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-slate-950 px-2 py-1 text-[11px] font-black text-white">{group.provider}</span>
                     <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-900">{group.matchType}</span>
-                    <p className="truncate text-sm font-black text-slate-900">{group.counterparty || group.matchText || 'Unknown counterparty'}</p>
+                    <p className="min-w-0 truncate text-[13px] font-black text-slate-900 sm:text-sm">{group.counterparty || group.matchText || 'Unknown counterparty'}</p>
                   </div>
                   <p className="mt-2 text-xs font-semibold text-slate-500">
                     {group.transactionCount} transactions - {formatGel(group.amount)} total - largest {formatGel(group.largestTransaction)}
@@ -901,7 +1097,7 @@ function UnmatchedPaymentsPanel({
                 <select
                   name={`supplier-debt-mapping-${group.groupKey}`}
                   autoComplete="off"
-                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
+                  className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-semibold transition focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100 sm:text-sm"
                   value={mappingDrafts[key] ?? ''}
                   onChange={(event) => setMappingDrafts((current) => ({ ...current, [key]: event.target.value }))}
                 >
@@ -914,7 +1110,7 @@ function UnmatchedPaymentsPanel({
                 </select>
                 <button
                   type="button"
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-black text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-[13px] font-black text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm"
                   disabled={!selectedSupplier || savingMapping}
                   onClick={() => selectedSupplier && onSaveMapping(group, selectedSupplier)}
                 >

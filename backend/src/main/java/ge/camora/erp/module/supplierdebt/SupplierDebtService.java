@@ -22,6 +22,8 @@ import ge.camora.erp.store.ConfigStore;
 import ge.camora.erp.util.MoneyUtil;
 import org.springframework.stereotype.Service;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -256,7 +258,7 @@ public class SupplierDebtService {
             ));
         }
         statuses.add(purchaseSource.failed()
-            ? failed(RSGE, purchaseSource.errorMessage())
+            ? failed(RSGE, purchaseSource.errorMessage(), purchaseSource.errorDetails())
             : success(RSGE, purchaseSource.records().size(), purchaseSourceTotal, purchaseSource.cached()));
 
         List<SupplierPaymentMapping> mappings = configStore.getSupplierPaymentMappings();
@@ -315,7 +317,7 @@ public class SupplierDebtService {
         List<SupplierDebtSourceStatusDto> statuses
     ) {
         if (source.failed()) {
-            statuses.add(failed(source.source(), source.errorMessage()));
+            statuses.add(failed(source.source(), source.errorMessage(), source.errorDetails()));
             return;
         }
 
@@ -368,7 +370,7 @@ public class SupplierDebtService {
                 "manual cash payment"
             ));
         }
-        statuses.add(new SupplierDebtSourceStatusDto(CASH, "OK", "local manual ledger", cashPayments.size(), MoneyUtil.round(cashTotal)));
+        statuses.add(new SupplierDebtSourceStatusDto(CASH, "OK", "local manual ledger", "", cashPayments.size(), MoneyUtil.round(cashTotal)));
     }
 
     private List<SupplierDebtUnmatchedGroupDto> groupUnmatchedPayments(List<SupplierDebtPaymentDto> unmatchedPayments) {
@@ -417,14 +419,14 @@ public class SupplierDebtService {
     ) {
         List<T> cached = cache.getIfPresent(range);
         if (cached != null) {
-            return new SourceFetchResult<>(source, cached, true, "");
+            return new SourceFetchResult<>(source, cached, true, "", "");
         }
         try {
             List<T> records = List.copyOf(loader.get());
             cache.put(range, records);
-            return new SourceFetchResult<>(source, records, false, "");
+            return new SourceFetchResult<>(source, records, false, "", "");
         } catch (RuntimeException exception) {
-            return new SourceFetchResult<>(source, List.of(), false, exception.getMessage());
+            return new SourceFetchResult<>(source, List.of(), false, exceptionSummary(exception), stackTrace(exception));
         }
     }
 
@@ -704,13 +706,21 @@ public class SupplierDebtService {
             source,
             "OK",
             cached ? "cached source data" : "fresh source data",
+            "",
             recordCount,
             MoneyUtil.round(total)
         );
     }
 
-    private SupplierDebtSourceStatusDto failed(String source, String message) {
-        return new SupplierDebtSourceStatusDto(source, "FAILED", message == null ? "" : message, 0, BigDecimal.ZERO);
+    private SupplierDebtSourceStatusDto failed(String source, String message, String technicalDetails) {
+        return new SupplierDebtSourceStatusDto(
+            source,
+            "FAILED",
+            message == null ? "" : message,
+            technicalDetails == null ? "" : technicalDetails,
+            0,
+            BigDecimal.ZERO
+        );
     }
 
     private BigDecimal sum(List<BigDecimal> values) {
@@ -733,6 +743,24 @@ public class SupplierDebtService {
         return value == null || value.isBlank() ? fallback : value;
     }
 
+    private String exceptionSummary(RuntimeException exception) {
+        String message = exception.getMessage();
+        if (message != null && !message.isBlank()) {
+            return message;
+        }
+        Throwable cause = exception.getCause();
+        if (cause != null && cause.getMessage() != null && !cause.getMessage().isBlank()) {
+            return cause.getMessage();
+        }
+        return exception.getClass().getSimpleName();
+    }
+
+    private String stackTrace(RuntimeException exception) {
+        StringWriter writer = new StringWriter();
+        exception.printStackTrace(new PrintWriter(writer));
+        return writer.toString();
+    }
+
     private record SupplierIdentity(String key, String tin, String name) {
     }
 
@@ -742,7 +770,13 @@ public class SupplierDebtService {
     private record RangeKey(LocalDate dateFrom, LocalDate dateTo) {
     }
 
-    private record SourceFetchResult<T>(String source, List<T> records, boolean cached, String errorMessage) {
+    private record SourceFetchResult<T>(
+        String source,
+        List<T> records,
+        boolean cached,
+        String errorMessage,
+        String errorDetails
+    ) {
         private boolean failed() {
             return errorMessage != null && !errorMessage.isBlank();
         }

@@ -96,6 +96,7 @@ export interface ApiResponse<T> {
   data: T
   error: string | null
   code?: string | null
+  technicalDetails?: string | null
   timestamp?: string
 }
 
@@ -549,6 +550,7 @@ export interface SupplierDebtSourceStatus {
   source: string
   status: string
   message: string
+  technicalDetails: string
   recordCount: number
   total: number
 }

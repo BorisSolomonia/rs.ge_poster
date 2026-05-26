@@ -76,6 +76,7 @@ public class BogBusinessOnlineClient {
                 + "&" + form("client_secret", config.getClientSecret());
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(config.getTokenUrl()))
+                .version(HttpClient.Version.HTTP_1_1)
                 .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                 .header("Authorization", "Basic " + auth)
                 .header("Content-Type", "application/x-www-form-urlencoded")
@@ -115,11 +116,14 @@ public class BogBusinessOnlineClient {
         try {
             return getJson(url, currentToken, config);
         } catch (BogApiException exception) {
-            if (!isUnauthorizedStatementResponse(exception)) {
-                throw exception;
+            if (isUnauthorizedStatementResponse(exception)) {
+                invalidateToken(currentToken);
+                return getJson(url, accessToken(config), config);
             }
-            invalidateToken(currentToken);
-            return getJson(url, accessToken(config), config);
+            if (isTransientStatementTransportFailure(exception)) {
+                return getJson(url, currentToken, config);
+            }
+            throw exception;
         }
     }
 
@@ -127,6 +131,7 @@ public class BogBusinessOnlineClient {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
+                .version(HttpClient.Version.HTTP_1_1)
                 .timeout(Duration.ofSeconds(config.getTimeoutSeconds()))
                 .header("Authorization", "Bearer " + accessToken)
                 .header("Accept", "application/json")
@@ -158,6 +163,17 @@ public class BogBusinessOnlineClient {
         String message = exception.getMessage() == null ? "" : exception.getMessage();
         return BogApiException.HTTP_ERROR.equals(exception.getCode())
             && (message.startsWith("BOG API HTTP 401") || message.startsWith("BOG API HTTP 403"));
+    }
+
+    private boolean isTransientStatementTransportFailure(BogApiException exception) {
+        if (!BogApiException.STATEMENT_FAILED.equals(exception.getCode())) {
+            return false;
+        }
+        String message = exception.getMessage() == null ? "" : exception.getMessage();
+        return message.contains("RST_STREAM")
+            || message.contains("GOAWAY")
+            || message.contains("Connection reset")
+            || message.contains("HTTP/2");
     }
 
     private void invalidateToken(String staleToken) {
