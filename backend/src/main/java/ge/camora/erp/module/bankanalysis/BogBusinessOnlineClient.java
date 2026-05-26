@@ -164,9 +164,16 @@ public class BogBusinessOnlineClient {
                 .build();
             HttpResponse<String> response = send(client, request);
             if (response.statusCode() >= 400) {
+                String message = "BOG API HTTP " + response.statusCode()
+                    + " calling " + statementRequestDescription(request, config)
+                    + ": " + snippet(response.body());
+                if (response.statusCode() == 403) {
+                    message += " BOG issued a token, but denied statement access. Verify CAMORA_BOG_API_ACCOUNT_NUMBER, "
+                        + "CAMORA_BOG_API_CURRENCY, client permissions/scopes, IP allowlist, and statement API activation.";
+                }
                 throw new BogApiException(
                     BogApiException.HTTP_ERROR,
-                    "BOG API HTTP " + response.statusCode() + ": " + snippet(response.body())
+                    message
                 );
             }
             return objectMapper.readTree(response.body());
@@ -191,7 +198,7 @@ public class BogBusinessOnlineClient {
     private boolean isUnauthorizedStatementResponse(BogApiException exception) {
         String message = exception.getMessage() == null ? "" : exception.getMessage();
         return BogApiException.HTTP_ERROR.equals(exception.getCode())
-            && (message.startsWith("BOG API HTTP 401") || message.startsWith("BOG API HTTP 403"));
+            && message.startsWith("BOG API HTTP 401");
     }
 
     boolean isTransientStatementTransportFailure(BogApiException exception) {
@@ -422,6 +429,31 @@ public class BogBusinessOnlineClient {
             return value.substring(0, value.length() - 1);
         }
         return value;
+    }
+
+    private String statementRequestDescription(HttpRequest request, CamoraProperties.BogApi config) {
+        return "statement endpoint path=" + maskPath(request.uri().getPath(), config)
+            + ", account=" + maskAccount(config.getAccountNumber())
+            + ", currency=" + firstNonBlank(config.getCurrency(), "-");
+    }
+
+    private String maskPath(String path, CamoraProperties.BogApi config) {
+        String account = config.getAccountNumber();
+        if (account == null || account.isBlank()) {
+            return path;
+        }
+        return path.replace(account, maskAccount(account)).replace(encode(account), maskAccount(account));
+    }
+
+    private String maskAccount(String account) {
+        if (account == null || account.isBlank()) {
+            return "-";
+        }
+        String trimmed = account.trim();
+        if (trimmed.length() <= 8) {
+            return "****";
+        }
+        return trimmed.substring(0, 4) + "..." + trimmed.substring(trimmed.length() - 4);
     }
 
     private String snippet(String value) {

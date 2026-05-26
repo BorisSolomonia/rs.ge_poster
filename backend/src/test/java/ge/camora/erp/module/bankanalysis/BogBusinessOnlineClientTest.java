@@ -164,6 +164,33 @@ class BogBusinessOnlineClientTest {
         assertThat(client.statementCalls).hasValue(3);
     }
 
+    @Test
+    void statementForbiddenErrorIncludesSafeActionableContext() {
+        CamoraProperties properties = new CamoraProperties();
+        CamoraProperties.BogApi config = properties.getBogApi();
+        config.setEnabled(true);
+        config.setTokenUrl("https://bog.example/auth");
+        config.setBaseUrl("https://bog.example/api");
+        config.setClientId("client");
+        config.setClientSecret("secret");
+        config.setAccountNumber("GE00BG0000000000000000GEL");
+        config.setCurrency("GEL");
+        config.setTake(1000);
+        config.setTimeoutSeconds(5);
+        ForbiddenBogClient client = new ForbiddenBogClient(properties, new ObjectMapper());
+
+        assertThatThrownBy(() -> client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 2)))
+            .isInstanceOf(BogApiException.class)
+            .hasMessageContaining("BOG API HTTP 403")
+            .hasMessageContaining("account=GE00...0GEL")
+            .hasMessageContaining("currency=GEL")
+            .hasMessageContaining("IP allowlist")
+            .hasMessageNotContaining("GE00BG0000000000000000GEL");
+        assertThat(client.tokenCalls).hasValue(1);
+        assertThat(client.statementCalls).hasValue(1);
+    }
+
+
     private static void sendJson(HttpExchange exchange, int status, String body) throws IOException {
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
@@ -212,6 +239,29 @@ class BogBusinessOnlineClientTest {
                       ]
                     }
                     """);
+            }
+            throw new IOException("Unexpected request " + request.uri());
+        }
+    }
+
+    private static final class ForbiddenBogClient extends BogBusinessOnlineClient {
+        private final AtomicInteger tokenCalls = new AtomicInteger();
+        private final AtomicInteger statementCalls = new AtomicInteger();
+
+        private ForbiddenBogClient(CamoraProperties properties, ObjectMapper objectMapper) {
+            super(properties, objectMapper);
+        }
+
+        @Override
+        HttpResponse<String> send(HttpClient client, HttpRequest request) throws Exception {
+            String path = request.uri().getPath();
+            if (path.contains("/auth")) {
+                tokenCalls.incrementAndGet();
+                return response(request, 200, "{\"access_token\":\"token\",\"expires_in\":300}");
+            }
+            if (path.contains("/statement/v2")) {
+                statementCalls.incrementAndGet();
+                return response(request, 403, "");
             }
             throw new IOException("Unexpected request " + request.uri());
         }
