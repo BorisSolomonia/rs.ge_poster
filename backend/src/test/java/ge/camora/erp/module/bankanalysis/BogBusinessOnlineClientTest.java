@@ -7,10 +7,17 @@ import ge.camora.erp.config.CamoraProperties;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.net.ssl.SSLSession;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -132,11 +139,125 @@ class BogBusinessOnlineClientTest {
         }
     }
 
+    @Test
+    void statementRetriesTransientRstStreamFailures() {
+        CamoraProperties properties = new CamoraProperties();
+        CamoraProperties.BogApi config = properties.getBogApi();
+        config.setEnabled(true);
+        config.setTokenUrl("https://bog.example/auth");
+        config.setBaseUrl("https://bog.example/api");
+        config.setClientId("client");
+        config.setClientSecret("secret");
+        config.setAccountNumber("GE00BG0000000000000000GEL");
+        config.setCurrency("GEL");
+        config.setTake(1000);
+        config.setTimeoutSeconds(5);
+        config.setStatementRetryAttempts(3);
+        config.setStatementRetryDelayMillis(0);
+        RetryingBogClient client = new RetryingBogClient(properties, new ObjectMapper());
+
+        var transactions = client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 2));
+
+        assertThat(transactions).hasSize(1);
+        assertThat(transactions.get(0).amount()).isEqualByComparingTo("125.00");
+        assertThat(client.tokenCalls).hasValue(1);
+        assertThat(client.statementCalls).hasValue(3);
+    }
+
     private static void sendJson(HttpExchange exchange, int status, String body) throws IOException {
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
         exchange.sendResponseHeaders(status, payload.length);
         exchange.getResponseBody().write(payload);
         exchange.close();
+    }
+
+    private static final class RetryingBogClient extends BogBusinessOnlineClient {
+        private final AtomicInteger tokenCalls = new AtomicInteger();
+        private final AtomicInteger statementCalls = new AtomicInteger();
+
+        private RetryingBogClient(CamoraProperties properties, ObjectMapper objectMapper) {
+            super(properties, objectMapper);
+        }
+
+        @Override
+        HttpResponse<String> send(HttpClient client, HttpRequest request) throws Exception {
+            String path = request.uri().getPath();
+            if (path.contains("/auth")) {
+                tokenCalls.incrementAndGet();
+                return response(request, 200, "{\"access_token\":\"token\",\"expires_in\":300}");
+            }
+            if (path.contains("/statement/v2")) {
+                int call = statementCalls.incrementAndGet();
+                if (call < 3) {
+                    throw new IOException("Received RST_STREAM: Internal error");
+                }
+                return response(request, 200, """
+                    {
+                      "Count": 1,
+                      "TotalCount": 1,
+                      "Records": [
+                        {
+                          "EntryAmountDebit": "125.00",
+                          "EntryDate": "2026-02-01",
+                          "DocumentSourceCurrency": "GEL",
+                          "EntryAccountNumber": "GE00BG0000000000000000GEL",
+                          "BeneficiaryDetails": {
+                            "Name": "Supplier X",
+                            "Inn": "123456789",
+                            "AccountNumber": "GE00BG0000000000000001GEL"
+                          },
+                          "EntryDocumentNumber": "BOG-REF"
+                        }
+                      ]
+                    }
+                    """);
+            }
+            throw new IOException("Unexpected request " + request.uri());
+        }
+    }
+
+    private static HttpResponse<String> response(HttpRequest request, int status, String body) {
+        return new HttpResponse<>() {
+            @Override
+            public int statusCode() {
+                return status;
+            }
+
+            @Override
+            public HttpRequest request() {
+                return request;
+            }
+
+            @Override
+            public Optional<HttpResponse<String>> previousResponse() {
+                return Optional.empty();
+            }
+
+            @Override
+            public HttpHeaders headers() {
+                return HttpHeaders.of(java.util.Map.of(), (key, value) -> true);
+            }
+
+            @Override
+            public String body() {
+                return body;
+            }
+
+            @Override
+            public Optional<SSLSession> sslSession() {
+                return Optional.empty();
+            }
+
+            @Override
+            public URI uri() {
+                return request.uri();
+            }
+
+            @Override
+            public HttpClient.Version version() {
+                return HttpClient.Version.HTTP_1_1;
+            }
+        };
     }
 }

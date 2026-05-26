@@ -21,6 +21,7 @@ public record SupplierDebtRowDto(
     BigDecimal debtLeft,
     LocalDate lastPurchaseDate,
     LocalDate lastPaymentDate,
+    boolean newFromRsge,
     List<SupplierDebtPurchaseDto> purchases,
     List<SupplierDebtPaymentDto> payments
 ) {

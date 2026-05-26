@@ -40,6 +40,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -282,11 +283,20 @@ public class SupplierDebtService {
         addBankPayments(tbcSource, suppliers, mappings, unmatchedPayments, statuses);
         addCashPayments(range.dateFrom(), range.dateTo(), suppliers, statuses);
 
+        Optional<SupplierDebtOverviewDto> previousSnapshot = snapshotStore.load()
+            .filter(snapshot -> canServeSavedSnapshot(snapshot, range));
+        Set<String> previousSupplierKeys = previousSnapshot
+            .map(snapshot -> snapshot.suppliers().stream()
+                .map(SupplierDebtRowDto::supplierKey)
+                .collect(Collectors.toSet()))
+            .orElse(Set.of());
+
         List<SupplierDebtRowDto> rows = suppliers.values().stream()
             .map(bucket -> bucket.toDto(includeDetails))
             .sorted(Comparator.comparing(SupplierDebtRowDto::debtLeft).reversed()
                 .thenComparing(SupplierDebtRowDto::supplierName, String.CASE_INSENSITIVE_ORDER))
             .toList();
+        rows = markNewRsgeSuppliers(rows, previousSnapshot.isPresent(), previousSupplierKeys);
 
         BigDecimal purchaseTotal = sum(rows.stream().map(SupplierDebtRowDto::purchaseTotal).toList());
         BigDecimal bogPaidTotal = sum(rows.stream().map(SupplierDebtRowDto::bogPaidTotal).toList());
@@ -655,6 +665,7 @@ public class SupplierDebtService {
             BigDecimal.ZERO,
             null,
             null,
+            false,
             List.of(),
             List.of()
         );
@@ -699,6 +710,43 @@ public class SupplierDebtService {
 
     private SupplierDebtAuditDto latestAuditFromSnapshot() {
         return snapshotStore.load().map(SupplierDebtOverviewDto::latestAudit).orElse(null);
+    }
+
+    private List<SupplierDebtRowDto> markNewRsgeSuppliers(
+        List<SupplierDebtRowDto> rows,
+        boolean hasPreviousSnapshot,
+        Set<String> previousSupplierKeys
+    ) {
+        if (!hasPreviousSnapshot) {
+            return rows;
+        }
+        return rows.stream()
+            .map(row -> withNewFromRsge(row, row.purchaseCount() > 0 && !previousSupplierKeys.contains(row.supplierKey())))
+            .toList();
+    }
+
+    private SupplierDebtRowDto withNewFromRsge(SupplierDebtRowDto row, boolean newFromRsge) {
+        return new SupplierDebtRowDto(
+            row.supplierKey(),
+            row.supplierTin(),
+            row.supplierName(),
+            row.purchaseTotal(),
+            row.purchaseCount(),
+            row.bogPaidTotal(),
+            row.bogPaymentCount(),
+            row.tbcPaidTotal(),
+            row.tbcPaymentCount(),
+            row.cashPaidTotal(),
+            row.cashPaymentCount(),
+            row.paidTotal(),
+            row.paymentCount(),
+            row.debtLeft(),
+            row.lastPurchaseDate(),
+            row.lastPaymentDate(),
+            newFromRsge,
+            row.purchases(),
+            row.payments()
+        );
     }
 
     private SupplierDebtOverviewDto withRefreshMetadata(SupplierDebtOverviewDto overview, boolean inProgress) {
@@ -947,6 +995,7 @@ public class SupplierDebtService {
                 MoneyUtil.round(purchaseTotal.subtract(paidTotal)),
                 lastPurchaseDate,
                 lastPaymentDate,
+                false,
                 includeDetails
                     ? purchases.stream()
                         .sorted(Comparator.comparing(SupplierDebtPurchaseDto::date, Comparator.nullsLast(Comparator.reverseOrder())))

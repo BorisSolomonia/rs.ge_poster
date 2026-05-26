@@ -108,6 +108,8 @@ camora:
     currency: "${CAMORA_BOG_API_CURRENCY:GEL}"
     take: "${CAMORA_BOG_API_TAKE:1000}"
     timeout-seconds: "${CAMORA_BOG_API_TIMEOUT_SECONDS:120}"
+    statement-retry-attempts: "${CAMORA_BOG_API_STATEMENT_RETRY_ATTEMPTS:4}"
+    statement-retry-delay-millis: "${CAMORA_BOG_API_STATEMENT_RETRY_DELAY_MILLIS:750}"
     large-credit-threshold: "${CAMORA_BOG_API_LARGE_CREDIT_THRESHOLD:1000.00}"
   rsge-api:
     endpoint: "${CAMORA_RSGE_ENDPOINT:https://services.rs.ge/WayBillService/WayBillService.asmx}"

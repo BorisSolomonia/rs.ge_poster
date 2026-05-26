@@ -542,6 +542,7 @@ export interface SupplierDebtRow {
   debtLeft: number
   lastPurchaseDate: string | null
   lastPaymentDate: string | null
+  newFromRsge: boolean
   purchases: SupplierDebtPurchase[]
   payments: SupplierDebtPayment[]
 }

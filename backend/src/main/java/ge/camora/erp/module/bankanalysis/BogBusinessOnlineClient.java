@@ -83,7 +83,7 @@ public class BogBusinessOnlineClient {
                 .header("Accept", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = send(client, request);
             if (response.statusCode() >= 400) {
                 throw new BogApiException(
                     BogApiException.HTTP_ERROR,
@@ -112,23 +112,48 @@ public class BogBusinessOnlineClient {
     }
 
     private JsonNode getJsonWithTokenRefresh(String url, CamoraProperties.BogApi config) {
+        int maxAttempts = Math.max(1, config.getStatementRetryAttempts());
         String currentToken = accessToken(config);
-        try {
-            return getJson(url, currentToken, config);
-        } catch (BogApiException exception) {
-            if (isUnauthorizedStatementResponse(exception)) {
-                invalidateToken(currentToken);
-                return getJson(url, accessToken(config), config);
-            }
-            if (isTransientStatementTransportFailure(exception)) {
+        boolean tokenRefreshed = false;
+        int attempt = 1;
+        while (attempt <= maxAttempts) {
+            try {
                 return getJson(url, currentToken, config);
+            } catch (BogApiException exception) {
+                if (isUnauthorizedStatementResponse(exception) && !tokenRefreshed) {
+                    invalidateToken(currentToken);
+                    currentToken = accessToken(config);
+                    tokenRefreshed = true;
+                    continue;
+                }
+                if (isTransientStatementTransportFailure(exception) && attempt < maxAttempts) {
+                    sleepBeforeRetry(config, attempt);
+                    attempt++;
+                    continue;
+                }
+                throw exception;
             }
-            throw exception;
+        }
+        throw new BogApiException(BogApiException.STATEMENT_FAILED, "Failed to fetch BOG statement after retries");
+    }
+
+    private void sleepBeforeRetry(CamoraProperties.BogApi config, int attempt) {
+        long delayMillis = Math.max(0, config.getStatementRetryDelayMillis());
+        if (delayMillis == 0) {
+            return;
+        }
+        long waitMillis = Math.min(30_000L, delayMillis * (long) attempt);
+        try {
+            Thread.sleep(waitMillis);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new BogApiException(BogApiException.STATEMENT_FAILED, "BOG statement retry interrupted", exception);
         }
     }
 
     private JsonNode getJson(String url, String accessToken, CamoraProperties.BogApi config) {
         try {
+            HttpClient client = client(config);
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .version(HttpClient.Version.HTTP_1_1)
@@ -137,7 +162,7 @@ public class BogBusinessOnlineClient {
                 .header("Accept", "application/json")
                 .GET()
                 .build();
-            HttpResponse<String> response = client(config).send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = send(client, request);
             if (response.statusCode() >= 400) {
                 throw new BogApiException(
                     BogApiException.HTTP_ERROR,
@@ -159,21 +184,39 @@ public class BogBusinessOnlineClient {
         }
     }
 
+    HttpResponse<String> send(HttpClient client, HttpRequest request) throws Exception {
+        return client.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
     private boolean isUnauthorizedStatementResponse(BogApiException exception) {
         String message = exception.getMessage() == null ? "" : exception.getMessage();
         return BogApiException.HTTP_ERROR.equals(exception.getCode())
             && (message.startsWith("BOG API HTTP 401") || message.startsWith("BOG API HTTP 403"));
     }
 
-    private boolean isTransientStatementTransportFailure(BogApiException exception) {
+    boolean isTransientStatementTransportFailure(BogApiException exception) {
         if (!BogApiException.STATEMENT_FAILED.equals(exception.getCode())) {
             return false;
         }
-        String message = exception.getMessage() == null ? "" : exception.getMessage();
-        return message.contains("RST_STREAM")
-            || message.contains("GOAWAY")
-            || message.contains("Connection reset")
-            || message.contains("HTTP/2");
+        String message = throwableMessages(exception).toLowerCase();
+        return message.contains("rst_stream")
+            || message.contains("goaway")
+            || message.contains("connection reset")
+            || message.contains("http/2")
+            || message.contains("stream was reset")
+            || message.contains("stream reset");
+    }
+
+    private String throwableMessages(Throwable throwable) {
+        StringBuilder builder = new StringBuilder();
+        Throwable current = throwable;
+        while (current != null) {
+            if (current.getMessage() != null) {
+                builder.append(' ').append(current.getMessage());
+            }
+            current = current.getCause();
+        }
+        return builder.toString();
     }
 
     private void invalidateToken(String staleToken) {
@@ -291,6 +334,7 @@ public class BogBusinessOnlineClient {
 
     private HttpClient client(CamoraProperties.BogApi config) {
         return HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(Duration.ofSeconds(config.getTimeoutSeconds()))
             .build();
     }
@@ -384,7 +428,7 @@ public class BogBusinessOnlineClient {
         if (value == null) {
             return "";
         }
-        return value.length() <= 500 ? value : value.substring(0, 500);
+        return value.length() <= 500 ? value : value.substring(0, 500) + "...";
     }
 
     private record Token(String value, Instant expiresAt) {

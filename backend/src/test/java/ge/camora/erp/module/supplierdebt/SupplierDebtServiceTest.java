@@ -5,6 +5,7 @@ import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
+import ge.camora.erp.model.dto.SupplierDebtRowDto;
 import ge.camora.erp.model.record.RsgeRecord;
 import ge.camora.erp.module.bankanalysis.BankTransaction;
 import ge.camora.erp.module.bankanalysis.BogBusinessOnlineClient;
@@ -195,6 +196,37 @@ class SupplierDebtServiceTest {
         assertThat(result.suppliers().get(0).purchases()).isEmpty();
         assertThat(result.suppliers().get(0).payments()).isEmpty();
         assertThat(snapshotStore.load()).contains(result);
+    }
+
+    @Test
+    void marksRsgeSuppliersAsNewOnlyAfterPreviousSnapshotExists() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+
+        var firstSnapshot = service.overview(from, to, true);
+
+        assertThat(firstSnapshot.suppliers()).allMatch(row -> !row.newFromRsge());
+
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10)),
+            purchase("WB-2", "(987654321) Supplier Y", "225.00", LocalDate.of(2025, 1, 12))
+        );
+
+        var secondSnapshot = service.overview(from, to, true);
+
+        assertThat(secondSnapshot.suppliers())
+            .filteredOn(row -> row.supplierKey().equals("tin:123456789"))
+            .singleElement()
+            .extracting(SupplierDebtRowDto::newFromRsge)
+            .isEqualTo(false);
+        assertThat(secondSnapshot.suppliers())
+            .filteredOn(row -> row.supplierKey().equals("tin:987654321"))
+            .singleElement()
+            .extracting(SupplierDebtRowDto::newFromRsge)
+            .isEqualTo(true);
     }
 
     @Test

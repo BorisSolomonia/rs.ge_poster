@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Trash2,
   Wallet,
+  X,
 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
 import {
@@ -73,6 +74,7 @@ export default function SupplierDebtsPage() {
   const [supplierFilter, setSupplierFilter] = useState(() => searchParams.get('q') ?? '')
   const [mappingDrafts, setMappingDrafts] = useState<Record<string, string>>({})
   const [pendingCashDeleteId, setPendingCashDeleteId] = useState<string | null>(null)
+  const [manualPaymentSupplierKey, setManualPaymentSupplierKey] = useState<string | null>(null)
   const [cashForm, setCashForm] = useState({
     supplierKey: '',
     date: today(),
@@ -90,6 +92,12 @@ export default function SupplierDebtsPage() {
     queryKey: ['supplier-debt-transactions', expandedSupplier, dateFrom || 'default-opening-date', dateTo || 'today'],
     queryFn: () => getSupplierDebtSupplierTransactions(expandedSupplier ?? '', dateFrom || undefined, dateTo || undefined),
     enabled: Boolean(expandedSupplier),
+  })
+
+  const manualDetailsQuery = useQuery({
+    queryKey: ['supplier-debt-transactions', manualPaymentSupplierKey, dateFrom || 'default-opening-date', dateTo || 'today', 'manual-payments'],
+    queryFn: () => getSupplierDebtSupplierTransactions(manualPaymentSupplierKey ?? '', dateFrom || undefined, dateTo || undefined),
+    enabled: Boolean(manualPaymentSupplierKey),
   })
 
   const sourceRefreshMutation = useMutation({
@@ -164,6 +172,7 @@ export default function SupplierDebtsPage() {
   const filteredSuppliers = suppliers.filter((supplier) => matchesSupplierFilter(supplier, supplierFilter))
   const topDebtSupplier = suppliers.find((supplier) => supplier.debtLeft > 0)
   const visibleDebtTotal = filteredSuppliers.reduce((total, supplier) => total + supplier.debtLeft, 0)
+  const manualPaymentSupplier = suppliers.find((supplier) => supplier.supplierKey === manualPaymentSupplierKey) ?? null
 
   function syncSearchParams(patch: Record<string, string | null>) {
     const next = new URLSearchParams(searchParams)
@@ -198,6 +207,23 @@ export default function SupplierDebtsPage() {
     syncSearchParams({ supplier: nextSupplier })
   }
 
+  function openManualPayments(supplier: SupplierDebtRow) {
+    setPendingCashDeleteId(null)
+    setManualPaymentSupplierKey(supplier.supplierKey)
+    setCashForm({
+      supplierKey: supplier.supplierKey,
+      date: today(),
+      amount: '',
+      note: '',
+    })
+  }
+
+  function closeManualPayments() {
+    setManualPaymentSupplierKey(null)
+    setPendingCashDeleteId(null)
+    setCashForm((current) => ({ ...current, amount: '', note: '' }))
+  }
+
   useEffect(() => {
     if (!overview?.refreshInProgress) {
       return
@@ -211,15 +237,15 @@ export default function SupplierDebtsPage() {
   }, [dateFrom, dateTo, overview?.refreshInProgress, queryClient])
 
   return (
-    <main className="mx-auto max-w-[1500px] space-y-4 overflow-x-hidden text-[13px] sm:space-y-5 sm:text-sm">
+    <main className="mx-auto max-w-[1500px] space-y-3 overflow-x-hidden text-xs sm:space-y-4 sm:text-[13px]">
       <section className="relative overflow-hidden rounded-3xl border border-slate-900 bg-[#101820] text-white shadow-2xl shadow-slate-300/50 sm:rounded-[2rem]">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_12%_20%,rgba(56,189,248,0.26),transparent_30%),radial-gradient(circle_at_82%_10%,rgba(245,158,11,0.22),transparent_28%),linear-gradient(135deg,rgba(255,255,255,0.10)_0,transparent_42%)]" />
         <div className="absolute -bottom-24 left-8 h-48 w-48 rounded-full border border-white/10" />
-        <div className="relative grid gap-5 p-4 sm:p-5 lg:grid-cols-[1fr_360px] lg:p-6">
+        <div className="relative grid gap-4 p-4 sm:p-5 lg:grid-cols-[1fr_330px] lg:p-5">
           <div className="min-w-0">
             <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-200 sm:text-xs sm:tracking-[0.34em]">Supplier Ledger Control Room</p>
-            <h1 className="mt-3 max-w-4xl text-balance text-2xl font-black tracking-tight sm:text-4xl">{env.supplierDebtsTitle}</h1>
-            <p className="mt-3 max-w-3xl text-pretty text-[13px] leading-5 text-slate-300 sm:text-sm sm:leading-6">{env.supplierDebtsInfo}</p>
+            <h1 className="mt-2 max-w-4xl text-balance text-2xl font-black tracking-tight sm:text-3xl">{env.supplierDebtsTitle}</h1>
+            <p className="mt-2 max-w-3xl text-pretty text-xs leading-5 text-slate-300 sm:text-[13px]">{env.supplierDebtsInfo}</p>
             {overview ? (
               <div className="mt-5 grid gap-2 sm:grid-cols-3">
                 <HeroStat label="Outstanding" value={formatGel(overview.debtTotal)} tone={overview.debtTotal > 0 ? 'bad' : 'good'} />
@@ -293,12 +319,12 @@ export default function SupplierDebtsPage() {
             onRun={() => auditMutation.mutate()}
           />
 
-          <div className="grid gap-4 xl:grid-cols-[1fr_360px]">
+          <div>
             <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <h2 className="text-lg font-black text-slate-950 sm:text-xl">Creditor Balances</h2>
-                  <p className="text-[13px] text-slate-500 sm:text-sm">
+                  <h2 className="text-base font-black text-slate-950 sm:text-lg">Creditor Balances</h2>
+                  <p className="text-xs text-slate-500 sm:text-[13px]">
                     {filteredSuppliers.length} of {overview.supplierCount} suppliers shown · visible debt {formatGel(visibleDebtTotal)}
                   </p>
                 </div>
@@ -331,6 +357,7 @@ export default function SupplierDebtsPage() {
                       deletingCashId={deleteCashMutation.variables ?? null}
                       pendingCashDeleteId={pendingCashDeleteId}
                       onToggle={() => toggleSupplier(supplier.supplierKey)}
+                      onOpenManualPayments={() => openManualPayments(supplier)}
                       onRequestCashDelete={setPendingCashDeleteId}
                       onCancelCashDelete={() => setPendingCashDeleteId(null)}
                       onConfirmCashDelete={(id) => {
@@ -345,18 +372,19 @@ export default function SupplierDebtsPage() {
                 ) : null}
               </div>
 
-              <div className="mt-5 hidden overflow-x-auto rounded-2xl border border-slate-100 md:block">
-                <table className="min-w-[980px] w-full text-xs lg:text-sm">
-                  <thead className="bg-slate-50 text-left text-xs font-bold uppercase tracking-wide text-slate-500">
+              <div className="mt-4 hidden overflow-x-auto rounded-2xl border border-slate-100 md:block">
+                <table className="min-w-[1120px] w-full text-xs">
+                  <thead className="bg-slate-50 text-left text-[11px] font-bold uppercase tracking-wide text-slate-500">
                     <tr>
-                      <th className="px-4 py-3">Supplier</th>
-                      <th className="px-4 py-3">TIN</th>
-                      <th className="px-4 py-3 text-right">Purchases</th>
-                      <th className="px-4 py-3 text-right">BOG</th>
-                      <th className="px-4 py-3 text-right">TBC</th>
-                      <th className="px-4 py-3 text-right">Cash</th>
-                      <th className="px-4 py-3 text-right">Debt Left</th>
-                      <th className="px-4 py-3 text-right">Rows</th>
+                      <th className="px-3 py-2.5">Supplier</th>
+                      <th className="px-3 py-2.5">TIN</th>
+                      <th className="px-3 py-2.5 text-right">Purchases</th>
+                      <th className="px-3 py-2.5 text-right">BOG</th>
+                      <th className="px-3 py-2.5 text-right">TBC</th>
+                      <th className="px-3 py-2.5 text-right">Manual</th>
+                      <th className="px-3 py-2.5 text-right">Debt Left</th>
+                      <th className="px-3 py-2.5 text-right">Rows</th>
+                      <th className="px-3 py-2.5 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -365,7 +393,7 @@ export default function SupplierDebtsPage() {
                       return (
                         <React.Fragment key={supplier.supplierKey}>
                           <tr className="transition-colors hover:bg-cyan-50/70">
-                            <td className="px-4 py-3 font-bold text-slate-900">
+                            <td className="px-3 py-2.5 font-bold text-slate-900">
                               <button
                                 type="button"
                                 aria-expanded={open}
@@ -374,17 +402,28 @@ export default function SupplierDebtsPage() {
                               >
                                 {open ? <ChevronDown className="h-4 w-4" aria-hidden="true" /> : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
                                 <span className="max-w-[360px] truncate">{supplier.supplierName}</span>
+                                {supplier.newFromRsge ? <NewRsgeBadge /> : null}
                               </button>
                             </td>
-                            <td className="px-4 py-3 font-mono text-xs text-slate-500">{supplier.supplierTin || '-'}</td>
-                            <td className="px-4 py-3 text-right font-semibold tabular-nums">{formatGel(supplier.purchaseTotal)}</td>
-                            <td className="px-4 py-3 text-right font-semibold tabular-nums text-emerald-700">{formatGel(supplier.bogPaidTotal)}</td>
-                            <td className="px-4 py-3 text-right font-semibold tabular-nums text-cyan-700">{formatGel(supplier.tbcPaidTotal)}</td>
-                            <td className="px-4 py-3 text-right font-semibold tabular-nums text-amber-700">{formatGel(supplier.cashPaidTotal)}</td>
-                            <td className={`px-4 py-3 text-right font-black tabular-nums ${supplier.debtLeft > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                            <td className="px-3 py-2.5 font-mono text-[11px] text-slate-500">{supplier.supplierTin || '-'}</td>
+                            <td className="px-3 py-2.5 text-right font-semibold tabular-nums">{formatGel(supplier.purchaseTotal)}</td>
+                            <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-emerald-700">{formatGel(supplier.bogPaidTotal)}</td>
+                            <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-cyan-700">{formatGel(supplier.tbcPaidTotal)}</td>
+                            <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-amber-700">{formatGel(supplier.cashPaidTotal)}</td>
+                            <td className={`px-3 py-2.5 text-right font-black tabular-nums ${supplier.debtLeft > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
                               {formatGel(supplier.debtLeft)}
                             </td>
-                            <td className="px-4 py-3 text-right text-slate-500">{supplier.purchaseCount} / {supplier.paymentCount}</td>
+                            <td className="px-3 py-2.5 text-right text-slate-500">{supplier.purchaseCount} / {supplier.paymentCount}</td>
+                            <td className="px-3 py-2.5 text-right">
+                              <button
+                                type="button"
+                                onClick={() => openManualPayments(supplier)}
+                                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-amber-100 px-2.5 text-[11px] font-black text-amber-900 transition-colors hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100"
+                              >
+                                <Wallet className="h-3.5 w-3.5" aria-hidden="true" />
+                                Manual
+                              </button>
+                            </td>
                           </tr>
                           {open ? (
                             <SupplierDebtDetails
@@ -406,23 +445,13 @@ export default function SupplierDebtsPage() {
                     })}
                     {filteredSuppliers.length === 0 ? (
                       <tr>
-                        <td className="px-4 py-5 text-slate-500" colSpan={8}>No suppliers match this search and date range.</td>
+                        <td className="px-4 py-5 text-slate-500" colSpan={9}>No suppliers match this search and date range.</td>
                       </tr>
                     ) : null}
                   </tbody>
                 </table>
               </div>
             </section>
-
-            <CashPaymentPanel
-              suppliers={suppliers}
-              form={cashForm}
-              setForm={setCashForm}
-              canSave={canSaveCash}
-              isSaving={saveCashMutation.isPending}
-              error={saveCashMutation.error instanceof Error ? saveCashMutation.error.message : null}
-              onSave={() => saveCashMutation.mutate()}
-            />
           </div>
 
           <UnmatchedPaymentsPanel
@@ -434,6 +463,30 @@ export default function SupplierDebtsPage() {
             savingMapping={saveMappingMutation.isPending}
             error={saveMappingMutation.error instanceof Error ? saveMappingMutation.error.message : null}
           />
+
+          {manualPaymentSupplier ? (
+            <ManualPaymentsModal
+              supplier={manualDetailsQuery.data ?? manualPaymentSupplier}
+              fallbackSupplier={manualPaymentSupplier}
+              form={cashForm}
+              setForm={setCashForm}
+              canSave={canSaveCash}
+              isSaving={saveCashMutation.isPending}
+              saveError={saveCashMutation.error instanceof Error ? saveCashMutation.error.message : null}
+              isLoading={manualDetailsQuery.isFetching}
+              loadError={manualDetailsQuery.error instanceof Error ? manualDetailsQuery.error.message : null}
+              deletingCashId={deleteCashMutation.variables ?? null}
+              pendingCashDeleteId={pendingCashDeleteId}
+              onRequestCashDelete={setPendingCashDeleteId}
+              onCancelCashDelete={() => setPendingCashDeleteId(null)}
+              onConfirmCashDelete={(id) => {
+                setPendingCashDeleteId(null)
+                deleteCashMutation.mutate(id)
+              }}
+              onSave={() => saveCashMutation.mutate()}
+              onClose={closeManualPayments}
+            />
+          ) : null}
         </>
       ) : null}
     </main>
@@ -460,7 +513,7 @@ function HeroStat({
   return (
     <div className={`min-w-0 rounded-2xl border p-3 ${toneClass}`}>
       <p className="text-[11px] font-black uppercase tracking-[0.22em] opacity-70">{label}</p>
-      <p className="mt-2 truncate text-lg font-black tabular-nums">{value}</p>
+      <p className="mt-2 truncate text-base font-black tabular-nums">{value}</p>
     </div>
   )
 }
@@ -477,10 +530,12 @@ function SupplierMobileCard({
   onRequestCashDelete,
   onCancelCashDelete,
   onConfirmCashDelete,
+  onOpenManualPayments,
 }: SupplierDebtDetailsContentProps & {
   detailsSupplier: SupplierDebtRow
   open: boolean
   onToggle: () => void
+  onOpenManualPayments: () => void
 }) {
   const debtTone = supplier.debtLeft > 0 ? 'text-red-700' : 'text-emerald-700'
   return (
@@ -494,7 +549,10 @@ function SupplierMobileCard({
         <span className="flex min-w-0 items-start gap-2">
           {open ? <ChevronDown className="mt-0.5 h-4 w-4 flex-shrink-0 text-cyan-700" aria-hidden="true" /> : <ChevronRight className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-400" aria-hidden="true" />}
           <span className="min-w-0">
-            <span className="line-clamp-2 text-[13px] font-black leading-5 text-slate-950">{supplier.supplierName}</span>
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="line-clamp-2 text-xs font-black leading-5 text-slate-950">{supplier.supplierName}</span>
+              {supplier.newFromRsge ? <NewRsgeBadge /> : null}
+            </span>
             <span className="mt-1 block font-mono text-[11px] font-semibold text-slate-500">{supplier.supplierTin || 'No TIN'}</span>
           </span>
         </span>
@@ -510,6 +568,17 @@ function SupplierMobileCard({
         <MobileMetric label="Cash" value={formatGel(supplier.cashPaidTotal)} tone="warn" />
         <MobileMetric label="Rows" value={`${supplier.purchaseCount} / ${supplier.paymentCount}`} />
         <MobileMetric label="Left" value={formatGel(supplier.debtLeft)} tone={supplier.debtLeft > 0 ? 'bad' : 'good'} />
+      </div>
+
+      <div className="border-t border-slate-100 bg-white px-3 py-2">
+        <button
+          type="button"
+          onClick={onOpenManualPayments}
+          className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-amber-100 px-3 text-xs font-black text-amber-900 transition-colors hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100"
+        >
+          <Wallet className="h-4 w-4" aria-hidden="true" />
+          Manual payments ({supplier.cashPaymentCount})
+        </button>
       </div>
 
       {open ? (
@@ -610,9 +679,9 @@ function AuditPanel({
         <div>
           <div className="flex items-center gap-2">
             <ClipboardCheck className="h-5 w-5 text-slate-500" aria-hidden="true" />
-            <h2 className="text-base font-black text-slate-950 sm:text-lg">Random Correctness Check</h2>
+            <h2 className="text-sm font-black text-slate-950 sm:text-base">Random Correctness Check</h2>
           </div>
-          <p className="mt-1 text-[13px] text-slate-500 sm:text-sm">
+          <p className="mt-1 text-xs text-slate-500 sm:text-[13px]">
             Samples suppliers, recalculates them from fresh source calls, and compares saved debt totals.
           </p>
         </div>
@@ -722,7 +791,7 @@ function SourceStatusRail({ overview }: { overview: SupplierDebtOverview }) {
                 {status.status}
               </span>
             </div>
-            <p className="mt-2 text-lg font-black tabular-nums sm:text-xl">{formatGel(status.total)}</p>
+            <p className="mt-2 text-base font-black tabular-nums sm:text-lg">{formatGel(status.total)}</p>
             <p className="mt-1 text-xs font-semibold opacity-75">{status.recordCount} records</p>
             {status.message ? <p className="mt-2 text-xs font-semibold">{status.message}</p> : null}
             {!ok && details ? (
@@ -778,12 +847,176 @@ function MetricCard({
         <p className="text-xs font-black uppercase tracking-wide text-slate-500">{label}</p>
         {icon ? <span className="text-slate-400" aria-hidden="true">{icon}</span> : null}
       </div>
-      <p className={`mt-2 text-lg font-black tabular-nums sm:text-xl ${colors}`}>{formatGel(value)}</p>
+      <p className={`mt-2 text-base font-black tabular-nums sm:text-lg ${colors}`}>{formatGel(value)}</p>
     </div>
   )
 }
 
-function CashPaymentPanel({
+function NewRsgeBadge() {
+  return (
+    <span className="shrink-0 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-cyan-800">
+      New RS.ge
+    </span>
+  )
+}
+
+function ManualPaymentsModal({
+  supplier,
+  fallbackSupplier,
+  form,
+  setForm,
+  canSave,
+  isSaving,
+  saveError,
+  isLoading,
+  loadError,
+  deletingCashId,
+  pendingCashDeleteId,
+  onRequestCashDelete,
+  onCancelCashDelete,
+  onConfirmCashDelete,
+  onSave,
+  onClose,
+}: {
+  supplier: SupplierDebtRow
+  fallbackSupplier: SupplierDebtRow
+  form: { supplierKey: string; date: string; amount: string; note: string }
+  setForm: React.Dispatch<React.SetStateAction<{ supplierKey: string; date: string; amount: string; note: string }>>
+  canSave: boolean
+  isSaving: boolean
+  saveError: string | null
+  isLoading: boolean
+  loadError: string | null
+  deletingCashId: string | null
+  pendingCashDeleteId: string | null
+  onRequestCashDelete: (id: string) => void
+  onCancelCashDelete: () => void
+  onConfirmCashDelete: (id: string) => void
+  onSave: () => void
+  onClose: () => void
+}) {
+  const manualPayments = supplier.payments.filter((payment) => payment.provider === 'CASH')
+  const cashTotal = supplier.cashPaidTotal || fallbackSupplier.cashPaidTotal
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/55 p-3 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true">
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 bg-slate-950 px-4 py-3 text-white sm:px-5">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Wallet className="h-4 w-4 text-amber-300" aria-hidden="true" />
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-200">Manual payments</p>
+            </div>
+            <h2 className="mt-1 truncate text-lg font-black sm:text-xl">{supplier.supplierName || fallbackSupplier.supplierName}</h2>
+            <p className="mt-1 font-mono text-[11px] font-semibold text-slate-300">{supplier.supplierTin || fallbackSupplier.supplierTin || 'No TIN'}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-200 transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/20"
+            aria-label="Close manual payments"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
+
+        <div className="grid max-h-[calc(92vh-78px)] gap-4 overflow-y-auto p-4 sm:grid-cols-[1fr_290px] sm:p-5">
+          <section className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-3 py-2">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wide text-slate-500">Saved manual ledger</p>
+                <p className="text-lg font-black tabular-nums text-amber-700">{formatGel(cashTotal)}</p>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-black text-slate-600">
+                {manualPayments.length} rows
+              </span>
+            </div>
+
+            {isLoading ? <p className="p-3 text-xs font-semibold text-slate-500">Loading manual payments...</p> : null}
+            {loadError ? <p className="m-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">{loadError}</p> : null}
+
+            <DetailList
+              title="Manual Payments"
+              rows={manualPayments.map((payment) => ({
+                key: payment.id || payment.reference || `${payment.date}-${payment.amount}`,
+                date: payment.date,
+                provider: payment.provider,
+                text: payment.description || payment.reference || 'Manual payment',
+                amount: payment.amount,
+                removable: true,
+              }))}
+              deletingId={deletingCashId}
+              pendingDeleteId={pendingCashDeleteId}
+              onRequestDelete={onRequestCashDelete}
+              onCancelDelete={onCancelCashDelete}
+              onConfirmDelete={onConfirmCashDelete}
+            />
+          </section>
+
+          <section className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
+            <h3 className="text-sm font-black text-amber-950">Add manual payment</h3>
+            <p className="mt-1 text-xs font-semibold text-amber-800">Use this for cash or other payments that did not pass through BOG/TBC.</p>
+
+            <div className="mt-3 space-y-3">
+              <label className="block text-[11px] font-bold uppercase tracking-wide text-amber-900">
+                Payment Date
+                <input
+                  type="date"
+                  name="supplier-debt-modal-cash-date"
+                  autoComplete="off"
+                  value={form.date}
+                  onChange={(event) => setForm((current) => ({ ...current, date: event.target.value }))}
+                  className="mt-1 h-10 w-full rounded-xl border border-amber-200 bg-white px-3 text-xs font-semibold text-slate-900 transition focus-visible:border-amber-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100"
+                />
+              </label>
+
+              <label className="block text-[11px] font-bold uppercase tracking-wide text-amber-900">
+                Amount
+                <input
+                  type="number"
+                  name="supplier-debt-modal-cash-amount"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={form.amount}
+                  onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value }))}
+                  className="mt-1 h-10 w-full rounded-xl border border-amber-200 bg-white px-3 text-xs font-semibold text-slate-900 transition focus-visible:border-amber-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100"
+                  placeholder="0.00"
+                />
+              </label>
+
+              <label className="block text-[11px] font-bold uppercase tracking-wide text-amber-900">
+                Note
+                <textarea
+                  name="supplier-debt-modal-cash-note"
+                  autoComplete="off"
+                  value={form.note}
+                  onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))}
+                  className="mt-1 min-h-24 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs font-medium text-slate-900 transition focus-visible:border-amber-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-100"
+                  placeholder="Receipt number, cashier note, or context..."
+                />
+              </label>
+            </div>
+
+            {saveError ? <p className="mt-3 rounded-xl border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-700">{saveError}</p> : null}
+
+            <button
+              type="button"
+              disabled={!canSave || isSaving}
+              onClick={onSave}
+              className="mt-4 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-xs font-black text-white transition-colors hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
+              {isSaving ? 'Saving...' : 'Save Manual Payment'}
+            </button>
+          </section>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function _CashPaymentPanel({
   suppliers,
   form,
   setForm,
@@ -895,7 +1128,7 @@ function SupplierDebtDetails({
 }: SupplierDebtDetailsContentProps) {
   return (
     <tr>
-      <td colSpan={8} className="bg-slate-50 px-4 py-4">
+      <td colSpan={9} className="bg-slate-50 px-4 py-4">
         {isLoading ? <p className="mb-3 text-sm font-semibold text-slate-500">Loading supplier transactions…</p> : null}
         {error ? <p className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
         <div className="grid gap-4 lg:grid-cols-2">

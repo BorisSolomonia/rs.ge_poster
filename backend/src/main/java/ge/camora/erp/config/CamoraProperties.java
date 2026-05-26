@@ -644,6 +644,8 @@ public class CamoraProperties {
         private String currency;
         private int take;
         private int timeoutSeconds;
+        private int statementRetryAttempts;
+        private long statementRetryDelayMillis;
         private BigDecimal largeCreditThreshold;
 
         public boolean isEnabled() {
@@ -716,6 +718,22 @@ public class CamoraProperties {
 
         public void setTimeoutSeconds(int timeoutSeconds) {
             this.timeoutSeconds = timeoutSeconds;
+        }
+
+        public int getStatementRetryAttempts() {
+            return statementRetryAttempts;
+        }
+
+        public void setStatementRetryAttempts(int statementRetryAttempts) {
+            this.statementRetryAttempts = statementRetryAttempts;
+        }
+
+        public long getStatementRetryDelayMillis() {
+            return statementRetryDelayMillis;
+        }
+
+        public void setStatementRetryDelayMillis(long statementRetryDelayMillis) {
+            this.statementRetryDelayMillis = statementRetryDelayMillis;
         }
 
         public BigDecimal getLargeCreditThreshold() {
