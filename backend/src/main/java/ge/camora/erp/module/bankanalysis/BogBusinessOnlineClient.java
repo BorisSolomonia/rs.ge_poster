@@ -35,8 +35,7 @@ public class BogBusinessOnlineClient {
     public List<BankTransaction> getStatement(LocalDate dateFrom, LocalDate dateTo) {
         CamoraProperties.BogApi config = properties.getBogApi();
         validateConfig(config);
-        String accessToken = accessToken(config);
-        JsonNode firstPage = getJson(statementUrl(config, dateFrom, dateTo, includeToday(dateTo)), accessToken, config);
+        JsonNode firstPage = getJsonWithTokenRefresh(statementUrl(config, dateFrom, dateTo, includeToday(dateTo)), config);
         List<BankTransaction> transactions = new ArrayList<>(parseRecords(firstPage, config));
         int count = firstPage.path("Count").asInt(transactions.size());
         int totalCount = firstPage.path("TotalCount").asInt(count);
@@ -44,7 +43,7 @@ public class BogBusinessOnlineClient {
         if (statementId > 0 && count > 0 && totalCount > count) {
             int totalPages = (int) Math.ceil((double) totalCount / Math.max(1, config.getTake()));
             for (int page = 2; page <= totalPages; page++) {
-                JsonNode pageNode = getJson(statementPageUrl(config, statementId, page), accessToken, config);
+                JsonNode pageNode = getJsonWithTokenRefresh(statementPageUrl(config, statementId, page), config);
                 transactions.addAll(parseRecords(pageNode, config));
             }
         }
@@ -111,6 +110,19 @@ public class BogBusinessOnlineClient {
         }
     }
 
+    private JsonNode getJsonWithTokenRefresh(String url, CamoraProperties.BogApi config) {
+        String currentToken = accessToken(config);
+        try {
+            return getJson(url, currentToken, config);
+        } catch (BogApiException exception) {
+            if (!isUnauthorizedStatementResponse(exception)) {
+                throw exception;
+            }
+            invalidateToken(currentToken);
+            return getJson(url, accessToken(config), config);
+        }
+    }
+
     private JsonNode getJson(String url, String accessToken, CamoraProperties.BogApi config) {
         try {
             HttpRequest request = HttpRequest.newBuilder()
@@ -139,6 +151,20 @@ public class BogBusinessOnlineClient {
                 "Failed to fetch BOG statement: " + exception.getMessage(),
                 exception
             );
+        }
+    }
+
+    private boolean isUnauthorizedStatementResponse(BogApiException exception) {
+        String message = exception.getMessage() == null ? "" : exception.getMessage();
+        return BogApiException.HTTP_ERROR.equals(exception.getCode())
+            && (message.startsWith("BOG API HTTP 401") || message.startsWith("BOG API HTTP 403"));
+    }
+
+    private void invalidateToken(String staleToken) {
+        synchronized (this) {
+            if (token != null && token.value().equals(staleToken)) {
+                token = null;
+            }
         }
     }
 

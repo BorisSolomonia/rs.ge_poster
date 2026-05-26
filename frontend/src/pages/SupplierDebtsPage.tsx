@@ -29,6 +29,7 @@ import { env } from '../env'
 import type { SupplierDebtAudit, SupplierDebtOverview, SupplierDebtRow, SupplierDebtUnmatchedGroup } from '../types'
 
 const today = () => new Date().toISOString().slice(0, 10)
+const DEFAULT_DATE_FROM = '2025-01-01'
 
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
@@ -55,7 +56,7 @@ function matchesSupplierFilter(supplier: SupplierDebtRow, query: string) {
 export default function SupplierDebtsPage() {
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [dateFrom, setDateFrom] = useState(() => searchParams.get('from') ?? '')
+  const [dateFrom, setDateFrom] = useState(() => searchParams.get('from') ?? DEFAULT_DATE_FROM)
   const [dateTo, setDateTo] = useState(() => searchParams.get('to') ?? today())
   const [expandedSupplier, setExpandedSupplier] = useState<string | null>(() => searchParams.get('supplier'))
   const [supplierFilter, setSupplierFilter] = useState(() => searchParams.get('q') ?? '')
