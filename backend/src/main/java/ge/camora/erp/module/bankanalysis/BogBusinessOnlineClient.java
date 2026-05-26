@@ -35,13 +35,31 @@ public class BogBusinessOnlineClient {
     public List<BankTransaction> getStatement(LocalDate dateFrom, LocalDate dateTo) {
         CamoraProperties.BogApi config = properties.getBogApi();
         validateConfig(config);
+        int chunkDays = config.getStatementChunkDays();
+        if (chunkDays <= 0 || !dateTo.isAfter(dateFrom.plusDays(chunkDays - 1L))) {
+            return getStatementRange(config, dateFrom, dateTo);
+        }
+        List<BankTransaction> transactions = new ArrayList<>();
+        LocalDate chunkStart = dateFrom;
+        while (!chunkStart.isAfter(dateTo)) {
+            LocalDate chunkEnd = chunkStart.plusDays(chunkDays - 1L);
+            if (chunkEnd.isAfter(dateTo)) {
+                chunkEnd = dateTo;
+            }
+            transactions.addAll(getStatementRange(config, chunkStart, chunkEnd));
+            chunkStart = chunkEnd.plusDays(1);
+        }
+        return transactions;
+    }
+
+    private List<BankTransaction> getStatementRange(CamoraProperties.BogApi config, LocalDate dateFrom, LocalDate dateTo) {
         JsonNode firstPage = getJsonWithTokenRefresh(statementUrl(config, dateFrom, dateTo, includeToday(dateTo)), config);
         List<BankTransaction> transactions = new ArrayList<>(parseRecords(firstPage, config));
         int count = firstPage.path("Count").asInt(transactions.size());
         int totalCount = firstPage.path("TotalCount").asInt(count);
         long statementId = firstPage.path("Id").asLong(0);
         if (statementId > 0 && count > 0 && totalCount > count) {
-            int totalPages = (int) Math.ceil((double) totalCount / Math.max(1, config.getTake()));
+            int totalPages = (int) Math.ceil((double) totalCount / Math.max(1, count));
             for (int page = 2; page <= totalPages; page++) {
                 JsonNode pageNode = getJsonWithTokenRefresh(statementPageUrl(config, statementId, page), config);
                 transactions.addAll(parseRecords(pageNode, config));

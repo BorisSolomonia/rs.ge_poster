@@ -15,6 +15,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.SSLSession;
@@ -190,6 +192,54 @@ class BogBusinessOnlineClientTest {
         assertThat(client.statementCalls).hasValue(1);
     }
 
+    @Test
+    void statementPaginationUsesReturnedCountInsteadOfConfiguredTake() {
+        CamoraProperties properties = new CamoraProperties();
+        CamoraProperties.BogApi config = properties.getBogApi();
+        config.setEnabled(true);
+        config.setTokenUrl("https://bog.example/auth");
+        config.setBaseUrl("https://bog.example/api");
+        config.setClientId("client");
+        config.setClientSecret("secret");
+        config.setAccountNumber("GE00BG0000000000000000GEL");
+        config.setCurrency("GEL");
+        config.setTake(1);
+        config.setTimeoutSeconds(5);
+        PagingBogClient client = new PagingBogClient(properties, new ObjectMapper());
+
+        var transactions = client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 2));
+
+        assertThat(transactions).hasSize(1);
+        assertThat(client.statementPaths).hasSize(2);
+        assertThat(client.statementPaths).anyMatch(path -> path.endsWith("/42/2/true"));
+        assertThat(client.statementPaths).noneMatch(path -> path.endsWith("/42/3/true"));
+    }
+
+    @Test
+    void statementChunksLongDateRangesBeforeCallingBog() {
+        CamoraProperties properties = new CamoraProperties();
+        CamoraProperties.BogApi config = properties.getBogApi();
+        config.setEnabled(true);
+        config.setTokenUrl("https://bog.example/auth");
+        config.setBaseUrl("https://bog.example/api");
+        config.setClientId("client");
+        config.setClientSecret("secret");
+        config.setAccountNumber("GE00BG0000000000000000GEL");
+        config.setCurrency("GEL");
+        config.setTake(1000);
+        config.setTimeoutSeconds(5);
+        config.setStatementChunkDays(2);
+        EmptyBogClient client = new EmptyBogClient(properties, new ObjectMapper());
+
+        var transactions = client.getStatement(LocalDate.of(2026, 2, 1), LocalDate.of(2026, 2, 5));
+
+        assertThat(transactions).isEmpty();
+        assertThat(client.statementPaths).hasSize(3);
+        assertThat(client.statementPaths.get(0)).contains("/2026-02-01/2026-02-02/false/true/1000");
+        assertThat(client.statementPaths.get(1)).contains("/2026-02-03/2026-02-04/false/true/1000");
+        assertThat(client.statementPaths.get(2)).contains("/2026-02-05/2026-02-05/false/true/1000");
+    }
+
 
     private static void sendJson(HttpExchange exchange, int status, String body) throws IOException {
         byte[] payload = body.getBytes(StandardCharsets.UTF_8);
@@ -237,6 +287,85 @@ class BogBusinessOnlineClientTest {
                           "EntryDocumentNumber": "BOG-REF"
                         }
                       ]
+                    }
+                    """);
+            }
+            throw new IOException("Unexpected request " + request.uri());
+        }
+    }
+
+    private static final class PagingBogClient extends BogBusinessOnlineClient {
+        private final List<String> statementPaths = new ArrayList<>();
+
+        private PagingBogClient(CamoraProperties properties, ObjectMapper objectMapper) {
+            super(properties, objectMapper);
+        }
+
+        @Override
+        HttpResponse<String> send(HttpClient client, HttpRequest request) throws Exception {
+            String path = request.uri().getPath();
+            if (path.contains("/auth")) {
+                return response(request, 200, "{\"access_token\":\"token\",\"expires_in\":300}");
+            }
+            if (path.contains("/statement/v2")) {
+                statementPaths.add(path);
+                if (statementPaths.size() == 1) {
+                    return response(request, 200, """
+                        {
+                          "Id": 42,
+                          "Count": 2,
+                          "TotalCount": 3,
+                          "Records": []
+                        }
+                        """);
+                }
+                if (path.endsWith("/42/2/true")) {
+                    return response(request, 200, """
+                        {
+                          "Count": 1,
+                          "TotalCount": 3,
+                          "Records": [
+                            {
+                              "EntryAmountDebit": "125.00",
+                              "EntryDate": "2026-02-01",
+                              "DocumentSourceCurrency": "GEL",
+                              "EntryAccountNumber": "GE00BG0000000000000000GEL",
+                              "BeneficiaryDetails": {
+                                "Name": "Supplier X",
+                                "Inn": "123456789",
+                                "AccountNumber": "GE00BG0000000000000001GEL"
+                              },
+                              "EntryDocumentNumber": "BOG-REF"
+                            }
+                          ]
+                        }
+                        """);
+                }
+            }
+            throw new IOException("Unexpected request " + request.uri());
+        }
+    }
+
+    private static final class EmptyBogClient extends BogBusinessOnlineClient {
+        private final List<String> statementPaths = new ArrayList<>();
+
+        private EmptyBogClient(CamoraProperties properties, ObjectMapper objectMapper) {
+            super(properties, objectMapper);
+        }
+
+        @Override
+        HttpResponse<String> send(HttpClient client, HttpRequest request) throws Exception {
+            String path = request.uri().getPath();
+            if (path.contains("/auth")) {
+                return response(request, 200, "{\"access_token\":\"token\",\"expires_in\":300}");
+            }
+            if (path.contains("/statement/v2")) {
+                statementPaths.add(path);
+                return response(request, 200, """
+                    {
+                      "Count": 0,
+                      "TotalCount": 0,
+                      "Records": []
                     }
                     """);
             }

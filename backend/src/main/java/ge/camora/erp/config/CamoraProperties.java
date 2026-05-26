@@ -646,6 +646,7 @@ public class CamoraProperties {
         private int timeoutSeconds;
         private int statementRetryAttempts;
         private long statementRetryDelayMillis;
+        private int statementChunkDays;
         private BigDecimal largeCreditThreshold;
 
         public boolean isEnabled() {
@@ -734,6 +735,14 @@ public class CamoraProperties {
 
         public void setStatementRetryDelayMillis(long statementRetryDelayMillis) {
             this.statementRetryDelayMillis = statementRetryDelayMillis;
+        }
+
+        public int getStatementChunkDays() {
+            return statementChunkDays;
+        }
+
+        public void setStatementChunkDays(int statementChunkDays) {
+            this.statementChunkDays = statementChunkDays;
         }
 
         public BigDecimal getLargeCreditThreshold() {
