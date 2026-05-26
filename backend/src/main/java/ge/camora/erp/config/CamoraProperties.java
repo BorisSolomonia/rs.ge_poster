@@ -127,6 +127,7 @@ public class CamoraProperties {
         private String supplierPaymentMappings;
         private String supplierCashPayments;
         private String supplierDebtSnapshot;
+        private String rsgePurchaseLedger;
 
         public String getSupplierMappings() {
             return supplierMappings;
@@ -206,6 +207,14 @@ public class CamoraProperties {
 
         public void setSupplierDebtSnapshot(String supplierDebtSnapshot) {
             this.supplierDebtSnapshot = supplierDebtSnapshot;
+        }
+
+        public String getRsgePurchaseLedger() {
+            return rsgePurchaseLedger;
+        }
+
+        public void setRsgePurchaseLedger(String rsgePurchaseLedger) {
+            this.rsgePurchaseLedger = rsgePurchaseLedger;
         }
     }
 

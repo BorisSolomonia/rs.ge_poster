@@ -25,12 +25,17 @@ import org.springframework.stereotype.Service;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,6 +64,7 @@ public class SupplierDebtService {
     private final ConfigStore configStore;
     private final CamoraProperties properties;
     private final SupplierDebtSnapshotStore snapshotStore;
+    private final RsgePurchaseLedgerStore rsgePurchaseLedgerStore;
     private final Cache<RangeKey, List<RsgeRecord>> purchaseCache;
     private final Cache<RangeKey, List<BankTransaction>> bogTransactionCache;
     private final Cache<RangeKey, List<BankTransaction>> tbcTransactionCache;
@@ -74,7 +80,8 @@ public class SupplierDebtService {
         TbcDbiClient tbcDbiClient,
         ConfigStore configStore,
         CamoraProperties properties,
-        SupplierDebtSnapshotStore snapshotStore
+        SupplierDebtSnapshotStore snapshotStore,
+        RsgePurchaseLedgerStore rsgePurchaseLedgerStore
     ) {
         this.rsgePurchaseWaybillService = rsgePurchaseWaybillService;
         this.bogBusinessOnlineClient = bogBusinessOnlineClient;
@@ -82,6 +89,7 @@ public class SupplierDebtService {
         this.configStore = configStore;
         this.properties = properties;
         this.snapshotStore = snapshotStore;
+        this.rsgePurchaseLedgerStore = rsgePurchaseLedgerStore;
         long cacheTtlMinutes = Math.max(1, properties.getSupplierDebt().getSourceCacheTtlMinutes());
         long maximumCacheSize = Math.max(1, properties.getSupplierDebt().getMaximumSourceCacheSize());
         this.purchaseCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
@@ -240,6 +248,13 @@ public class SupplierDebtService {
         SourceFetchResult<RsgeRecord> purchaseSource = purchaseFuture.join();
         SourceFetchResult<BankTransaction> bogSource = bogFuture.join();
         SourceFetchResult<BankTransaction> tbcSource = tbcFuture.join();
+        RsgePurchaseChangeSummary purchaseChangeSummary = purchaseSource.failed()
+            ? RsgePurchaseChangeSummary.empty()
+            : rsgePurchaseLedgerStore.compareAndSave(
+                range.dateFrom(),
+                range.dateTo(),
+                purchaseFingerprints(purchaseSource.records())
+            );
 
         Map<String, SupplierBucket> suppliers = new LinkedHashMap<>();
         List<SupplierDebtSourceStatusDto> statuses = new ArrayList<>();
@@ -259,7 +274,7 @@ public class SupplierDebtService {
         }
         statuses.add(purchaseSource.failed()
             ? failed(RSGE, purchaseSource.errorMessage(), purchaseSource.errorDetails())
-            : success(RSGE, purchaseSource.records().size(), purchaseSourceTotal, purchaseSource.cached()));
+            : rsgeStatus(purchaseSource.records().size(), purchaseSourceTotal, purchaseSource.cached(), purchaseChangeSummary));
 
         List<SupplierPaymentMapping> mappings = configStore.getSupplierPaymentMappings();
         List<SupplierDebtPaymentDto> unmatchedPayments = new ArrayList<>();
@@ -402,6 +417,68 @@ public class SupplierDebtService {
             return new MatchIdentifier("DESCRIPTION", payment.description().trim());
         }
         return new MatchIdentifier("REFERENCE", safe(payment.reference()).trim());
+    }
+
+    private List<RsgePurchaseFingerprint> purchaseFingerprints(List<RsgeRecord> records) {
+        Map<String, Integer> occurrenceCounts = new HashMap<>();
+        List<RsgePurchaseFingerprint> fingerprints = new ArrayList<>();
+        for (RsgeRecord record : records) {
+            String baseKey = rsgeBaseRowKey(record);
+            int occurrence = occurrenceCounts.merge(baseKey, 1, Integer::sum);
+            String rowKey = baseKey + "#" + occurrence;
+            SupplierIdentity identity = supplierIdentity(record);
+            fingerprints.add(new RsgePurchaseFingerprint(
+                rowKey,
+                contentHash(record),
+                safe(record.waybillNumber()),
+                identity.tin(),
+                identity.name(),
+                record.recordDate() == null ? null : record.recordDate().toLocalDate(),
+                MoneyUtil.round(record.totalPrice())
+            ));
+        }
+        return fingerprints;
+    }
+
+    private String rsgeBaseRowKey(RsgeRecord record) {
+        SupplierIdentity identity = supplierIdentity(record);
+        return String.join("|",
+            "rsge",
+            normalizeKey(record.waybillNumber()),
+            normalizeKey(identity.tin()),
+            record.recordDate() == null ? "" : record.recordDate().toLocalDate().toString(),
+            normalizeKey(record.productName()),
+            normalizeKey(record.unitOfMeasure())
+        );
+    }
+
+    private String contentHash(RsgeRecord record) {
+        String payload = String.join("|",
+            safe(record.waybillNumber()),
+            safe(record.supplierRaw()),
+            safe(record.supplierTin()),
+            safe(record.supplierName()),
+            safe(record.productName()),
+            safe(record.unitOfMeasure()),
+            decimalText(record.quantity()),
+            decimalText(record.unitPrice()),
+            decimalText(record.totalPrice()),
+            record.recordDate() == null ? "" : record.recordDate().toString()
+        );
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(payload.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is not available", exception);
+        }
+    }
+
+    private String decimalText(BigDecimal value) {
+        return value == null ? "" : MoneyUtil.round(value).stripTrailingZeros().toPlainString();
+    }
+
+    private String normalizeKey(String value) {
+        return ConfigStore.normalizeSalesKey(safe(value));
     }
 
     private <T> Cache<RangeKey, List<T>> sourceCache(long cacheTtlMinutes, long maximumCacheSize) {
@@ -707,6 +784,27 @@ public class SupplierDebtService {
             "OK",
             cached ? "cached source data" : "fresh source data",
             "",
+            recordCount,
+            MoneyUtil.round(total)
+        );
+    }
+
+    private SupplierDebtSourceStatusDto rsgeStatus(
+        int recordCount,
+        BigDecimal total,
+        boolean cached,
+        RsgePurchaseChangeSummary changeSummary
+    ) {
+        String sourceState = cached ? "cached source data" : "fresh source data";
+        if (changeSummary == null || !changeSummary.hasAnyChange()) {
+            return new SupplierDebtSourceStatusDto(RSGE, "OK", sourceState + "; no RS.ge row changes", "", recordCount, MoneyUtil.round(total));
+        }
+        String message = sourceState + "; " + changeSummary.shortMessage();
+        return new SupplierDebtSourceStatusDto(
+            RSGE,
+            changeSummary.hasRisk() ? "WARNING" : "OK",
+            message,
+            changeSummary.technicalDetails(),
             recordCount,
             MoneyUtil.round(total)
         );

@@ -28,13 +28,15 @@ class SupplierDebtServiceTest {
     private final FakeTbcDbiClient tbc = new FakeTbcDbiClient();
     private final FakeConfigStore configStore = new FakeConfigStore();
     private final FakeSupplierDebtSnapshotStore snapshotStore = new FakeSupplierDebtSnapshotStore();
+    private final FakeRsgePurchaseLedgerStore rsgeLedgerStore = new FakeRsgePurchaseLedgerStore();
     private final SupplierDebtService service = new SupplierDebtService(
         rsge,
         bog,
         tbc,
         configStore,
         new CamoraProperties(),
-        snapshotStore
+        snapshotStore,
+        rsgeLedgerStore
     );
 
     @Test
@@ -275,6 +277,35 @@ class SupplierDebtServiceTest {
         assertThat(bogStatus.technicalDetails()).contains("Received RST_STREAM");
     }
 
+    @Test
+    void warnsWhenRsgePurchaseLedgerDetectsChangedRows() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        rsgeLedgerStore.summary = new RsgePurchaseChangeSummary(
+            0,
+            1,
+            1,
+            0,
+            8,
+            LocalDateTime.of(2025, 1, 31, 12, 0),
+            List.of("CHANGED date=2025-01-10, waybill=WB-1, tin=123456789, supplier=Supplier X, amount=599.00")
+        );
+
+        var result = service.analyze(from, to, true);
+
+        var rsgeStatus = result.sourceStatuses().stream()
+            .filter(status -> status.source().equals("RSGE"))
+            .findFirst()
+            .orElseThrow();
+        assertThat(rsgeStatus.status()).isEqualTo("WARNING");
+        assertThat(rsgeStatus.message()).contains("1 changed");
+        assertThat(rsgeStatus.message()).contains("1 missing");
+        assertThat(rsgeStatus.technicalDetails()).contains("Review warning");
+    }
+
     private RsgeRecord purchase(String waybill, String supplierRaw, String amount, LocalDate date) {
         return new RsgeRecord(
             waybill,
@@ -383,6 +414,23 @@ class SupplierDebtServiceTest {
         @Override
         public List<SupplierCashPayment> getSupplierCashPayments(LocalDate dateFrom, LocalDate dateTo) {
             return cashPayments;
+        }
+    }
+
+    private static final class FakeRsgePurchaseLedgerStore extends RsgePurchaseLedgerStore {
+        private RsgePurchaseChangeSummary summary = RsgePurchaseChangeSummary.empty();
+
+        private FakeRsgePurchaseLedgerStore() {
+            super(new ObjectMapper(), new CamoraProperties());
+        }
+
+        @Override
+        public RsgePurchaseChangeSummary compareAndSave(
+            LocalDate dateFrom,
+            LocalDate dateTo,
+            List<RsgePurchaseFingerprint> currentFingerprints
+        ) {
+            return summary;
         }
     }
 

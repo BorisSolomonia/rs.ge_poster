@@ -697,17 +697,28 @@ function SourceStatusRail({ overview }: { overview: SupplierDebtOverview }) {
     <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
       {overview.sourceStatuses.map((status) => {
         const ok = status.status === 'OK'
+        const warning = status.status === 'WARNING'
         const details = status.technicalDetails || status.message
         return (
           <div
             key={status.source}
             className={`rounded-2xl border p-3 shadow-sm sm:p-4 ${
-              ok ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : 'border-red-200 bg-red-50 text-red-950'
+              ok
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-950'
+                : warning
+                  ? 'border-amber-200 bg-amber-50 text-amber-950'
+                  : 'border-red-200 bg-red-50 text-red-950'
             }`}
           >
             <div className="flex items-center justify-between gap-3">
               <p className="text-[13px] font-black sm:text-sm">{status.source}</p>
-              <span className={`rounded-full px-2 py-1 text-[11px] font-black ${ok ? 'bg-emerald-200 text-emerald-900' : 'bg-red-200 text-red-900'}`}>
+              <span className={`rounded-full px-2 py-1 text-[11px] font-black ${
+                ok
+                  ? 'bg-emerald-200 text-emerald-900'
+                  : warning
+                    ? 'bg-amber-200 text-amber-900'
+                    : 'bg-red-200 text-red-900'
+              }`}>
                 {status.status}
               </span>
             </div>
