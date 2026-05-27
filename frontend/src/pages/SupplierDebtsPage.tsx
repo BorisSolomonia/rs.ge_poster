@@ -24,7 +24,9 @@ import {
   getSupplierDebtSupplierTransactions,
   saveSupplierCashPayment,
   saveSupplierPaymentMapping,
+  startSupplierDebtRefresh,
 } from '../api/supplier-debts.api'
+import { ApiClientError } from '../api/client'
 import { formatGel } from '../components/reconciliation/reconciliation.utils'
 import { env } from '../env'
 import type { SupplierDebtAudit, SupplierDebtOverview, SupplierDebtRow, SupplierDebtUnmatchedGroup } from '../types'
@@ -101,7 +103,7 @@ export default function SupplierDebtsPage() {
   })
 
   const sourceRefreshMutation = useMutation({
-    mutationFn: () => getSupplierDebtOverview(dateFrom || undefined, dateTo || undefined, true),
+    mutationFn: () => startSupplierDebtRefresh(dateFrom || undefined, dateTo || undefined),
     onSuccess: (data) => {
       queryClient.setQueryData(debtQueryKey, data)
     },
@@ -168,7 +170,7 @@ export default function SupplierDebtsPage() {
   const cashAmount = Number(cashForm.amount)
   const canSaveCash = Boolean(selectedCashSupplier && cashForm.date && Number.isFinite(cashAmount) && cashAmount > 0)
   const loadingSources = debtQuery.isFetching || sourceRefreshMutation.isPending
-  const loadError = sourceRefreshMutation.error instanceof Error ? sourceRefreshMutation.error : debtQuery.error
+  const loadError = sourceRefreshMutation.error instanceof Error ? sourceRefreshMutation.error : overview ? null : debtQuery.error
   const filteredSuppliers = suppliers.filter((supplier) => matchesSupplierFilter(supplier, supplierFilter))
   const topDebtSupplier = suppliers.find((supplier) => supplier.debtLeft > 0)
   const visibleDebtTotal = filteredSuppliers.reduce((total, supplier) => total + supplier.debtLeft, 0)
@@ -301,10 +303,7 @@ export default function SupplierDebtsPage() {
       </section>
 
       {loadError instanceof Error ? (
-        <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-[13px] font-semibold text-red-700 sm:p-4 sm:text-sm" aria-live="polite">
-          <AlertCircle className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
-          {loadError.message}. Check source credentials, then refresh again.
-        </div>
+        <SupplierDebtErrorNotice error={loadError} />
       ) : null}
 
       {overview ? (
@@ -805,6 +804,38 @@ function SourceStatusRail({ overview }: { overview: SupplierDebtOverview }) {
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function SupplierDebtErrorNotice({ error }: { error: Error }) {
+  const apiError = error instanceof ApiClientError ? error : null
+  const responseDetails = apiError?.details && typeof apiError.details === 'object'
+    ? (apiError.details as { technicalDetails?: unknown })
+    : null
+  const technicalDetails = typeof responseDetails?.technicalDetails === 'string' ? responseDetails.technicalDetails : ''
+  const rawPayload = apiError?.details ? JSON.stringify(apiError.details, null, 2) : ''
+  const details = technicalDetails || rawPayload
+
+  return (
+    <div className="flex items-start gap-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-[13px] font-semibold text-red-700 sm:p-4 sm:text-sm" aria-live="polite">
+      <AlertCircle className="h-5 w-5 flex-shrink-0" aria-hidden="true" />
+      <div className="min-w-0">
+        <p>{error.message}. Check source credentials, then refresh again.</p>
+        <div className="mt-2 flex flex-wrap gap-2 text-xs text-red-800">
+          {apiError?.status ? <span className="rounded-full bg-white/70 px-2 py-1">HTTP: {apiError.status}</span> : null}
+          {apiError?.code ? <span className="rounded-full bg-white/70 px-2 py-1">Code: {apiError.code}</span> : null}
+          {apiError?.timestamp ? <span className="rounded-full bg-white/70 px-2 py-1">Backend: {apiError.timestamp}</span> : null}
+        </div>
+        {details ? (
+          <details className="mt-3 rounded-xl border border-red-300 bg-white/70 p-3 text-xs">
+            <summary className="cursor-pointer font-black uppercase tracking-wide">Show Full Trace</summary>
+            <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-950 p-3 font-mono text-[11px] leading-5 text-slate-100">
+              {details}
+            </pre>
+          </details>
+        ) : null}
+      </div>
     </div>
   )
 }

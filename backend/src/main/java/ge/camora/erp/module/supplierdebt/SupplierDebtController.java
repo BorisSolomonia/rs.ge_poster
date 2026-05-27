@@ -44,6 +44,14 @@ public class SupplierDebtController {
         return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.overview(dateFrom, dateTo, refreshSources)));
     }
 
+    @PostMapping("/refresh")
+    public ResponseEntity<ApiResponse<SupplierDebtOverviewDto>> startRefresh(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.startAsyncRefresh(dateFrom, dateTo)));
+    }
+
     @GetMapping("/suppliers/{supplierKey}/transactions")
     public ResponseEntity<ApiResponse<SupplierDebtRowDto>> supplierTransactions(
         @PathVariable String supplierKey,

@@ -121,7 +121,21 @@ public class SupplierDebtService {
             return withRefreshMetadata(saved.get(), refreshInProgress.get());
         }
 
+        if (refreshInProgress.get()) {
+            return emptyOverview(range, true);
+        }
+
         return refreshSnapshot(range, true);
+    }
+
+    public SupplierDebtOverviewDto startAsyncRefresh(LocalDate dateFrom, LocalDate dateTo) {
+        RangeKey range = normalizeRange(dateFrom, dateTo);
+        Optional<SupplierDebtOverviewDto> saved = snapshotStore.load()
+            .filter(snapshot -> canServeSavedSnapshot(snapshot, range));
+        startBackgroundRefresh(range);
+        return saved
+            .map(snapshot -> withRefreshMetadata(snapshot, refreshInProgress.get()))
+            .orElseGet(() -> emptyOverview(range, refreshInProgress.get()));
     }
 
     public SupplierDebtOverviewDto analyze(LocalDate dateFrom, LocalDate dateTo) {
@@ -230,6 +244,34 @@ public class SupplierDebtService {
             lastRefreshError = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
             throw exception;
         }
+    }
+
+    private SupplierDebtOverviewDto emptyOverview(RangeKey range, boolean inProgress) {
+        return new SupplierDebtOverviewDto(
+            range.dateFrom(),
+            range.dateTo(),
+            BigDecimal.ZERO,
+            BigDecimal.ZERO,
+            BigDecimal.ZERO,
+            BigDecimal.ZERO,
+            BigDecimal.ZERO,
+            BigDecimal.ZERO,
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            0,
+            List.of(),
+            List.of(),
+            configStore.getSupplierPaymentMappings(),
+            List.of(),
+            List.of(),
+            null,
+            inProgress,
+            lastRefreshStartedAt,
+            lastRefreshCompletedAt,
+            lastRefreshError == null ? "" : lastRefreshError,
+            latestAuditFromSnapshot()
+        );
     }
 
     private SupplierDebtOverviewDto calculateOverview(RangeKey range, boolean refreshSources, boolean includeDetails) {

@@ -20,6 +20,8 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -205,6 +207,31 @@ class SupplierDebtServiceTest {
             new RequestedRange(LocalDate.of(2025, 2, 1), LocalDate.of(2025, 2, 28)),
             new RequestedRange(LocalDate.of(2025, 3, 1), LocalDate.of(2025, 3, 5))
         );
+    }
+
+    @Test
+    void startsSourceRefreshInBackgroundAndReturnsCurrentStateImmediately() {
+        SupplierDebtService asyncService = new SupplierDebtService(
+            rsge,
+            bog,
+            tbc,
+            configStore,
+            new CamoraProperties(),
+            snapshotStore,
+            rsgeLedgerStore
+        );
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.blockFetch = new CountDownLatch(1);
+
+        var result = asyncService.startAsyncRefresh(from, to);
+        var pollingResult = asyncService.overview(from, to, false);
+        rsge.blockFetch.countDown();
+
+        assertThat(result.refreshInProgress()).isTrue();
+        assertThat(result.suppliers()).isEmpty();
+        assertThat(pollingResult.refreshInProgress()).isTrue();
+        assertThat(pollingResult.suppliers()).isEmpty();
     }
 
     @Test
@@ -413,6 +440,7 @@ class SupplierDebtServiceTest {
 
     private static final class FakeRsgePurchaseWaybillService extends RsgePurchaseWaybillService {
         private List<RsgeRecord> records = List.of();
+        private CountDownLatch blockFetch;
         private int fetchCount;
 
         private FakeRsgePurchaseWaybillService() {
@@ -422,6 +450,14 @@ class SupplierDebtServiceTest {
         @Override
         public List<RsgeRecord> fetchPurchaseRecords(LocalDate startDate, LocalDate endDate) {
             fetchCount++;
+            if (blockFetch != null) {
+                try {
+                    blockFetch.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException exception) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(exception);
+                }
+            }
             return records;
         }
     }
