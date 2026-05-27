@@ -828,6 +828,8 @@ public class CamoraProperties {
         private String endpoint;
         private String username;
         private String password;
+        private String buyerTin;
+        private String waybillTypes;
         private int timeoutSeconds;
         private boolean debug;
         private int debugSampleCount;
@@ -855,6 +857,22 @@ public class CamoraProperties {
 
         public void setPassword(String password) {
             this.password = password;
+        }
+
+        public String getBuyerTin() {
+            return buyerTin;
+        }
+
+        public void setBuyerTin(String buyerTin) {
+            this.buyerTin = buyerTin;
+        }
+
+        public String getWaybillTypes() {
+            return waybillTypes;
+        }
+
+        public void setWaybillTypes(String waybillTypes) {
+            this.waybillTypes = waybillTypes;
         }
 
         public int getTimeoutSeconds() {

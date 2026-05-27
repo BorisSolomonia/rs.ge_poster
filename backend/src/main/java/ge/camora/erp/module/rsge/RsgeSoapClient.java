@@ -52,7 +52,9 @@ public class RsgeSoapClient {
     public List<Map<String, Object>> getBuyerWaybills(LocalDate startDate, LocalDate endDate) {
         validateCredentials();
 
-        Map<String, String> params = new HashMap<>();
+        Map<String, String> params = new LinkedHashMap<>();
+        putIfPresent(params, "itypes", properties.getWaybillTypes());
+        putIfPresent(params, "buyer_tin", firstNonBlank(properties.getBuyerTin(), extractSellerId(properties.getUsername())));
         params.put("create_date_s", startDate.atStartOfDay().format(DATE_FORMAT));
         params.put("create_date_e", endDate.plusDays(1).atStartOfDay().format(DATE_FORMAT));
 
@@ -77,15 +79,32 @@ public class RsgeSoapClient {
     private List<Map<String, Object>> callSoapWithRetry(String operation, Map<String, String> params) throws Exception {
         params.put("su", properties.getUsername());
         params.put("sp", properties.getPassword());
-        params.put("seller_un_id", extractSellerId(properties.getUsername()));
+        boolean buyerWaybills = "get_buyer_waybills".equals(operation);
+        if (!buyerWaybills) {
+            putIfPresent(params, "seller_un_id", extractSellerId(properties.getUsername()));
+        }
 
         String response = sendSoapRequest(operation, params);
         Map<String, Object> result = parseSoapResponse(response, operation);
         int statusCode = getStatusCode(result);
 
         if (statusCode == -101) {
+            if (buyerWaybills && !params.containsKey("seller_un_id")) {
+                String sellerId = extractSellerId(properties.getUsername());
+                if (!sellerId.isBlank()) {
+                    log.warn("rs.ge returned -101 for operation={}, retrying with seller_un_id compatibility field", operation);
+                    params.put("seller_un_id", sellerId);
+                    String retryResponse = sendSoapRequest(operation, params);
+                    Map<String, Object> retryResult = parseSoapResponse(retryResponse, operation);
+                    int retryStatus = getStatusCode(retryResult);
+                    if (retryStatus != -101) {
+                        return extractWaybillsDeep(retryResult);
+                    }
+                }
+            }
+
             String fallbackSellerId = properties.getUsername() != null ? properties.getUsername().trim() : "";
-            if (!fallbackSellerId.isBlank()) {
+            if (!fallbackSellerId.isBlank() && !fallbackSellerId.equals(params.get("seller_un_id"))) {
                 log.warn("rs.ge returned -101 for operation={}, retrying with fallback seller_un_id", operation);
                 params.put("seller_un_id", fallbackSellerId);
                 String retryResponse = sendSoapRequest(operation, params);
@@ -427,6 +446,21 @@ public class RsgeSoapClient {
 
     private boolean hasNonBlank(Map<String, Object> map, String... keys) {
         return firstNonBlank(map, keys) != null;
+    }
+
+    private void putIfPresent(Map<String, String> map, String key, String value) {
+        if (value != null && !value.isBlank()) {
+            map.put(key, value.trim());
+        }
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return "";
     }
 
     private String firstNonBlank(Map<String, Object> map, String... keys) {
