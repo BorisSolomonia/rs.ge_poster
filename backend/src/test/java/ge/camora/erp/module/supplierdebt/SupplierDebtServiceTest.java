@@ -235,6 +235,30 @@ class SupplierDebtServiceTest {
     }
 
     @Test
+    void startsMissingSnapshotOverviewInBackgroundInsteadOfBlockingDateChanges() {
+        SupplierDebtService asyncService = new SupplierDebtService(
+            rsge,
+            bog,
+            tbc,
+            configStore,
+            new CamoraProperties(),
+            snapshotStore,
+            rsgeLedgerStore
+        );
+        LocalDate from = LocalDate.of(2026, 5, 27);
+        LocalDate to = LocalDate.of(2026, 5, 27);
+        rsge.blockFetch = new CountDownLatch(1);
+
+        var result = asyncService.overview(from, to, false);
+        rsge.blockFetch.countDown();
+
+        assertThat(result.refreshInProgress()).isTrue();
+        assertThat(result.dateFrom()).isEqualTo(from);
+        assertThat(result.dateTo()).isEqualTo(to);
+        assertThat(result.suppliers()).isEmpty();
+    }
+
+    @Test
     void storesOverviewSnapshotWithoutTransactionDetails() {
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 1, 31);
@@ -317,10 +341,47 @@ class SupplierDebtServiceTest {
             debit("300.00", "Supplier X", "123456789")
         );
 
+        service.analyze(from, to, true);
         var result = service.supplierTransactions("tin:123456789", from, to, false);
 
         assertThat(result.purchases()).hasSize(1);
         assertThat(result.payments()).hasSize(1);
+        assertThat(rsge.fetchCount).isEqualTo(1);
+        assertThat(bog.fetchCount).isEqualTo(1);
+        assertThat(tbc.fetchCount).isEqualTo(1);
+    }
+
+    @Test
+    void returnsSavedSupplierSummaryImmediatelyWhenTransactionCachesAreCold() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X", "123456789")
+        );
+        service.overview(from, to, true);
+
+        FakeRsgePurchaseWaybillService restartedRsge = new FakeRsgePurchaseWaybillService();
+        restartedRsge.blockFetch = new CountDownLatch(1);
+        SupplierDebtService restartedService = new SupplierDebtService(
+            restartedRsge,
+            new FakeBogBusinessOnlineClient(),
+            new FakeTbcDbiClient(),
+            configStore,
+            new CamoraProperties(),
+            snapshotStore,
+            rsgeLedgerStore
+        );
+
+        var result = restartedService.supplierTransactions("tin:123456789", from, to, false);
+        restartedRsge.blockFetch.countDown();
+
+        assertThat(result.supplierName()).isEqualTo("Supplier X");
+        assertThat(result.debtLeft()).isEqualByComparingTo("299.00");
+        assertThat(result.purchases()).isEmpty();
+        assertThat(result.payments()).isEmpty();
     }
 
     @Test

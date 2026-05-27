@@ -75,6 +75,7 @@ public class SupplierDebtService {
     private volatile LocalDateTime lastRefreshStartedAt;
     private volatile LocalDateTime lastRefreshCompletedAt;
     private volatile String lastRefreshError = "";
+    private volatile RangeKey lastRefreshRange;
 
     public SupplierDebtService(
         RsgePurchaseWaybillService rsgePurchaseWaybillService,
@@ -121,11 +122,11 @@ public class SupplierDebtService {
             return withRefreshMetadata(saved.get(), refreshInProgress.get());
         }
 
-        if (refreshInProgress.get()) {
-            return emptyOverview(range, true);
+        if (lastRefreshFailedFor(range)) {
+            return emptyOverview(range, false);
         }
-
-        return refreshSnapshot(range, true);
+        startBackgroundRefresh(range);
+        return emptyOverview(range, refreshInProgress.get());
     }
 
     public SupplierDebtOverviewDto startAsyncRefresh(LocalDate dateFrom, LocalDate dateTo) {
@@ -147,11 +148,44 @@ public class SupplierDebtService {
     }
 
     public SupplierDebtRowDto supplierTransactions(String supplierKey, LocalDate dateFrom, LocalDate dateTo, boolean forceRefresh) {
-        SupplierDebtOverviewDto overview = calculateOverview(normalizeRange(dateFrom, dateTo), forceRefresh, true);
+        RangeKey range = normalizeRange(dateFrom, dateTo);
+        if (!forceRefresh) {
+            if (hasAllSourceCaches(range)) {
+                return supplierRowOrEmpty(calculateOverview(range, false, true), supplierKey);
+            }
+            Optional<SupplierDebtRowDto> savedRow = snapshotStore.load()
+                .filter(snapshot -> canServeSavedSnapshot(snapshot, range))
+                .flatMap(snapshot -> findSupplierRow(snapshot, supplierKey));
+            if (savedRow.isPresent()) {
+                startBackgroundRefresh(range);
+                return savedRow.get();
+            }
+            startBackgroundRefresh(range);
+            return emptySupplierRow(supplierKey);
+        }
+
+        SupplierDebtOverviewDto overview = calculateOverview(range, true, true);
+        return supplierRowOrEmpty(overview, supplierKey);
+    }
+
+    private SupplierDebtRowDto supplierRowOrEmpty(SupplierDebtOverviewDto overview, String supplierKey) {
+        return findSupplierRow(overview, supplierKey)
+            .orElseGet(() -> emptySupplierRow(supplierKey));
+    }
+
+    private Optional<SupplierDebtRowDto> findSupplierRow(SupplierDebtOverviewDto overview, String supplierKey) {
+        if (overview == null || supplierKey == null) {
+            return Optional.empty();
+        }
         return overview.suppliers().stream()
             .filter(row -> row.supplierKey().equals(supplierKey))
-            .findFirst()
-            .orElseGet(() -> emptySupplierRow(supplierKey));
+            .findFirst();
+    }
+
+    private boolean hasAllSourceCaches(RangeKey range) {
+        return purchaseCache.getIfPresent(range) != null
+            && bogTransactionCache.getIfPresent(range) != null
+            && tbcTransactionCache.getIfPresent(range) != null;
     }
 
     public SupplierDebtAuditDto auditRandom(LocalDate dateFrom, LocalDate dateTo) {
@@ -192,6 +226,7 @@ public class SupplierDebtService {
             return;
         }
         LocalDateTime startedAt = LocalDateTime.now();
+        lastRefreshRange = range;
         lastRefreshStartedAt = startedAt;
         lastRefreshError = "";
         CompletableFuture.runAsync(() -> {
@@ -765,6 +800,14 @@ public class SupplierDebtService {
         long freshnessMinutes = Math.max(1, properties.getSupplierDebt().getSourceCacheTtlMinutes());
         Duration snapshotAge = Duration.between(snapshot.snapshotGeneratedAt(), LocalDateTime.now());
         return snapshotAge.toMinutes() >= freshnessMinutes;
+    }
+
+    private boolean lastRefreshFailedFor(RangeKey range) {
+        return lastRefreshRange != null
+            && lastRefreshRange.equals(range)
+            && lastRefreshError != null
+            && !lastRefreshError.isBlank()
+            && !refreshInProgress.get();
     }
 
     private RangeKey normalizeRange(LocalDate dateFrom, LocalDate dateTo) {

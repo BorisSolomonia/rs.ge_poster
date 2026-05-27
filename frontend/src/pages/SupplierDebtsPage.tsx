@@ -234,9 +234,14 @@ export default function SupplierDebtsPage() {
       void queryClient.invalidateQueries({
         queryKey: ['supplier-debts', dateFrom || 'default-opening-date', dateTo || 'today'],
       })
+      if (expandedSupplier) {
+        void queryClient.invalidateQueries({
+          queryKey: ['supplier-debt-transactions', expandedSupplier, dateFrom || 'default-opening-date', dateTo || 'today'],
+        })
+      }
     }, 3000)
     return () => window.clearTimeout(timeout)
-  }, [dateFrom, dateTo, overview?.refreshInProgress, queryClient])
+  }, [dateFrom, dateTo, expandedSupplier, overview?.refreshInProgress, queryClient])
 
   return (
     <main className="mx-auto max-w-[1500px] space-y-3 overflow-x-hidden text-xs sm:space-y-4 sm:text-[13px]">
