@@ -85,6 +85,7 @@ camora:
   supplier-debt:
     source-cache-ttl-minutes: "${CAMORA_SUPPLIER_DEBT_SOURCE_CACHE_TTL_MINUTES:15}"
     maximum-source-cache-size: "${CAMORA_SUPPLIER_DEBT_SOURCE_CACHE_MAX_SIZE:32}"
+    bog-statement-window-days: "${CAMORA_SUPPLIER_DEBT_BOG_STATEMENT_WINDOW_DAYS:1}"
   tbc-dbi:
     enabled: "${CAMORA_TBC_DBI_ENABLED:false}"
     endpoint: "${CAMORA_TBC_DBI_ENDPOINT:https://secdbi.tbconline.ge/dbi/dbiService}"

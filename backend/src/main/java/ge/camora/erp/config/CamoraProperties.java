@@ -505,6 +505,7 @@ public class CamoraProperties {
     public static class SupplierDebt {
         private long sourceCacheTtlMinutes;
         private long maximumSourceCacheSize;
+        private int bogStatementWindowDays;
 
         public long getSourceCacheTtlMinutes() {
             return sourceCacheTtlMinutes;
@@ -520,6 +521,14 @@ public class CamoraProperties {
 
         public void setMaximumSourceCacheSize(long maximumSourceCacheSize) {
             this.maximumSourceCacheSize = maximumSourceCacheSize;
+        }
+
+        public int getBogStatementWindowDays() {
+            return bogStatementWindowDays;
+        }
+
+        public void setBogStatementWindowDays(int bogStatementWindowDays) {
+            this.bogStatementWindowDays = bogStatementWindowDays;
         }
     }
 

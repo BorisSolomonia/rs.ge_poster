@@ -596,7 +596,10 @@ public class SupplierDebtService {
     }
 
     private List<BankTransaction> fetchBogStatementsInBankAnalysisWindows(RangeKey range) {
-        int windowDays = properties.getBogApi().getStatementChunkDays();
+        int windowDays = properties.getSupplierDebt().getBogStatementWindowDays();
+        if (windowDays <= 0) {
+            windowDays = properties.getBogApi().getStatementChunkDays();
+        }
         if (windowDays <= 0 || !range.dateTo().isAfter(range.dateFrom().plusDays(windowDays - 1L))) {
             return bogBusinessOnlineClient.getStatement(range.dateFrom(), range.dateTo());
         }

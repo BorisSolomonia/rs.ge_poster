@@ -210,6 +210,35 @@ class SupplierDebtServiceTest {
     }
 
     @Test
+    void fetchesBogSupplierDebtStatementsInConfiguredSmallWindows() {
+        CamoraProperties properties = new CamoraProperties();
+        properties.getSupplierDebt().setBogStatementWindowDays(1);
+        properties.getBogApi().setStatementChunkDays(31);
+        SupplierDebtService windowedService = new SupplierDebtService(
+            rsge,
+            bog,
+            tbc,
+            configStore,
+            properties,
+            snapshotStore,
+            rsgeLedgerStore
+        );
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 3);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 1))
+        );
+
+        windowedService.analyze(from, to, true);
+
+        assertThat(bog.requests).containsExactly(
+            new RequestedRange(LocalDate.of(2025, 1, 1), LocalDate.of(2025, 1, 1)),
+            new RequestedRange(LocalDate.of(2025, 1, 2), LocalDate.of(2025, 1, 2)),
+            new RequestedRange(LocalDate.of(2025, 1, 3), LocalDate.of(2025, 1, 3))
+        );
+    }
+
+    @Test
     void startsSourceRefreshInBackgroundAndReturnsCurrentStateImmediately() {
         SupplierDebtService asyncService = new SupplierDebtService(
             rsge,
