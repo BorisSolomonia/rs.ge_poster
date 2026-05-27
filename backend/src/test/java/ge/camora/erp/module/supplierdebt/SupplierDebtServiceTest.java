@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -176,6 +177,34 @@ class SupplierDebtServiceTest {
         assertThat(rsge.fetchCount).isEqualTo(2);
         assertThat(bog.fetchCount).isEqualTo(2);
         assertThat(tbc.fetchCount).isEqualTo(2);
+    }
+
+    @Test
+    void fetchesBogSupplierDebtStatementsInBankAnalysisSizedWindows() {
+        CamoraProperties properties = new CamoraProperties();
+        properties.getBogApi().setStatementChunkDays(31);
+        SupplierDebtService windowedService = new SupplierDebtService(
+            rsge,
+            bog,
+            tbc,
+            configStore,
+            properties,
+            snapshotStore,
+            rsgeLedgerStore
+        );
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 3, 5);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+
+        windowedService.analyze(from, to, true);
+
+        assertThat(bog.requests).containsExactly(
+            new RequestedRange(LocalDate.of(2025, 1, 1), LocalDate.of(2025, 1, 31)),
+            new RequestedRange(LocalDate.of(2025, 2, 1), LocalDate.of(2025, 2, 28)),
+            new RequestedRange(LocalDate.of(2025, 3, 1), LocalDate.of(2025, 3, 5))
+        );
     }
 
     @Test
@@ -399,6 +428,7 @@ class SupplierDebtServiceTest {
 
     private static final class FakeBogBusinessOnlineClient extends BogBusinessOnlineClient {
         private List<BankTransaction> transactions = List.of();
+        private final List<RequestedRange> requests = new ArrayList<>();
         private RuntimeException failure;
         private int fetchCount;
 
@@ -409,11 +439,15 @@ class SupplierDebtServiceTest {
         @Override
         public List<BankTransaction> getStatement(LocalDate dateFrom, LocalDate dateTo) {
             fetchCount++;
+            requests.add(new RequestedRange(dateFrom, dateTo));
             if (failure != null) {
                 throw failure;
             }
             return transactions;
         }
+    }
+
+    private record RequestedRange(LocalDate dateFrom, LocalDate dateTo) {
     }
 
     private static final class FakeTbcDbiClient extends TbcDbiClient {

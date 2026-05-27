@@ -31,6 +31,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -240,7 +241,7 @@ public class SupplierDebtService {
             fetchSource(RSGE, purchaseCache, range, () -> rsgePurchaseWaybillService.fetchPurchaseRecords(range.dateFrom(), range.dateTo()))
         );
         CompletableFuture<SourceFetchResult<BankTransaction>> bogFuture = CompletableFuture.supplyAsync(() ->
-            fetchSource(BOG, bogTransactionCache, range, () -> bogBusinessOnlineClient.getStatement(range.dateFrom(), range.dateTo()))
+            fetchSource(BOG, bogTransactionCache, range, () -> fetchBogStatementsInBankAnalysisWindows(range))
         );
         CompletableFuture<SourceFetchResult<BankTransaction>> tbcFuture = CompletableFuture.supplyAsync(() ->
             fetchSource(TBC, tbcTransactionCache, range, () -> tbcDbiClient.getAccountMovements(range.dateFrom(), range.dateTo()))
@@ -515,6 +516,31 @@ public class SupplierDebtService {
         } catch (RuntimeException exception) {
             return new SourceFetchResult<>(source, List.of(), false, exceptionSummary(exception), stackTrace(exception));
         }
+    }
+
+    private List<BankTransaction> fetchBogStatementsInBankAnalysisWindows(RangeKey range) {
+        int windowDays = properties.getBogApi().getStatementChunkDays();
+        if (windowDays <= 0 || !range.dateTo().isAfter(range.dateFrom().plusDays(windowDays - 1L))) {
+            return bogBusinessOnlineClient.getStatement(range.dateFrom(), range.dateTo());
+        }
+
+        List<BankTransaction> transactions = new ArrayList<>();
+        LocalDate windowStart = range.dateFrom();
+        while (!windowStart.isAfter(range.dateTo())) {
+            LocalDate windowEnd = minDate(
+                range.dateTo(),
+                windowStart.plusDays(windowDays - 1L),
+                windowStart.with(TemporalAdjusters.lastDayOfMonth())
+            );
+            transactions.addAll(bogBusinessOnlineClient.getStatement(windowStart, windowEnd));
+            windowStart = windowEnd.plusDays(1);
+        }
+        return transactions;
+    }
+
+    private LocalDate minDate(LocalDate first, LocalDate second, LocalDate third) {
+        LocalDate min = first.isBefore(second) ? first : second;
+        return min.isBefore(third) ? min : third;
     }
 
     private void invalidateSourceCaches(RangeKey range) {
