@@ -648,7 +648,7 @@ public class SupplierDebtService {
             payloads.add(new SupplierDebtRawPayloadItemDto(
                 index + 1,
                 null,
-                "",
+                rsgePurchaseWaybillService.statusText(record),
                 MoneyUtil.round(amount),
                 firstRaw(record, "SELLER_NAME", "seller_name", "SellerName"),
                 normalizeTin(firstRaw(record, "SELLER_TIN", "seller_tin", "SellerTin")),

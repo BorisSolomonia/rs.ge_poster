@@ -72,7 +72,7 @@ public class RsgePurchaseWaybillService {
 
         for (Map<String, Object> rawWaybill : rawWaybills) {
             Integer status = parseStatus(rawWaybill);
-            if (status != null && (status == -1 || status == -2)) {
+            if (isCancelledStatus(status)) {
                 skipped++;
                 continue;
             }
@@ -117,7 +117,19 @@ public class RsgePurchaseWaybillService {
     }
 
     public BigDecimal extractPurchaseAmount(Map<String, Object> rawWaybill) {
+        if (isCancelledStatus(parseStatus(rawWaybill))) {
+            return MoneyUtil.ZERO;
+        }
         return extractAmount(rawWaybill);
+    }
+
+    public String statusText(Map<String, Object> rawWaybill) {
+        Integer status = parseStatus(rawWaybill);
+        return status == null ? "" : status.toString();
+    }
+
+    private boolean isCancelledStatus(Integer status) {
+        return status != null && status == -2;
     }
 
     private BigDecimal extractAmount(Map<String, Object> rawWaybill) {
@@ -166,7 +178,7 @@ public class RsgePurchaseWaybillService {
     }
 
     private Integer parseStatus(Map<String, Object> rawWaybill) {
-        String rawStatus = firstNonBlank(rawWaybill, "STATUS", "status");
+        String rawStatus = firstNonBlank(rawWaybill, "STATUS", "status", "Status", "WAYBILL_STATUS", "waybill_status", "WaybillStatus");
         if (rawStatus == null) {
             return null;
         }
