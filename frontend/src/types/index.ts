@@ -556,6 +556,36 @@ export interface SupplierDebtSourceStatus {
   total: number
 }
 
+export interface SupplierDebtRawPayloadItem {
+  index: number
+  date: string | null
+  direction: string
+  amount: number
+  counterparty: string
+  counterpartyInn: string
+  counterpartyAccount: string
+  reference: string
+  rawPayload: string
+}
+
+export interface SupplierDebtRawPayloadSource {
+  source: string
+  cached: boolean
+  status: string
+  message: string
+  technicalDetails: string
+  recordCount: number
+  total: number
+  payloads: SupplierDebtRawPayloadItem[]
+}
+
+export interface SupplierDebtRawPayloads {
+  dateFrom: string
+  dateTo: string
+  generatedAt: string
+  sources: SupplierDebtRawPayloadSource[]
+}
+
 export interface SupplierDebtUnmatchedGroup {
   groupKey: string
   provider: string

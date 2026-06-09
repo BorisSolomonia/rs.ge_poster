@@ -19,11 +19,13 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SupplierDebtServiceTest {
 
@@ -39,6 +41,7 @@ class SupplierDebtServiceTest {
         tbc,
         configStore,
         new CamoraProperties(),
+        new ObjectMapper(),
         snapshotStore,
         rsgeLedgerStore
     );
@@ -191,6 +194,7 @@ class SupplierDebtServiceTest {
             tbc,
             configStore,
             properties,
+            new ObjectMapper(),
             snapshotStore,
             rsgeLedgerStore
         );
@@ -220,6 +224,7 @@ class SupplierDebtServiceTest {
             tbc,
             configStore,
             properties,
+            new ObjectMapper(),
             snapshotStore,
             rsgeLedgerStore
         );
@@ -246,6 +251,7 @@ class SupplierDebtServiceTest {
             tbc,
             configStore,
             new CamoraProperties(),
+            new ObjectMapper(),
             snapshotStore,
             rsgeLedgerStore
         );
@@ -271,6 +277,7 @@ class SupplierDebtServiceTest {
             tbc,
             configStore,
             new CamoraProperties(),
+            new ObjectMapper(),
             snapshotStore,
             rsgeLedgerStore
         );
@@ -400,6 +407,7 @@ class SupplierDebtServiceTest {
             new FakeTbcDbiClient(),
             configStore,
             new CamoraProperties(),
+            new ObjectMapper(),
             snapshotStore,
             rsgeLedgerStore
         );
@@ -453,6 +461,57 @@ class SupplierDebtServiceTest {
         assertThat(bogStatus.message()).contains("RST_STREAM");
         assertThat(bogStatus.technicalDetails()).contains("RuntimeException");
         assertThat(bogStatus.technicalDetails()).contains("Received RST_STREAM");
+    }
+
+    @Test
+    void doesNotOverwriteSavedSnapshotWhenSourceRefreshFails() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X", "123456789")
+        );
+        SupplierDebtOverviewDto goodSnapshot = service.overview(from, to, true);
+
+        bog.failure = new RuntimeException("BOG source unavailable");
+
+        assertThatThrownBy(() -> service.overview(from, to, true))
+            .hasMessageContaining("snapshot was not overwritten")
+            .hasMessageContaining("BOG");
+        assertThat(snapshotStore.load()).contains(goodSnapshot);
+    }
+
+    @Test
+    void exposesRawPayloadsForSupplierDebtSources() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.rawWaybills = List.of(Map.of(
+            "ID", "WB-1",
+            "SELLER_NAME", "Supplier X",
+            "SELLER_TIN", "123456789",
+            "FULL_AMOUNT", "25.50"
+        ));
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X", "123456789")
+        );
+
+        var result = service.rawPayloads(from, to, true);
+
+        assertThat(result.sources()).hasSize(3);
+        var rsgeSource = result.sources().stream()
+            .filter(source -> source.source().equals("RSGE"))
+            .findFirst()
+            .orElseThrow();
+        var bogSource = result.sources().stream()
+            .filter(source -> source.source().equals("BOG"))
+            .findFirst()
+            .orElseThrow();
+        assertThat(rsgeSource.recordCount()).isEqualTo(1);
+        assertThat(rsgeSource.payloads().get(0).rawPayload()).contains("WB-1");
+        assertThat(bogSource.recordCount()).isEqualTo(1);
+        assertThat(bogSource.payloads().get(0).rawPayload()).isEqualTo("{}");
     }
 
     @Test
@@ -530,6 +589,7 @@ class SupplierDebtServiceTest {
 
     private static final class FakeRsgePurchaseWaybillService extends RsgePurchaseWaybillService {
         private List<RsgeRecord> records = List.of();
+        private List<Map<String, Object>> rawWaybills = List.of();
         private CountDownLatch blockFetch;
         private int fetchCount;
 
@@ -549,6 +609,12 @@ class SupplierDebtServiceTest {
                 }
             }
             return records;
+        }
+
+        @Override
+        public List<Map<String, Object>> fetchRawPurchaseWaybills(LocalDate startDate, LocalDate endDate) {
+            fetchCount++;
+            return rawWaybills;
         }
     }
 

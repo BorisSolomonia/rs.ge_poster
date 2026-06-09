@@ -2,6 +2,8 @@ package ge.camora.erp.module.supplierdebt;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
@@ -10,6 +12,9 @@ import ge.camora.erp.model.dto.SupplierDebtAuditSupplierDto;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
 import ge.camora.erp.model.dto.SupplierDebtPaymentDto;
 import ge.camora.erp.model.dto.SupplierDebtPurchaseDto;
+import ge.camora.erp.model.dto.SupplierDebtRawPayloadDto;
+import ge.camora.erp.model.dto.SupplierDebtRawPayloadItemDto;
+import ge.camora.erp.model.dto.SupplierDebtRawPayloadSourceDto;
 import ge.camora.erp.model.dto.SupplierDebtRowDto;
 import ge.camora.erp.model.dto.SupplierDebtSourceStatusDto;
 import ge.camora.erp.model.dto.SupplierDebtUnmatchedGroupDto;
@@ -65,9 +70,11 @@ public class SupplierDebtService {
     private final TbcDbiClient tbcDbiClient;
     private final ConfigStore configStore;
     private final CamoraProperties properties;
+    private final ObjectMapper objectMapper;
     private final SupplierDebtSnapshotStore snapshotStore;
     private final RsgePurchaseLedgerStore rsgePurchaseLedgerStore;
     private final Cache<RangeKey, List<RsgeRecord>> purchaseCache;
+    private final Cache<RangeKey, List<Map<String, Object>>> rawPurchaseCache;
     private final Cache<RangeKey, List<BankTransaction>> bogTransactionCache;
     private final Cache<RangeKey, List<BankTransaction>> tbcTransactionCache;
     private final AtomicBoolean refreshInProgress = new AtomicBoolean(false);
@@ -83,6 +90,7 @@ public class SupplierDebtService {
         TbcDbiClient tbcDbiClient,
         ConfigStore configStore,
         CamoraProperties properties,
+        ObjectMapper objectMapper,
         SupplierDebtSnapshotStore snapshotStore,
         RsgePurchaseLedgerStore rsgePurchaseLedgerStore
     ) {
@@ -91,11 +99,13 @@ public class SupplierDebtService {
         this.tbcDbiClient = tbcDbiClient;
         this.configStore = configStore;
         this.properties = properties;
+        this.objectMapper = objectMapper;
         this.snapshotStore = snapshotStore;
         this.rsgePurchaseLedgerStore = rsgePurchaseLedgerStore;
         long cacheTtlMinutes = Math.max(1, properties.getSupplierDebt().getSourceCacheTtlMinutes());
         long maximumCacheSize = Math.max(1, properties.getSupplierDebt().getMaximumSourceCacheSize());
         this.purchaseCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
+        this.rawPurchaseCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
         this.bogTransactionCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
         this.tbcTransactionCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
     }
@@ -145,6 +155,34 @@ public class SupplierDebtService {
 
     public SupplierDebtOverviewDto analyze(LocalDate dateFrom, LocalDate dateTo, boolean refreshSources) {
         return calculateOverview(normalizeRange(dateFrom, dateTo), refreshSources, true);
+    }
+
+    public SupplierDebtRawPayloadDto rawPayloads(LocalDate dateFrom, LocalDate dateTo, boolean refreshSources) {
+        RangeKey range = normalizeRange(dateFrom, dateTo);
+        if (refreshSources) {
+            invalidateSourceCaches(range);
+        }
+
+        CompletableFuture<SourceFetchResult<Map<String, Object>>> rawPurchaseFuture = CompletableFuture.supplyAsync(() ->
+            fetchSource(RSGE, rawPurchaseCache, range, () -> rsgePurchaseWaybillService.fetchRawPurchaseWaybills(range.dateFrom(), range.dateTo()))
+        );
+        CompletableFuture<SourceFetchResult<BankTransaction>> bogFuture = CompletableFuture.supplyAsync(() ->
+            fetchSource(BOG, bogTransactionCache, range, () -> fetchBogStatementsInBankAnalysisWindows(range))
+        );
+        CompletableFuture<SourceFetchResult<BankTransaction>> tbcFuture = CompletableFuture.supplyAsync(() ->
+            fetchSource(TBC, tbcTransactionCache, range, () -> tbcDbiClient.getAccountMovements(range.dateFrom(), range.dateTo()))
+        );
+
+        return new SupplierDebtRawPayloadDto(
+            range.dateFrom(),
+            range.dateTo(),
+            LocalDateTime.now(),
+            List.of(
+                rawRsgePayloads(rawPurchaseFuture.join()),
+                rawBankPayloads(bogFuture.join()),
+                rawBankPayloads(tbcFuture.join())
+            )
+        );
     }
 
     public SupplierDebtRowDto supplierTransactions(String supplierKey, LocalDate dateFrom, LocalDate dateTo, boolean forceRefresh) {
@@ -232,6 +270,7 @@ public class SupplierDebtService {
         CompletableFuture.runAsync(() -> {
             try {
                 SupplierDebtOverviewDto refreshed = calculateOverview(range, true, false);
+                assertCompleteSources(refreshed);
                 LocalDateTime completedAt = LocalDateTime.now();
                 lastRefreshCompletedAt = completedAt;
                 lastRefreshError = "";
@@ -262,6 +301,7 @@ public class SupplierDebtService {
         lastRefreshError = "";
         try {
             SupplierDebtOverviewDto calculated = calculateOverview(range, refreshSources, false);
+            assertCompleteSources(calculated);
             LocalDateTime completedAt = LocalDateTime.now();
             lastRefreshCompletedAt = completedAt;
             SupplierDebtOverviewDto snapshot = withSnapshotMetadata(
@@ -595,6 +635,110 @@ public class SupplierDebtService {
         }
     }
 
+    private SupplierDebtRawPayloadSourceDto rawRsgePayloads(SourceFetchResult<Map<String, Object>> source) {
+        if (source.failed()) {
+            return rawFailed(source);
+        }
+        List<SupplierDebtRawPayloadItemDto> payloads = new ArrayList<>();
+        BigDecimal total = BigDecimal.ZERO;
+        for (int index = 0; index < source.records().size(); index++) {
+            Map<String, Object> record = source.records().get(index);
+            BigDecimal amount = rsgePurchaseWaybillService.extractPurchaseAmount(record);
+            total = total.add(amount);
+            payloads.add(new SupplierDebtRawPayloadItemDto(
+                index + 1,
+                null,
+                "",
+                MoneyUtil.round(amount),
+                firstRaw(record, "SELLER_NAME", "seller_name", "SellerName"),
+                normalizeTin(firstRaw(record, "SELLER_TIN", "seller_tin", "SellerTin")),
+                "",
+                firstRaw(record, "ID", "id", "waybill_id", "waybillId"),
+                toJson(record)
+            ));
+        }
+        return new SupplierDebtRawPayloadSourceDto(
+            source.source(),
+            source.cached(),
+            "OK",
+            source.cached() ? "cached raw source data" : "fresh raw source data",
+            "",
+            payloads.size(),
+            MoneyUtil.round(total),
+            payloads
+        );
+    }
+
+    private SupplierDebtRawPayloadSourceDto rawBankPayloads(SourceFetchResult<BankTransaction> source) {
+        if (source.failed()) {
+            return rawFailed(source);
+        }
+        List<SupplierDebtRawPayloadItemDto> payloads = new ArrayList<>();
+        BigDecimal total = BigDecimal.ZERO;
+        for (int index = 0; index < source.records().size(); index++) {
+            BankTransaction transaction = source.records().get(index);
+            if ("DEBIT".equals(transaction.direction())) {
+                total = total.add(MoneyUtil.round(transaction.amount()));
+            }
+            payloads.add(new SupplierDebtRawPayloadItemDto(
+                index + 1,
+                transaction.date(),
+                safe(transaction.direction()),
+                MoneyUtil.round(transaction.amount()),
+                safe(transaction.counterparty()),
+                normalizeTin(transaction.counterpartyInn()),
+                safe(transaction.counterpartyAccount()),
+                safe(transaction.reference()),
+                safe(transaction.rawPayload())
+            ));
+        }
+        return new SupplierDebtRawPayloadSourceDto(
+            source.source(),
+            source.cached(),
+            "OK",
+            source.cached() ? "cached raw source data" : "fresh raw source data",
+            "",
+            payloads.size(),
+            MoneyUtil.round(total),
+            payloads
+        );
+    }
+
+    private SupplierDebtRawPayloadSourceDto rawFailed(SourceFetchResult<?> source) {
+        return new SupplierDebtRawPayloadSourceDto(
+            source.source(),
+            false,
+            "FAILED",
+            source.errorMessage(),
+            source.errorDetails(),
+            0,
+            BigDecimal.ZERO,
+            List.of()
+        );
+    }
+
+    private String firstRaw(Map<String, Object> record, String... keys) {
+        for (String key : keys) {
+            Object value = record.get(key);
+            if (value == null) {
+                continue;
+            }
+            String text = value.toString().trim();
+            if (!text.isBlank()) {
+                return text;
+            }
+        }
+        return "";
+    }
+
+    private String toJson(Map<String, Object> record) {
+        try {
+            return objectMapper.writeValueAsString(record);
+        } catch (JsonProcessingException exception) {
+            return record.toString();
+        }
+    }
+
     private List<BankTransaction> fetchBogStatementsInBankAnalysisWindows(RangeKey range) {
         int windowDays = properties.getSupplierDebt().getBogStatementWindowDays();
         if (windowDays <= 0) {
@@ -625,8 +769,23 @@ public class SupplierDebtService {
 
     private void invalidateSourceCaches(RangeKey range) {
         purchaseCache.invalidate(range);
+        rawPurchaseCache.invalidate(range);
         bogTransactionCache.invalidate(range);
         tbcTransactionCache.invalidate(range);
+    }
+
+    private void assertCompleteSources(SupplierDebtOverviewDto overview) {
+        List<SupplierDebtSourceStatusDto> failedSources = overview.sourceStatuses().stream()
+            .filter(status -> Set.of(RSGE, BOG, TBC).contains(status.source()))
+            .filter(status -> "FAILED".equalsIgnoreCase(status.status()))
+            .toList();
+        if (failedSources.isEmpty()) {
+            return;
+        }
+        String message = failedSources.stream()
+            .map(status -> status.source() + "=" + status.message())
+            .collect(Collectors.joining("; "));
+        throw new IllegalStateException("Supplier debt refresh incomplete; snapshot was not overwritten: " + message);
     }
 
     private PaymentMatch matchPayment(

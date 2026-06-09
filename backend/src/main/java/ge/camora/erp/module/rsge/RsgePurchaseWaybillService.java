@@ -59,7 +59,14 @@ public class RsgePurchaseWaybillService {
     }
 
     public List<RsgeRecord> fetchPurchaseRecords(LocalDate startDate, LocalDate endDate) {
-        List<Map<String, Object>> rawWaybills = rsgeSoapClient.getBuyerWaybills(startDate, endDate);
+        return mapPurchaseRecords(fetchRawPurchaseWaybills(startDate, endDate));
+    }
+
+    public List<Map<String, Object>> fetchRawPurchaseWaybills(LocalDate startDate, LocalDate endDate) {
+        return rsgeSoapClient.getBuyerWaybills(startDate, endDate);
+    }
+
+    public List<RsgeRecord> mapPurchaseRecords(List<Map<String, Object>> rawWaybills) {
         List<RsgeRecord> records = new ArrayList<>();
         int skipped = 0;
 
@@ -107,6 +114,10 @@ public class RsgePurchaseWaybillService {
 
         log.info("rs.ge purchase waybills mapped: {} records, {} skipped", records.size(), skipped);
         return records;
+    }
+
+    public BigDecimal extractPurchaseAmount(Map<String, Object> rawWaybill) {
+        return extractAmount(rawWaybill);
     }
 
     private BigDecimal extractAmount(Map<String, Object> rawWaybill) {

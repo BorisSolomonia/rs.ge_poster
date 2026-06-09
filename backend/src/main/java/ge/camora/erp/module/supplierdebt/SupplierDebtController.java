@@ -6,6 +6,7 @@ import ge.camora.erp.model.dto.ApiResponse;
 import ge.camora.erp.model.dto.SupplierCashPaymentRequest;
 import ge.camora.erp.model.dto.SupplierDebtAuditDto;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
+import ge.camora.erp.model.dto.SupplierDebtRawPayloadDto;
 import ge.camora.erp.model.dto.SupplierDebtRowDto;
 import ge.camora.erp.model.dto.SupplierPaymentMappingRequest;
 import ge.camora.erp.store.ConfigStore;
@@ -73,6 +74,15 @@ public class SupplierDebtController {
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
     ) {
         return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.auditRandom(dateFrom, dateTo)));
+    }
+
+    @GetMapping("/debug/raw-payloads")
+    public ResponseEntity<ApiResponse<SupplierDebtRawPayloadDto>> rawPayloads(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
+        @RequestParam(defaultValue = "false") boolean refreshSources
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.rawPayloads(dateFrom, dateTo, refreshSources)));
     }
 
     @GetMapping("/cash-payments")

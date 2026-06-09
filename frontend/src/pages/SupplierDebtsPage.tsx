@@ -6,6 +6,7 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
+  FileJson,
   Landmark,
   Plus,
   RefreshCcw,
@@ -21,6 +22,7 @@ import {
   auditSupplierDebts,
   deleteSupplierCashPayment,
   getSupplierDebtOverview,
+  getSupplierDebtRawPayloads,
   getSupplierDebtSupplierTransactions,
   saveSupplierCashPayment,
   saveSupplierPaymentMapping,
@@ -29,7 +31,7 @@ import {
 import { ApiClientError } from '../api/client'
 import { formatGel } from '../components/reconciliation/reconciliation.utils'
 import { env } from '../env'
-import type { SupplierDebtAudit, SupplierDebtOverview, SupplierDebtRow, SupplierDebtUnmatchedGroup } from '../types'
+import type { SupplierDebtAudit, SupplierDebtOverview, SupplierDebtRawPayloadSource, SupplierDebtRow, SupplierDebtUnmatchedGroup } from '../types'
 
 const today = () => new Date().toISOString().slice(0, 10)
 const DEFAULT_DATE_FROM = '2025-01-01'
@@ -77,6 +79,7 @@ export default function SupplierDebtsPage() {
   const [mappingDrafts, setMappingDrafts] = useState<Record<string, string>>({})
   const [pendingCashDeleteId, setPendingCashDeleteId] = useState<string | null>(null)
   const [manualPaymentSupplierKey, setManualPaymentSupplierKey] = useState<string | null>(null)
+  const [showRawPayloads, setShowRawPayloads] = useState(false)
   const [cashForm, setCashForm] = useState({
     supplierKey: '',
     date: today(),
@@ -100,6 +103,12 @@ export default function SupplierDebtsPage() {
     queryKey: ['supplier-debt-transactions', manualPaymentSupplierKey, dateFrom || 'default-opening-date', dateTo || 'today', 'manual-payments'],
     queryFn: () => getSupplierDebtSupplierTransactions(manualPaymentSupplierKey ?? '', dateFrom || undefined, dateTo || undefined),
     enabled: Boolean(manualPaymentSupplierKey),
+  })
+
+  const rawPayloadsQuery = useQuery({
+    queryKey: ['supplier-debt-raw-payloads', dateFrom || 'default-opening-date', dateTo || 'today'],
+    queryFn: () => getSupplierDebtRawPayloads(dateFrom || undefined, dateTo || undefined),
+    enabled: showRawPayloads,
   })
 
   const sourceRefreshMutation = useMutation({
@@ -321,6 +330,15 @@ export default function SupplierDebtsPage() {
             isRunning={auditMutation.isPending}
             error={auditMutation.error instanceof Error ? auditMutation.error.message : null}
             onRun={() => auditMutation.mutate()}
+          />
+          <RawPayloadDebugPanel
+            open={showRawPayloads}
+            isLoading={rawPayloadsQuery.isFetching}
+            error={rawPayloadsQuery.error instanceof Error ? rawPayloadsQuery.error.message : null}
+            sources={rawPayloadsQuery.data?.sources ?? []}
+            generatedAt={rawPayloadsQuery.data?.generatedAt ?? null}
+            onToggle={() => setShowRawPayloads((current) => !current)}
+            onRefresh={() => rawPayloadsQuery.refetch()}
           />
 
           <div>
@@ -762,6 +780,142 @@ function AuditPanel({
         </div>
       ) : null}
     </section>
+  )
+}
+
+function RawPayloadDebugPanel({
+  open,
+  isLoading,
+  error,
+  sources,
+  generatedAt,
+  onToggle,
+  onRefresh,
+}: {
+  open: boolean
+  isLoading: boolean
+  error: string | null
+  sources: SupplierDebtRawPayloadSource[]
+  generatedAt: string | null
+  onToggle: () => void
+  onRefresh: () => void
+}) {
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <FileJson className="h-5 w-5 text-cyan-600" aria-hidden="true" />
+            <h2 className="text-sm font-black text-slate-950 sm:text-base">Raw Source Payloads</h2>
+          </div>
+          <p className="mt-1 text-xs text-slate-500 sm:text-[13px]">
+            Developer view for the BOG, TBC, and RS.ge payloads loaded for this supplier debt range.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {generatedAt ? (
+            <span className="inline-flex min-h-10 items-center rounded-xl bg-slate-100 px-3 text-xs font-bold text-slate-600">
+              Loaded: {formatDateTime(generatedAt)}
+            </span>
+          ) : null}
+          <button
+            type="button"
+            onClick={onToggle}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2 text-[13px] font-black text-slate-700 transition hover:border-cyan-300 hover:bg-cyan-50"
+          >
+            <FileJson className="h-4 w-4" aria-hidden="true" />
+            {open ? 'Hide Raw Payloads' : 'Show Raw Payloads'}
+          </button>
+          {open ? (
+            <button
+              type="button"
+              onClick={onRefresh}
+              disabled={isLoading}
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-[13px] font-black text-white transition hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"
+            >
+              <RefreshCcw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              Reload
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {open ? (
+        <div className="mt-4 space-y-3">
+          {error ? (
+            <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-[13px] font-semibold text-red-700">{error}</p>
+          ) : null}
+          {isLoading && sources.length === 0 ? (
+            <p className="rounded-2xl border border-cyan-100 bg-cyan-50 p-4 font-bold text-cyan-900">Loading raw payloads...</p>
+          ) : null}
+          {sources.map((source) => (
+            <RawPayloadSourceCard key={source.source} source={source} />
+          ))}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function RawPayloadSourceCard({ source }: { source: SupplierDebtRawPayloadSource }) {
+  const failed = source.status === 'FAILED'
+  return (
+    <div className={`overflow-hidden rounded-2xl border ${failed ? 'border-red-200 bg-red-50' : 'border-slate-200 bg-slate-50'}`}>
+      <div className="flex flex-col gap-2 border-b border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-black text-slate-950">{source.source}</p>
+          <p className="text-xs font-semibold text-slate-500">
+            {source.recordCount} records, supplier-debt total {formatGel(source.total)} {source.cached ? 'from cache' : 'fresh'}
+          </p>
+        </div>
+        <span className={`w-fit rounded-full px-3 py-1 text-[11px] font-black ${failed ? 'bg-red-200 text-red-950' : 'bg-emerald-100 text-emerald-800'}`}>
+          {source.status}
+        </span>
+      </div>
+      {source.message ? <p className="px-3 pt-3 text-xs font-semibold text-slate-600">{source.message}</p> : null}
+      {source.technicalDetails ? (
+        <pre className="m-3 max-h-48 overflow-auto rounded-xl bg-red-950 p-3 text-[11px] leading-5 text-red-50">{source.technicalDetails}</pre>
+      ) : null}
+      {!failed ? (
+        <div className="max-h-[520px] overflow-auto p-3">
+          <table className="min-w-[960px] w-full text-xs">
+            <thead className="sticky top-0 bg-slate-100 text-left text-[11px] font-black uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-2 py-2">#</th>
+                <th className="px-2 py-2">Date</th>
+                <th className="px-2 py-2">Direction</th>
+                <th className="px-2 py-2 text-right">Amount</th>
+                <th className="px-2 py-2">Counterparty</th>
+                <th className="px-2 py-2">TIN</th>
+                <th className="px-2 py-2">Reference</th>
+                <th className="px-2 py-2">Raw Payload</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {source.payloads.map((payload) => (
+                <tr key={`${source.source}-${payload.index}`}>
+                  <td className="px-2 py-2 font-mono text-[11px] text-slate-500">{payload.index}</td>
+                  <td className="px-2 py-2 font-semibold text-slate-600">{payload.date ?? '-'}</td>
+                  <td className="px-2 py-2 font-black text-slate-700">{payload.direction || '-'}</td>
+                  <td className="px-2 py-2 text-right font-black tabular-nums text-slate-900">{formatGel(payload.amount)}</td>
+                  <td className="max-w-[220px] truncate px-2 py-2 font-semibold text-slate-700">{payload.counterparty || '-'}</td>
+                  <td className="px-2 py-2 font-mono text-[11px] text-slate-500">{payload.counterpartyInn || '-'}</td>
+                  <td className="max-w-[180px] truncate px-2 py-2 font-mono text-[11px] text-slate-500">{payload.reference || '-'}</td>
+                  <td className="px-2 py-2">
+                    <pre className="max-h-28 max-w-[460px] overflow-auto rounded-lg bg-slate-950 p-2 text-[11px] leading-5 text-slate-100">
+                      {payload.rawPayload || '{}'}
+                    </pre>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {source.payloads.length === 0 ? (
+            <p className="rounded-xl border border-slate-200 bg-white p-3 text-sm font-semibold text-slate-500">No payloads loaded for this source.</p>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   )
 }
 
