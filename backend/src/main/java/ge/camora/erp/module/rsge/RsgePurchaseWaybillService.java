@@ -254,15 +254,6 @@ public class RsgePurchaseWaybillService {
     }
 
     private BigDecimal parseAmount(String rawAmount) {
-        if (rawAmount == null || rawAmount.isBlank()) {
-            return MoneyUtil.ZERO;
-        }
-
-        String normalized = rawAmount.replace(",", ".").replaceAll("[^\\d.-]", "");
-        if (normalized.isBlank() || "-".equals(normalized) || ".".equals(normalized) || "-.".equals(normalized)) {
-            return MoneyUtil.ZERO;
-        }
-
-        return MoneyUtil.round(new BigDecimal(normalized));
+        return MoneyUtil.parse(rawAmount);
     }
 }

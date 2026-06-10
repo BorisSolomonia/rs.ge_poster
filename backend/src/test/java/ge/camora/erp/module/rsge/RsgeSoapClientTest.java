@@ -70,6 +70,25 @@ class RsgeSoapClientTest {
         }
     }
 
+    @Test
+    void getBuyerWaybillsPreservesNegativeFullAmountPayloads() throws Exception {
+        List<String> requestBodies = new ArrayList<>();
+        HttpServer server = startServer(requestBodies, waybillResponse("-16000"));
+        try {
+            RsgeSoapClient client = new RsgeSoapClient(properties(server, ""));
+
+            List<java.util.Map<String, Object>> waybills = client.getBuyerWaybills(
+                LocalDate.of(2025, 1, 1),
+                LocalDate.of(2025, 1, 1)
+            );
+
+            assertThat(waybills).hasSize(1);
+            assertThat(waybills.get(0).get("FULL_AMOUNT")).isEqualTo("-16000");
+        } finally {
+            server.stop(0);
+        }
+    }
+
     private CamoraProperties properties(HttpServer server, String buyerTin) {
         CamoraProperties properties = new CamoraProperties();
         CamoraProperties.RsgeApi rsge = properties.getRsgeApi();
@@ -83,12 +102,20 @@ class RsgeSoapClientTest {
     }
 
     private HttpServer startServer(List<String> requestBodies, int... statuses) throws IOException {
+        String[] responses = new String[statuses.length];
+        for (int i = 0; i < statuses.length; i++) {
+            responses[i] = response(statuses[i]);
+        }
+        return startServer(requestBodies, responses);
+    }
+
+    private HttpServer startServer(List<String> requestBodies, String... responses) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         AtomicInteger callCount = new AtomicInteger();
         server.createContext("/", exchange -> {
             requestBodies.add(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
-            int index = Math.min(callCount.getAndIncrement(), statuses.length - 1);
-            byte[] response = response(statuses[index]).getBytes(StandardCharsets.UTF_8);
+            int index = Math.min(callCount.getAndIncrement(), responses.length - 1);
+            byte[] response = responses[index].getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "text/xml; charset=utf-8");
             exchange.sendResponseHeaders(200, response.length);
             exchange.getResponseBody().write(response);
@@ -111,5 +138,32 @@ class RsgeSoapClientTest {
               </soap:Body>
             </soap:Envelope>
             """.formatted(status);
+    }
+
+    private String waybillResponse(String fullAmount) {
+        return """
+            <?xml version="1.0" encoding="utf-8"?>
+            <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+              <soap:Body>
+                <get_buyer_waybillsResponse xmlns="http://tempuri.org/">
+                  <get_buyer_waybillsResult>
+                    <STATUS>0</STATUS>
+                    <RESULT>
+                      <WAYBILL_LIST>
+                        <WAYBILL>
+                          <ID>WB-CORRECTION</ID>
+                          <STATUS>1</STATUS>
+                          <SELLER_NAME>Supplier X</SELLER_NAME>
+                          <SELLER_TIN>123456789</SELLER_TIN>
+                          <CREATE_DATE>2025-01-10T12:00:00</CREATE_DATE>
+                          <FULL_AMOUNT>%s</FULL_AMOUNT>
+                        </WAYBILL>
+                      </WAYBILL_LIST>
+                    </RESULT>
+                  </get_buyer_waybillsResult>
+                </get_buyer_waybillsResponse>
+              </soap:Body>
+            </soap:Envelope>
+            """.formatted(fullAmount);
     }
 }

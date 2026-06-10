@@ -69,6 +69,25 @@ class SupplierDebtServiceTest {
     }
 
     @Test
+    void subtractsNegativeRsgeWaybillsFromSupplierPurchases() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchaseWithSellerTin("WB-POSITIVE", "Supplier X", "123456789", "16008.48", LocalDate.of(2025, 1, 10)),
+            purchaseWithSellerTin("WB-CORRECTION", "Supplier X", "123456789", "-16000.00", LocalDate.of(2025, 1, 11))
+        );
+
+        var result = service.analyze(from, to);
+
+        assertThat(result.purchaseTotal()).isEqualByComparingTo("8.48");
+        assertThat(result.debtTotal()).isEqualByComparingTo("8.48");
+        assertThat(result.suppliers()).hasSize(1);
+        assertThat(result.suppliers().get(0).purchaseTotal()).isEqualByComparingTo("8.48");
+        assertThat(result.suppliers().get(0).debtLeft()).isEqualByComparingTo("8.48");
+        assertThat(result.suppliers().get(0).purchaseCount()).isEqualTo(2);
+    }
+
+    @Test
     void matchesPurchasesToBankDebitsBySellerTinAndBeneficiaryInn() {
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 1, 31);
@@ -492,6 +511,11 @@ class SupplierDebtServiceTest {
             "SELLER_NAME", "Supplier X",
             "SELLER_TIN", "123456789",
             "FULL_AMOUNT", "25.50"
+        ), Map.of(
+            "ID", "WB-2",
+            "SELLER_NAME", "Supplier X",
+            "SELLER_TIN", "123456789",
+            "FULL_AMOUNT", "-20.00"
         ));
         bog.transactions = List.of(
             debit("300.00", "Supplier X", "123456789")
@@ -508,8 +532,10 @@ class SupplierDebtServiceTest {
             .filter(source -> source.source().equals("BOG"))
             .findFirst()
             .orElseThrow();
-        assertThat(rsgeSource.recordCount()).isEqualTo(1);
+        assertThat(rsgeSource.recordCount()).isEqualTo(2);
+        assertThat(rsgeSource.total()).isEqualByComparingTo("5.50");
         assertThat(rsgeSource.payloads().get(0).rawPayload()).contains("WB-1");
+        assertThat(rsgeSource.payloads().get(1).amount()).isEqualByComparingTo("-20.00");
         assertThat(bogSource.recordCount()).isEqualTo(1);
         assertThat(bogSource.payloads().get(0).rawPayload()).isEqualTo("{}");
     }

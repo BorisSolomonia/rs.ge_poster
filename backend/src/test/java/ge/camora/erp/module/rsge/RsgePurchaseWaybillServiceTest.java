@@ -38,6 +38,25 @@ class RsgePurchaseWaybillServiceTest {
             .isEqualByComparingTo("200.00");
     }
 
+    @Test
+    void keepsNegativeFullAmountWaybillsAsPurchaseCorrections() {
+        List<RsgeRecord> records = service.mapPurchaseRecords(List.of(
+            waybill("WB-POSITIVE", "1", "16008.48"),
+            waybill("WB-CORRECTION", "1", "-16000")
+        ));
+
+        assertThat(records).extracting(RsgeRecord::totalPrice)
+            .containsExactly(new BigDecimal("16008.48"), new BigDecimal("-16000.00"));
+        assertThat(records.stream().map(RsgeRecord::totalPrice).reduce(BigDecimal.ZERO, BigDecimal::add))
+            .isEqualByComparingTo("8.48");
+    }
+
+    @Test
+    void parsesNonAsciiNegativeFullAmountWaybills() {
+        assertThat(service.extractPurchaseAmount(waybill("WB-CORRECTION", "1", "\u221216000")))
+            .isEqualByComparingTo("-16000.00");
+    }
+
     private Map<String, Object> waybill(String id, String status, String amount) {
         return Map.of(
             "ID", id,
