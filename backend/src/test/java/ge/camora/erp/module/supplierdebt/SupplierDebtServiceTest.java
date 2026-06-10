@@ -513,9 +513,11 @@ class SupplierDebtServiceTest {
             "FULL_AMOUNT", "25.50"
         ), Map.of(
             "ID", "WB-2",
+            "WAYBILL_NUMBER", "VISIBLE-WB-2",
+            "TYPE", "5",
             "SELLER_NAME", "Supplier X",
             "SELLER_TIN", "123456789",
-            "FULL_AMOUNT", "-20.00"
+            "FULL_AMOUNT", "20.00"
         ));
         bog.transactions = List.of(
             debit("300.00", "Supplier X", "123456789")
@@ -536,6 +538,7 @@ class SupplierDebtServiceTest {
         assertThat(rsgeSource.total()).isEqualByComparingTo("5.50");
         assertThat(rsgeSource.payloads().get(0).rawPayload()).contains("WB-1");
         assertThat(rsgeSource.payloads().get(1).amount()).isEqualByComparingTo("-20.00");
+        assertThat(rsgeSource.payloads().get(1).reference()).isEqualTo("VISIBLE-WB-2");
         assertThat(bogSource.recordCount()).isEqualTo(1);
         assertThat(bogSource.payloads().get(0).rawPayload()).isEqualTo("{}");
     }

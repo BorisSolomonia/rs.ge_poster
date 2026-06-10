@@ -118,7 +118,7 @@ camora:
     username: "${CAMORA_RSGE_USERNAME:}"
     password: "${CAMORA_RSGE_PASSWORD:}"
     buyer-tin: "${CAMORA_RSGE_BUYER_TIN:}"
-    waybill-types: "${CAMORA_RSGE_WAYBILL_TYPES:2}"
+    waybill-types: "${CAMORA_RSGE_WAYBILL_TYPES:2,5}"
     timeout-seconds: "${CAMORA_RSGE_TIMEOUT_SECONDS:120}"
     debug: "${CAMORA_RSGE_DEBUG:false}"
     debug-sample-count: "${CAMORA_RSGE_DEBUG_SAMPLE_COUNT:3}"

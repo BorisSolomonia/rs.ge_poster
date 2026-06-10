@@ -52,14 +52,33 @@ public class RsgeSoapClient {
     public List<Map<String, Object>> getBuyerWaybills(LocalDate startDate, LocalDate endDate) {
         validateCredentials();
 
-        Map<String, String> params = new LinkedHashMap<>();
-        putIfPresent(params, "itypes", properties.getWaybillTypes());
-        putIfPresent(params, "buyer_tin", firstNonBlank(properties.getBuyerTin(), extractSellerId(properties.getUsername())));
-        params.put("create_date_s", startDate.atStartOfDay().format(DATE_FORMAT));
-        params.put("create_date_e", endDate.plusDays(1).atStartOfDay().format(DATE_FORMAT));
-
         try {
-            return callSoapWithRetry("get_buyer_waybills", params);
+            Map<String, String> baseParams = new LinkedHashMap<>();
+            putIfPresent(baseParams, "buyer_tin", firstNonBlank(properties.getBuyerTin(), extractSellerId(properties.getUsername())));
+            baseParams.put("create_date_s", startDate.atStartOfDay().format(DATE_FORMAT));
+            baseParams.put("create_date_e", endDate.plusDays(1).atStartOfDay().format(DATE_FORMAT));
+
+            List<String> waybillTypes = configuredWaybillTypes();
+            if (waybillTypes.size() <= 1) {
+                Map<String, String> params = new LinkedHashMap<>(baseParams);
+                waybillTypes.stream().findFirst().ifPresent(type -> putIfPresent(params, "itypes", type));
+                return callSoapWithRetry("get_buyer_waybills", params);
+            }
+
+            Map<String, Map<String, Object>> merged = new LinkedHashMap<>();
+            for (String waybillType : waybillTypes) {
+                Map<String, String> params = new LinkedHashMap<>(baseParams);
+                putIfPresent(params, "itypes", waybillType);
+                for (Map<String, Object> waybill : callSoapWithRetry("get_buyer_waybills", params)) {
+                    String id = firstNonBlank(waybill, "ID", "id", "waybill_id", "waybillId", "WAYBILL_NUMBER", "waybill_number");
+                    if (id == null) {
+                        id = "unknown_" + merged.size();
+                    }
+                    Map<String, Object> existing = merged.get(id);
+                    merged.put(id, existing == null ? waybill : chooseRicherWaybill(existing, waybill));
+                }
+            }
+            return new ArrayList<>(merged.values());
         } catch (RsgeIntegrationException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -452,6 +471,18 @@ public class RsgeSoapClient {
         if (value != null && !value.isBlank()) {
             map.put(key, value.trim());
         }
+    }
+
+    private List<String> configuredWaybillTypes() {
+        String configured = properties.getWaybillTypes();
+        if (configured == null || configured.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(configured.split("[,;\\s]+"))
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .distinct()
+            .toList();
     }
 
     private String firstNonBlank(String... values) {

@@ -73,7 +73,7 @@ class RsgeSoapClientTest {
     @Test
     void getBuyerWaybillsPreservesNegativeFullAmountPayloads() throws Exception {
         List<String> requestBodies = new ArrayList<>();
-        HttpServer server = startServer(requestBodies, waybillResponse("-16000"));
+        HttpServer server = startServer(requestBodies, waybillResponse("WB-CORRECTION", "2", "-16000"));
         try {
             RsgeSoapClient client = new RsgeSoapClient(properties(server, ""));
 
@@ -84,6 +84,34 @@ class RsgeSoapClientTest {
 
             assertThat(waybills).hasSize(1);
             assertThat(waybills.get(0).get("FULL_AMOUNT")).isEqualTo("-16000");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void getBuyerWaybillsFetchesConfiguredTypesSeparatelyAndMergesResults() throws Exception {
+        List<String> requestBodies = new ArrayList<>();
+        HttpServer server = startServer(
+            requestBodies,
+            waybillResponse("WB-PURCHASE", "2", "16008.48"),
+            waybillResponse("WB-RETURN", "5", "150")
+        );
+        try {
+            CamoraProperties properties = properties(server, "");
+            properties.getRsgeApi().setWaybillTypes("2,5");
+            RsgeSoapClient client = new RsgeSoapClient(properties);
+
+            List<java.util.Map<String, Object>> waybills = client.getBuyerWaybills(
+                LocalDate.of(2025, 1, 1),
+                LocalDate.of(2025, 1, 1)
+            );
+
+            assertThat(requestBodies).hasSize(2);
+            assertThat(requestBodies.get(0)).contains("<itypes>2</itypes>");
+            assertThat(requestBodies.get(1)).contains("<itypes>5</itypes>");
+            assertThat(waybills).extracting(row -> row.get("ID"))
+                .containsExactly("WB-PURCHASE", "WB-RETURN");
         } finally {
             server.stop(0);
         }
@@ -140,7 +168,7 @@ class RsgeSoapClientTest {
             """.formatted(status);
     }
 
-    private String waybillResponse(String fullAmount) {
+    private String waybillResponse(String id, String type, String fullAmount) {
         return """
             <?xml version="1.0" encoding="utf-8"?>
             <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
@@ -151,7 +179,9 @@ class RsgeSoapClientTest {
                     <RESULT>
                       <WAYBILL_LIST>
                         <WAYBILL>
-                          <ID>WB-CORRECTION</ID>
+                          <ID>%s</ID>
+                          <WAYBILL_NUMBER>0%s</WAYBILL_NUMBER>
+                          <TYPE>%s</TYPE>
                           <STATUS>1</STATUS>
                           <SELLER_NAME>Supplier X</SELLER_NAME>
                           <SELLER_TIN>123456789</SELLER_TIN>
@@ -164,6 +194,6 @@ class RsgeSoapClientTest {
                 </get_buyer_waybillsResponse>
               </soap:Body>
             </soap:Envelope>
-            """.formatted(fullAmount);
+            """.formatted(id, id, type, fullAmount);
     }
 }

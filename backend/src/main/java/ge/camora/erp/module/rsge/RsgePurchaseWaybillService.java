@@ -99,7 +99,7 @@ public class RsgePurchaseWaybillService {
 
             String supplierRawValue = resolveSupplierRawValue(sellerTin, supplierName);
             records.add(new RsgeRecord(
-                firstNonBlank(rawWaybill, "ID", "id", "waybill_id", "waybillId"),
+                firstNonBlank(rawWaybill, "WAYBILL_NUMBER", "waybill_number", "WaybillNumber", "ID", "id", "waybill_id", "waybillId"),
                 supplierRawValue,
                 "",
                 "",
@@ -140,10 +140,18 @@ public class RsgePurchaseWaybillService {
             }
             BigDecimal amount = parseAmount(value.toString());
             if (MoneyUtil.ZERO.compareTo(amount) != 0) {
-                return amount;
+                return applyWaybillTypeSign(rawWaybill, amount);
             }
         }
         return MoneyUtil.ZERO;
+    }
+
+    private BigDecimal applyWaybillTypeSign(Map<String, Object> rawWaybill, BigDecimal amount) {
+        Integer type = parseType(rawWaybill);
+        if (type != null && type == 5) {
+            return MoneyUtil.round(amount.abs().negate());
+        }
+        return amount;
     }
 
     private LocalDateTime parseDateTime(Map<String, Object> rawWaybill) {
@@ -184,6 +192,18 @@ public class RsgePurchaseWaybillService {
         }
         try {
             return Integer.parseInt(rawStatus);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private Integer parseType(Map<String, Object> rawWaybill) {
+        String rawType = firstNonBlank(rawWaybill, "TYPE", "type", "Type", "WAYBILL_TYPE", "waybill_type", "WaybillType");
+        if (rawType == null) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(rawType);
         } catch (NumberFormatException ex) {
             return null;
         }

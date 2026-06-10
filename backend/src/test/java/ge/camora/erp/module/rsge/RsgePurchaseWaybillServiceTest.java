@@ -57,9 +57,32 @@ class RsgePurchaseWaybillServiceTest {
             .isEqualByComparingTo("-16000.00");
     }
 
+    @Test
+    void subtractsReturnTypeFiveWaybillsEvenWhenFullAmountIsPositive() {
+        List<RsgeRecord> records = service.mapPurchaseRecords(List.of(
+            waybill("INTERNAL-1", "VISIBLE-1", "1", "2", "16008.48"),
+            waybill("INTERNAL-RETURN", "0934387787", "1", "5", "150")
+        ));
+
+        assertThat(records).extracting(RsgeRecord::waybillNumber)
+            .containsExactly("VISIBLE-1", "0934387787");
+        assertThat(records).extracting(RsgeRecord::totalPrice)
+            .containsExactly(new BigDecimal("16008.48"), new BigDecimal("-150.00"));
+        assertThat(records.stream().map(RsgeRecord::totalPrice).reduce(BigDecimal.ZERO, BigDecimal::add))
+            .isEqualByComparingTo("15858.48");
+        assertThat(service.extractPurchaseAmount(waybill("INTERNAL-RETURN", "0934387787", "1", "5", "150")))
+            .isEqualByComparingTo("-150.00");
+    }
+
     private Map<String, Object> waybill(String id, String status, String amount) {
+        return waybill(id, id, status, "2", amount);
+    }
+
+    private Map<String, Object> waybill(String id, String number, String status, String type, String amount) {
         return Map.of(
             "ID", id,
+            "WAYBILL_NUMBER", number,
+            "TYPE", type,
             "STATUS", status,
             "SELLER_NAME", "Supplier X",
             "SELLER_TIN", "123456789",

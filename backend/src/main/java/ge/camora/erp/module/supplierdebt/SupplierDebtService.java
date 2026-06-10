@@ -653,7 +653,7 @@ public class SupplierDebtService {
                 firstRaw(record, "SELLER_NAME", "seller_name", "SellerName"),
                 normalizeTin(firstRaw(record, "SELLER_TIN", "seller_tin", "SellerTin")),
                 "",
-                firstRaw(record, "ID", "id", "waybill_id", "waybillId"),
+                firstRaw(record, "WAYBILL_NUMBER", "waybill_number", "WaybillNumber", "ID", "id", "waybill_id", "waybillId"),
                 toJson(record)
             ));
         }
