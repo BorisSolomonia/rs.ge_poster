@@ -506,6 +506,7 @@ public class CamoraProperties {
         private long sourceCacheTtlMinutes;
         private long maximumSourceCacheSize;
         private int bogStatementWindowDays;
+        private boolean scheduledSyncEnabled;
 
         public long getSourceCacheTtlMinutes() {
             return sourceCacheTtlMinutes;
@@ -529,6 +530,14 @@ public class CamoraProperties {
 
         public void setBogStatementWindowDays(int bogStatementWindowDays) {
             this.bogStatementWindowDays = bogStatementWindowDays;
+        }
+
+        public boolean isScheduledSyncEnabled() {
+            return scheduledSyncEnabled;
+        }
+
+        public void setScheduledSyncEnabled(boolean scheduledSyncEnabled) {
+            this.scheduledSyncEnabled = scheduledSyncEnabled;
         }
     }
 

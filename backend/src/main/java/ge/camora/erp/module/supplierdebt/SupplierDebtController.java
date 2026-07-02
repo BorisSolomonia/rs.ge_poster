@@ -45,6 +45,14 @@ public class SupplierDebtController {
         return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.overview(dateFrom, dateTo, refreshSources)));
     }
 
+    @PostMapping("/sync-now")
+    public ResponseEntity<ApiResponse<SupplierDebtOverviewDto>> syncNow(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.syncNow(dateFrom, dateTo)));
+    }
+
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<SupplierDebtOverviewDto>> startRefresh(
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,

@@ -83,9 +83,12 @@ camora:
       full-date: "${CAMORA_CASH_FLOW_COL_FULL_DATE:17}"
       validation-flag: "${CAMORA_CASH_FLOW_COL_VALIDATION_FLAG:18}"
   supplier-debt:
-    source-cache-ttl-minutes: "${CAMORA_SUPPLIER_DEBT_SOURCE_CACHE_TTL_MINUTES:15}"
+    source-cache-ttl-minutes: "${CAMORA_SUPPLIER_DEBT_SOURCE_CACHE_TTL_MINUTES:60}"
     maximum-source-cache-size: "${CAMORA_SUPPLIER_DEBT_SOURCE_CACHE_MAX_SIZE:32}"
     bog-statement-window-days: "${CAMORA_SUPPLIER_DEBT_BOG_STATEMENT_WINDOW_DAYS:0}"
+    scheduled-sync-enabled: "${CAMORA_SUPPLIER_DEBT_SCHEDULED_SYNC_ENABLED:true}"
+    sync-fixed-delay: "${CAMORA_SUPPLIER_DEBT_SYNC_FIXED_DELAY:3600000}"
+    sync-initial-delay: "${CAMORA_SUPPLIER_DEBT_SYNC_INITIAL_DELAY:60000}"
   tbc-dbi:
     enabled: "${CAMORA_TBC_DBI_ENABLED:false}"
     endpoint: "${CAMORA_TBC_DBI_ENDPOINT:https://secdbi.tbconline.ge/dbi/dbiService}"

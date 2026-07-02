@@ -386,6 +386,39 @@ class SupplierDebtServiceTest {
     }
 
     @Test
+    void syncNowForcesFreshSourcesAndReplacesSavedSnapshot() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X", "123456789")
+        );
+
+        var saved = service.overview(from, to, true);
+        rsge.records = List.of(
+            purchase("WB-2", "(123456789) Supplier X", "800.00", LocalDate.of(2025, 1, 11))
+        );
+        bog.transactions = List.of(
+            debit("500.00", "Supplier X", "123456789")
+        );
+
+        var staleRead = service.overview(from, to, false);
+        var synced = service.syncNow(from, to);
+
+        assertThat(staleRead.purchaseTotal()).isEqualByComparingTo(saved.purchaseTotal());
+        assertThat(synced.purchaseTotal()).isEqualByComparingTo("800.00");
+        assertThat(synced.paidTotal()).isEqualByComparingTo("500.00");
+        assertThat(synced.debtTotal()).isEqualByComparingTo("300.00");
+        assertThat(rsge.fetchCount).isEqualTo(2);
+        assertThat(bog.fetchCount).isEqualTo(2);
+        assertThat(tbc.fetchCount).isEqualTo(2);
+        assertThat(snapshotStore.load()).contains(synced);
+    }
+
+
+    @Test
     void invalidatesSavedSnapshotWhenRsgeWaybillTypesMarkerIsMissing() {
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 1, 31);

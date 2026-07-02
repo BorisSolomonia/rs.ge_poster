@@ -26,7 +26,7 @@ import {
   getSupplierDebtSupplierTransactions,
   saveSupplierCashPayment,
   saveSupplierPaymentMapping,
-  startSupplierDebtRefresh,
+  syncSupplierDebtSources,
 } from '../api/supplier-debts.api'
 import { ApiClientError } from '../api/client'
 import { formatGel } from '../components/reconciliation/reconciliation.utils'
@@ -112,7 +112,7 @@ export default function SupplierDebtsPage() {
   })
 
   const sourceRefreshMutation = useMutation({
-    mutationFn: () => startSupplierDebtRefresh(dateFrom || undefined, dateTo || undefined),
+    mutationFn: () => syncSupplierDebtSources(dateFrom || undefined, dateTo || undefined),
     onSuccess: (data) => {
       queryClient.setQueryData(debtQueryKey, data)
     },
@@ -310,7 +310,7 @@ export default function SupplierDebtsPage() {
               className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-cyan-200 px-4 py-2 text-[13px] font-black text-slate-950 transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200/70 disabled:cursor-wait disabled:opacity-70 sm:text-sm"
             >
               <RefreshCcw className={`h-4 w-4 ${loadingSources ? 'animate-spin' : ''}`} aria-hidden="true" />
-              Refresh Bank/RS.ge Sources
+              {sourceRefreshMutation.isPending ? 'Syncing Fresh Data...' : 'Sync Now'}
             </button>
           </div>
         </div>

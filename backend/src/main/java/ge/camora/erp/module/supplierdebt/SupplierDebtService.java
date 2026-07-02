@@ -25,6 +25,9 @@ import ge.camora.erp.module.bankanalysis.TbcDbiClient;
 import ge.camora.erp.module.rsge.RsgePurchaseWaybillService;
 import ge.camora.erp.store.ConfigStore;
 import ge.camora.erp.util.MoneyUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.PrintWriter;
@@ -58,6 +61,7 @@ import java.util.stream.Collectors;
 @Service
 public class SupplierDebtService {
 
+    private static final Logger log = LoggerFactory.getLogger(SupplierDebtService.class);
     private static final Pattern RAW_SUPPLIER_PATTERN = Pattern.compile("^\\((\\d+)\\)\\s*(.+)$");
     private static final String RSGE = "RSGE";
     private static final String BOG = "BOG";
@@ -138,6 +142,32 @@ public class SupplierDebtService {
         }
         startBackgroundRefresh(range);
         return emptyOverview(range, refreshInProgress.get());
+    }
+
+    public SupplierDebtOverviewDto syncNow(LocalDate dateFrom, LocalDate dateTo) {
+        return refreshSnapshot(normalizeRange(dateFrom, dateTo), true);
+    }
+
+    @Scheduled(
+        fixedDelayString = "${camora.supplier-debt.sync-fixed-delay:3600000}",
+        initialDelayString = "${camora.supplier-debt.sync-initial-delay:60000}"
+    )
+    public void scheduledSourceSync() {
+        if (!properties.getSupplierDebt().isScheduledSyncEnabled()) {
+            return;
+        }
+        RangeKey range = normalizeRange(LocalDate.now().withDayOfMonth(1), LocalDate.now());
+        try {
+            refreshSnapshot(range, true);
+            log.info("Supplier debt scheduled source sync completed for {}..{}", range.dateFrom(), range.dateTo());
+        } catch (RuntimeException exception) {
+            log.warn(
+                "Supplier debt scheduled source sync failed for {}..{}: {}",
+                range.dateFrom(),
+                range.dateTo(),
+                exception.getMessage()
+            );
+        }
     }
 
     public SupplierDebtOverviewDto startAsyncRefresh(LocalDate dateFrom, LocalDate dateTo) {

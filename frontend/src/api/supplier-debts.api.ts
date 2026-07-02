@@ -42,6 +42,16 @@ export async function startSupplierDebtRefresh(
   return unwrapData(res)
 }
 
+export async function syncSupplierDebtSources(
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<SupplierDebtOverview> {
+  const res = await client.post<ApiResponse<SupplierDebtOverview>>(`${BASE}/sync-now`, null, {
+    params: dateParams(dateFrom, dateTo),
+  })
+  return unwrapData(res)
+}
+
 export async function getSupplierDebtSupplierTransactions(
   supplierKey: string,
   dateFrom?: string,
