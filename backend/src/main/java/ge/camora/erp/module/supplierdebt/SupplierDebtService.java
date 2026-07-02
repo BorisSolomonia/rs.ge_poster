@@ -64,6 +64,7 @@ public class SupplierDebtService {
     private static final String TBC = "TBC";
     private static final String CASH = "CASH";
     private static final int UNMATCHED_GROUP_EXAMPLE_LIMIT = 3;
+    private static final String RSGE_WAYBILL_TYPES_MARKER = "rsgeWaybillTypes=";
 
     private final RsgePurchaseWaybillService rsgePurchaseWaybillService;
     private final BogBusinessOnlineClient bogBusinessOnlineClient;
@@ -940,6 +941,9 @@ public class SupplierDebtService {
         if (snapshot.dateFrom() == null || snapshot.dateTo() == null) {
             return false;
         }
+        if (!snapshotUsesCurrentRsgeWaybillTypes(snapshot)) {
+            return false;
+        }
         if (!range.dateFrom().equals(snapshot.dateFrom())) {
             return false;
         }
@@ -947,6 +951,17 @@ public class SupplierDebtService {
             return true;
         }
         return range.dateTo().equals(LocalDate.now()) && !snapshot.dateTo().isAfter(range.dateTo());
+    }
+
+    private boolean snapshotUsesCurrentRsgeWaybillTypes(SupplierDebtOverviewDto snapshot) {
+        if (snapshot.sourceStatuses() == null) {
+            return false;
+        }
+        String expectedMarker = RSGE_WAYBILL_TYPES_MARKER + currentRsgeWaybillTypes();
+        return snapshot.sourceStatuses().stream()
+            .filter(status -> RSGE.equals(status.source()))
+            .map(SupplierDebtSourceStatusDto::message)
+            .anyMatch(message -> message != null && message.contains(expectedMarker));
     }
 
     private boolean shouldStartBackgroundRefresh(SupplierDebtOverviewDto snapshot, RangeKey range) {
@@ -1117,10 +1132,11 @@ public class SupplierDebtService {
         RsgePurchaseChangeSummary changeSummary
     ) {
         String sourceState = cached ? "cached source data" : "fresh source data";
+        String sourceConfig = "; " + RSGE_WAYBILL_TYPES_MARKER + currentRsgeWaybillTypes();
         if (changeSummary == null || !changeSummary.hasAnyChange()) {
-            return new SupplierDebtSourceStatusDto(RSGE, "OK", sourceState + "; no RS.ge row changes", "", recordCount, MoneyUtil.round(total));
+            return new SupplierDebtSourceStatusDto(RSGE, "OK", sourceState + sourceConfig + "; no RS.ge row changes", "", recordCount, MoneyUtil.round(total));
         }
-        String message = sourceState + "; " + changeSummary.shortMessage();
+        String message = sourceState + sourceConfig + "; " + changeSummary.shortMessage();
         return new SupplierDebtSourceStatusDto(
             RSGE,
             changeSummary.hasRisk() ? "WARNING" : "OK",
@@ -1129,6 +1145,18 @@ public class SupplierDebtService {
             recordCount,
             MoneyUtil.round(total)
         );
+    }
+
+    private String currentRsgeWaybillTypes() {
+        String configured = properties.getRsgeApi().getWaybillTypes();
+        if (configured == null || configured.isBlank()) {
+            return "";
+        }
+        return java.util.Arrays.stream(configured.split("[,;\\s]+"))
+            .map(String::trim)
+            .filter(value -> !value.isBlank())
+            .distinct()
+            .collect(Collectors.joining(","));
     }
 
     private SupplierDebtSourceStatusDto failed(String source, String message, String technicalDetails) {

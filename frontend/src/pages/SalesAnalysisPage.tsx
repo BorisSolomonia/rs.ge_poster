@@ -153,7 +153,7 @@ export default function SalesAnalysisPage() {
     if (!baseBlock) return null
     return buildEventComparison(baseBlock, selectedEvents)
   }, [baseBlock, selectedEvents])
-  const availableProducts = activeBlock?.availableProducts ?? []
+  const availableProducts = useMemo(() => activeBlock?.availableProducts ?? [], [activeBlock?.availableProducts])
 
   useEffect(() => {
     if (!result) {

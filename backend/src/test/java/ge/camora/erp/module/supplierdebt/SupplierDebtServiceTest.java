@@ -6,6 +6,7 @@ import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
 import ge.camora.erp.model.dto.SupplierDebtRowDto;
+import ge.camora.erp.model.dto.SupplierDebtSourceStatusDto;
 import ge.camora.erp.model.record.RsgeRecord;
 import ge.camora.erp.module.bankanalysis.BankTransaction;
 import ge.camora.erp.module.bankanalysis.BogBusinessOnlineClient;
@@ -384,6 +385,31 @@ class SupplierDebtServiceTest {
         assertThat(tbc.fetchCount).isEqualTo(1);
     }
 
+    @Test
+    void invalidatesSavedSnapshotWhenRsgeWaybillTypesMarkerIsMissing() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        rsge.records = List.of(
+            purchase("WB-1", "(123456789) Supplier X", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        SupplierDebtOverviewDto saved = service.overview(from, to, true);
+        snapshotStore.snapshot = withSourceStatuses(saved, List.of(new SupplierDebtSourceStatusDto(
+            "RSGE",
+            "OK",
+            "fresh source data; no RS.ge row changes",
+            "",
+            1,
+            new BigDecimal("599.00")
+        )));
+        rsge.blockFetch = new CountDownLatch(1);
+
+        var result = service.overview(from, to, false);
+        rsge.blockFetch.countDown();
+
+        assertThat(result.refreshInProgress()).isTrue();
+        assertThat(result.suppliers()).isEmpty();
+    }
+
 
     @Test
     void loadsSupplierTransactionDetailsSeparately() {
@@ -613,6 +639,37 @@ class SupplierDebtServiceTest {
             "payment",
             "REF-1",
             "{}"
+        );
+    }
+
+    private SupplierDebtOverviewDto withSourceStatuses(
+        SupplierDebtOverviewDto overview,
+        List<SupplierDebtSourceStatusDto> sourceStatuses
+    ) {
+        return new SupplierDebtOverviewDto(
+            overview.dateFrom(),
+            overview.dateTo(),
+            overview.purchaseTotal(),
+            overview.bogPaidTotal(),
+            overview.tbcPaidTotal(),
+            overview.cashPaidTotal(),
+            overview.bankPaidTotal(),
+            overview.paidTotal(),
+            overview.debtTotal(),
+            overview.supplierCount(),
+            overview.unmatchedPaymentTotal(),
+            overview.unmatchedPaymentCount(),
+            overview.suppliers(),
+            overview.unmatchedPayments(),
+            overview.mappings(),
+            sourceStatuses,
+            overview.unmatchedPaymentGroups(),
+            overview.snapshotGeneratedAt(),
+            overview.refreshInProgress(),
+            overview.lastRefreshStartedAt(),
+            overview.lastRefreshCompletedAt(),
+            overview.lastRefreshError(),
+            overview.latestAudit()
         );
     }
 

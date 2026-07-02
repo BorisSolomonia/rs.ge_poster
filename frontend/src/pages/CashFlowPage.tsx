@@ -59,18 +59,18 @@ export default function CashFlowPage() {
     refetchInterval: 60_000,
   })
 
+  const months = useMemo(() => overviewQuery.data?.months ?? [], [overviewQuery.data?.months])
+
   useEffect(() => {
-    const months = overviewQuery.data?.months ?? []
     if (!selectedMonth && months.length > 0) {
       setSelectedMonth(months[months.length - 1].month)
     }
     if (expandedMonths.length === 0 && months.length > 0) {
       setExpandedMonths([months[months.length - 1].month])
     }
-  }, [overviewQuery.data, selectedMonth, expandedMonths.length])
+  }, [months, selectedMonth, expandedMonths.length])
 
   useEffect(() => {
-    const months = overviewQuery.data?.months ?? []
     if (months.length === 0) {
       if (selectedMonth) {
         setSelectedMonth('')
@@ -80,7 +80,7 @@ export default function CashFlowPage() {
     if (!months.some((month) => month.month === selectedMonth)) {
       setSelectedMonth(months[months.length - 1].month)
     }
-  }, [overviewQuery.data, selectedMonth])
+  }, [months, selectedMonth])
 
   const refreshMutation = useMutation({
     mutationFn: refreshCashFlow,
@@ -175,7 +175,6 @@ export default function CashFlowPage() {
     },
   })
 
-  const months = overviewQuery.data?.months ?? []
   const selectedMonthData = months.find((month) => month.month === selectedMonth) ?? months[months.length - 1]
   const periodSummary = useMemo(() => {
     if (months.length === 0) {
