@@ -7,8 +7,7 @@ services:
     container_name: camora-erp-backend
     restart: unless-stopped
     env_file:
-      - path: .env
-        required: false
+      - .env
     expose:
       - "8080"
     volumes:
