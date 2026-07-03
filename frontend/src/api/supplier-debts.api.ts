@@ -4,6 +4,8 @@ import type {
   ApiResponse,
   SupplierCashPayment,
   SupplierCashPaymentInput,
+  SupplierCreditorOverview,
+  SupplierCreditorRow,
   SupplierDebtAudit,
   SupplierDebtOverview,
   SupplierDebtRawPayloads,
@@ -21,6 +23,37 @@ function dateParams(dateFrom?: string, dateTo?: string, refreshSources?: boolean
   }
 }
 
+export async function getSupplierCreditors(dateFrom?: string, dateTo?: string): Promise<SupplierCreditorOverview> {
+  const res = await client.get<ApiResponse<SupplierCreditorOverview>>(`${BASE}/creditors`, {
+    params: dateParams(dateFrom, dateTo),
+  })
+  return unwrapData(res)
+}
+
+export async function syncSupplierCreditor(
+  supplierKey: string,
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<SupplierCreditorRow> {
+  const res = await client.post<ApiResponse<SupplierCreditorRow>>(`${BASE}/creditors/${encodeURIComponent(supplierKey)}/sync`, null, {
+    params: dateParams(dateFrom, dateTo),
+  })
+  return unwrapData(res)
+}
+
+export async function setSupplierCreditorActive(
+  supplierKey: string,
+  active: boolean,
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<SupplierCreditorOverview> {
+  const res = await client.patch<ApiResponse<SupplierCreditorOverview>>(
+    `${BASE}/creditors/${encodeURIComponent(supplierKey)}/active`,
+    { active },
+    { params: dateParams(dateFrom, dateTo) },
+  )
+  return unwrapData(res)
+}
 export async function getSupplierDebtOverview(
   dateFrom?: string,
   dateTo?: string,

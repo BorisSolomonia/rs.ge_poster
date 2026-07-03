@@ -2,7 +2,9 @@ package ge.camora.erp.module.supplierdebt;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ge.camora.erp.config.CamoraProperties;
+import ge.camora.erp.model.config.StandaloneSupplier;
 import ge.camora.erp.model.config.SupplierCashPayment;
+import ge.camora.erp.model.config.SupplierMapping;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
 import ge.camora.erp.model.dto.SupplierDebtRowDto;
@@ -36,6 +38,7 @@ class SupplierDebtServiceTest {
     private final FakeConfigStore configStore = new FakeConfigStore();
     private final FakeSupplierDebtSnapshotStore snapshotStore = new FakeSupplierDebtSnapshotStore();
     private final FakeRsgePurchaseLedgerStore rsgeLedgerStore = new FakeRsgePurchaseLedgerStore();
+    private final FakeSupplierCreditorStore creditorStore = new FakeSupplierCreditorStore();
     private final SupplierDebtService service = new SupplierDebtService(
         rsge,
         bog,
@@ -44,7 +47,8 @@ class SupplierDebtServiceTest {
         new CamoraProperties(),
         new ObjectMapper(),
         snapshotStore,
-        rsgeLedgerStore
+        rsgeLedgerStore,
+        creditorStore
     );
 
     @Test
@@ -205,6 +209,72 @@ class SupplierDebtServiceTest {
     }
 
     @Test
+    void creditorOverviewListsKnownSuppliersWithoutFetchingRemoteSources() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        configStore.supplierMappings = List.of(supplierMapping("123456789", "Supplier X"));
+
+        var overview = service.creditorOverview(from, to);
+
+        assertThat(overview.totalSupplierCount()).isEqualTo(1);
+        assertThat(overview.syncedSupplierCount()).isZero();
+        assertThat(overview.approximateDebtTotal()).isEqualByComparingTo("0.00");
+        assertThat(overview.suppliers().get(0).supplierKey()).isEqualTo("tin:123456789");
+        assertThat(overview.suppliers().get(0).synced()).isFalse();
+        assertThat(rsge.fetchCount).isZero();
+        assertThat(bog.fetchCount).isZero();
+        assertThat(tbc.fetchCount).isZero();
+    }
+
+    @Test
+    void syncCreditorSupplierForcesFreshSourcesAndSavesOnlySelectedSupplier() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        configStore.supplierMappings = List.of(
+            supplierMapping("123456789", "Supplier X"),
+            supplierMapping("987654321", "Supplier Y")
+        );
+        rsge.records = List.of(
+            purchaseWithSellerTin("WB-1", "Supplier X", "123456789", "599.00", LocalDate.of(2025, 1, 10)),
+            purchaseWithSellerTin("WB-2", "Supplier Y", "987654321", "700.00", LocalDate.of(2025, 1, 11))
+        );
+        bog.transactions = List.of(
+            debit("300.00", "Supplier X", "123456789")
+        );
+
+        var row = service.syncCreditorSupplier("tin:123456789", from, to);
+        var overview = service.creditorOverview(from, to);
+
+        assertThat(row.synced()).isTrue();
+        assertThat(row.purchaseTotal()).isEqualByComparingTo("599.00");
+        assertThat(row.paidTotal()).isEqualByComparingTo("300.00");
+        assertThat(row.debtLeft()).isEqualByComparingTo("299.00");
+        assertThat(row.lastSyncedAt()).isNotNull();
+        assertThat(overview.syncedSupplierCount()).isEqualTo(1);
+        assertThat(overview.approximateDebtTotal()).isEqualByComparingTo("299.00");
+        assertThat(creditorStore.rows(from, to)).hasSize(1);
+        assertThat(rsge.fetchCount).isEqualTo(1);
+        assertThat(bog.fetchCount).isEqualTo(1);
+        assertThat(tbc.fetchCount).isEqualTo(1);
+    }
+
+    @Test
+    void creditorActiveFlagIsSeparateAndMovesUncheckedSuppliersToBottom() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        configStore.supplierMappings = List.of(
+            supplierMapping("123456789", "Supplier X"),
+            supplierMapping("987654321", "Supplier Y")
+        );
+
+        var overview = service.setCreditorActive("tin:123456789", false, from, to);
+
+        assertThat(overview.suppliers()).extracting("supplierKey")
+            .containsExactly("tin:987654321", "tin:123456789");
+        assertThat(overview.suppliers().get(1).active()).isFalse();
+        assertThat(configStore.supplierMappings.get(0).isRsgeExcluded()).isFalse();
+    }
+    @Test
     void fetchesBogSupplierDebtStatementsInBankAnalysisSizedWindows() {
         CamoraProperties properties = new CamoraProperties();
         properties.getBogApi().setStatementChunkDays(31);
@@ -216,7 +286,8 @@ class SupplierDebtServiceTest {
             properties,
             new ObjectMapper(),
             snapshotStore,
-            rsgeLedgerStore
+            rsgeLedgerStore,
+        creditorStore
         );
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 3, 5);
@@ -246,7 +317,8 @@ class SupplierDebtServiceTest {
             properties,
             new ObjectMapper(),
             snapshotStore,
-            rsgeLedgerStore
+            rsgeLedgerStore,
+        creditorStore
         );
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 1, 3);
@@ -273,7 +345,8 @@ class SupplierDebtServiceTest {
             new CamoraProperties(),
             new ObjectMapper(),
             snapshotStore,
-            rsgeLedgerStore
+            rsgeLedgerStore,
+        creditorStore
         );
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 1, 31);
@@ -299,7 +372,8 @@ class SupplierDebtServiceTest {
             new CamoraProperties(),
             new ObjectMapper(),
             snapshotStore,
-            rsgeLedgerStore
+            rsgeLedgerStore,
+        creditorStore
         );
         LocalDate from = LocalDate.of(2026, 5, 27);
         LocalDate to = LocalDate.of(2026, 5, 27);
@@ -487,7 +561,8 @@ class SupplierDebtServiceTest {
             new CamoraProperties(),
             new ObjectMapper(),
             snapshotStore,
-            rsgeLedgerStore
+            rsgeLedgerStore,
+        creditorStore
         );
 
         var result = restartedService.supplierTransactions("tin:123456789", from, to, false);
@@ -631,6 +706,14 @@ class SupplierDebtServiceTest {
         assertThat(rsgeStatus.technicalDetails()).contains("Review warning");
     }
 
+    private SupplierMapping supplierMapping(String tin, String name) {
+        SupplierMapping mapping = new SupplierMapping();
+        mapping.setPosterAlias(name);
+        mapping.setRsgeRawValue(name);
+        mapping.setRsgeTaxId(tin);
+        mapping.setRsgeOfficialName(name);
+        return mapping;
+    }
     private RsgeRecord purchase(String waybill, String supplierRaw, String amount, LocalDate date) {
         return new RsgeRecord(
             waybill,
@@ -778,9 +861,21 @@ class SupplierDebtServiceTest {
 
     private static final class FakeConfigStore extends ConfigStore {
         private List<SupplierCashPayment> cashPayments = List.of();
+        private List<SupplierMapping> supplierMappings = List.of();
+        private List<StandaloneSupplier> standaloneSuppliers = List.of();
 
         private FakeConfigStore() {
             super(new ObjectMapper(), new CamoraProperties());
+        }
+
+        @Override
+        public List<SupplierMapping> getAllSupplierMappings() {
+            return supplierMappings;
+        }
+
+        @Override
+        public List<StandaloneSupplier> getUnmappedSuppliers() {
+            return standaloneSuppliers;
         }
 
         @Override
@@ -808,6 +903,64 @@ class SupplierDebtServiceTest {
             List<RsgePurchaseFingerprint> currentFingerprints
         ) {
             return summary;
+        }
+    }
+
+    private static final class FakeSupplierCreditorStore extends SupplierCreditorStore {
+        private final List<SavedSupplierCreditor> rows = new ArrayList<>();
+        private final List<SupplierCreditorPreference> preferences = new ArrayList<>();
+
+        private FakeSupplierCreditorStore() {
+            super(new ObjectMapper(), new CamoraProperties());
+        }
+
+        @Override
+        public List<SavedSupplierCreditor> rows(LocalDate dateFrom, LocalDate dateTo) {
+            return rows.stream()
+                .filter(row -> dateFrom.equals(row.dateFrom()) && dateTo.equals(row.dateTo()))
+                .toList();
+        }
+
+        @Override
+        public Optional<SavedSupplierCreditor> find(LocalDate dateFrom, LocalDate dateTo, String supplierKey) {
+            return rows(dateFrom, dateTo).stream()
+                .filter(row -> row.supplierKey().equals(supplierKey))
+                .findFirst();
+        }
+
+        @Override
+        public SupplierCreditorPreference preference(String supplierKey) {
+            return preferences.stream()
+                .filter(preference -> preference.supplierKey().equals(supplierKey))
+                .findFirst()
+                .orElseGet(() -> new SupplierCreditorPreference(supplierKey, true));
+        }
+
+        @Override
+        public SavedSupplierCreditor save(LocalDate dateFrom, LocalDate dateTo, SupplierDebtRowDto row, LocalDateTime syncedAt, String syncError) {
+            rows.removeIf(saved -> dateFrom.equals(saved.dateFrom())
+                && dateTo.equals(saved.dateTo())
+                && row.supplierKey().equals(saved.supplierKey()));
+            SavedSupplierCreditor saved = new SavedSupplierCreditor(
+                dateFrom,
+                dateTo,
+                row.supplierKey(),
+                row.supplierTin(),
+                row.supplierName(),
+                syncedAt,
+                syncError == null ? "" : syncError,
+                row
+            );
+            rows.add(saved);
+            return saved;
+        }
+
+        @Override
+        public SupplierCreditorPreference setActive(String supplierKey, boolean active) {
+            preferences.removeIf(preference -> preference.supplierKey().equals(supplierKey));
+            SupplierCreditorPreference saved = new SupplierCreditorPreference(supplierKey, active);
+            preferences.add(saved);
+            return saved;
         }
     }
 

@@ -25,6 +25,7 @@ camora:
     supplier-payment-mappings: "${CAMORA_SUPPLIER_PAYMENT_MAPPINGS_FILE:supplier-payment-mappings.json}"
     supplier-cash-payments: "${CAMORA_SUPPLIER_CASH_PAYMENTS_FILE:supplier-cash-payments.json}"
     supplier-debt-snapshot: "${CAMORA_SUPPLIER_DEBT_SNAPSHOT_FILE:supplier-debt-snapshot.json}"
+    supplier-creditors: "${CAMORA_SUPPLIER_CREDITORS_FILE:supplier-creditors.json}"
     rsge-purchase-ledger: "${CAMORA_RSGE_PURCHASE_LEDGER_FILE:rsge-purchase-ledger.json}"
   organization-opening-date: "${CAMORA_ORGANIZATION_OPENING_DATE:2025-01-01}"
   cors:

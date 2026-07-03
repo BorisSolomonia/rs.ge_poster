@@ -547,6 +547,40 @@ export interface SupplierDebtRow {
   payments: SupplierDebtPayment[]
 }
 
+export interface SupplierCreditorRow {
+  supplierKey: string
+  supplierTin: string
+  supplierName: string
+  active: boolean
+  synced: boolean
+  lastSyncedAt: string | null
+  lastSyncError: string
+  purchaseTotal: number
+  purchaseCount: number
+  bogPaidTotal: number
+  bogPaymentCount: number
+  tbcPaidTotal: number
+  tbcPaymentCount: number
+  cashPaidTotal: number
+  cashPaymentCount: number
+  paidTotal: number
+  paymentCount: number
+  debtLeft: number
+  lastPurchaseDate: string | null
+  lastPaymentDate: string | null
+  purchases: SupplierDebtPurchase[]
+  payments: SupplierDebtPayment[]
+}
+
+export interface SupplierCreditorOverview {
+  dateFrom: string
+  dateTo: string
+  approximateDebtTotal: number
+  syncedSupplierCount: number
+  totalSupplierCount: number
+  generatedAt: string
+  suppliers: SupplierCreditorRow[]
+}
 export interface SupplierDebtSourceStatus {
   source: string
   status: string

@@ -5,8 +5,14 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ge.camora.erp.config.CamoraProperties;
+import ge.camora.erp.model.config.StandaloneSupplier;
 import ge.camora.erp.model.config.SupplierCashPayment;
+import ge.camora.erp.model.config.SupplierMapping;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
+import ge.camora.erp.model.dto.SupplierCreditorOverviewDto;
+import ge.camora.erp.model.dto.SupplierCreditorRowDto;
+import ge.camora.erp.model.dto.SupplierCreditorOverviewDto;
+import ge.camora.erp.model.dto.SupplierCreditorRowDto;
 import ge.camora.erp.model.dto.SupplierDebtAuditDto;
 import ge.camora.erp.model.dto.SupplierDebtAuditSupplierDto;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
@@ -78,6 +84,7 @@ public class SupplierDebtService {
     private final ObjectMapper objectMapper;
     private final SupplierDebtSnapshotStore snapshotStore;
     private final RsgePurchaseLedgerStore rsgePurchaseLedgerStore;
+    private final SupplierCreditorStore creditorStore;
     private final Cache<RangeKey, List<RsgeRecord>> purchaseCache;
     private final Cache<RangeKey, List<Map<String, Object>>> rawPurchaseCache;
     private final Cache<RangeKey, List<BankTransaction>> bogTransactionCache;
@@ -97,7 +104,8 @@ public class SupplierDebtService {
         CamoraProperties properties,
         ObjectMapper objectMapper,
         SupplierDebtSnapshotStore snapshotStore,
-        RsgePurchaseLedgerStore rsgePurchaseLedgerStore
+        RsgePurchaseLedgerStore rsgePurchaseLedgerStore,
+        SupplierCreditorStore creditorStore
     ) {
         this.rsgePurchaseWaybillService = rsgePurchaseWaybillService;
         this.bogBusinessOnlineClient = bogBusinessOnlineClient;
@@ -107,6 +115,7 @@ public class SupplierDebtService {
         this.objectMapper = objectMapper;
         this.snapshotStore = snapshotStore;
         this.rsgePurchaseLedgerStore = rsgePurchaseLedgerStore;
+        this.creditorStore = creditorStore;
         long cacheTtlMinutes = Math.max(1, properties.getSupplierDebt().getSourceCacheTtlMinutes());
         long maximumCacheSize = Math.max(1, properties.getSupplierDebt().getMaximumSourceCacheSize());
         this.purchaseCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
@@ -235,6 +244,66 @@ public class SupplierDebtService {
 
         SupplierDebtOverviewDto overview = calculateOverview(range, true, true);
         return supplierRowOrEmpty(overview, supplierKey);
+    }
+
+    public SupplierCreditorOverviewDto creditorOverview(LocalDate dateFrom, LocalDate dateTo) {
+        RangeKey range = normalizeRange(dateFrom, dateTo);
+        Map<String, SupplierIdentity> suppliers = knownCreditorSuppliers();
+        List<SupplierCreditorStore.SavedSupplierCreditor> savedRows = creditorStore.rows(range.dateFrom(), range.dateTo());
+        savedRows.forEach(saved -> suppliers.putIfAbsent(
+            saved.supplierKey(),
+            new SupplierIdentity(saved.supplierKey(), safe(saved.supplierTin()), blankTo(saved.supplierName(), saved.supplierKey()))
+        ));
+
+        Map<String, SupplierCreditorStore.SavedSupplierCreditor> savedBySupplier = savedRows.stream()
+            .collect(Collectors.toMap(SupplierCreditorStore.SavedSupplierCreditor::supplierKey, row -> row, (left, right) -> right));
+        List<SupplierCreditorRowDto> rows = suppliers.values().stream()
+            .map(identity -> toCreditorRow(identity, savedBySupplier.get(identity.key()), creditorStore.preference(identity.key()).active()))
+            .sorted(creditorRowComparator())
+            .toList();
+        BigDecimal approximateDebtTotal = sum(rows.stream()
+            .filter(SupplierCreditorRowDto::synced)
+            .map(SupplierCreditorRowDto::debtLeft)
+            .toList());
+        int syncedCount = (int) rows.stream().filter(SupplierCreditorRowDto::synced).count();
+        return new SupplierCreditorOverviewDto(
+            range.dateFrom(),
+            range.dateTo(),
+            approximateDebtTotal,
+            syncedCount,
+            rows.size(),
+            LocalDateTime.now(),
+            rows
+        );
+    }
+
+    public SupplierCreditorRowDto syncCreditorSupplier(String supplierKey, LocalDate dateFrom, LocalDate dateTo) {
+        RangeKey range = normalizeRange(dateFrom, dateTo);
+        SupplierIdentity identity = knownCreditorSuppliers().get(supplierKey);
+        if (identity == null) {
+            identity = creditorStore.find(range.dateFrom(), range.dateTo(), supplierKey)
+                .map(saved -> new SupplierIdentity(saved.supplierKey(), safe(saved.supplierTin()), blankTo(saved.supplierName(), saved.supplierKey())))
+                .orElseGet(() -> new SupplierIdentity(supplierKey, supplierKey.startsWith("tin:") ? supplierKey.substring(4) : "", supplierKey));
+        }
+
+        SupplierIdentity effectiveIdentity = identity;
+        SupplierDebtRowDto row;
+        String error = "";
+        try {
+            SupplierDebtOverviewDto overview = calculateOverview(range, true, true);
+            assertCompleteSources(overview);
+            row = findSupplierRow(overview, supplierKey).orElseGet(() -> emptySupplierRow(effectiveIdentity));
+        } catch (RuntimeException exception) {
+            row = emptySupplierRow(effectiveIdentity);
+            error = exceptionSummary(exception);
+        }
+        SupplierCreditorStore.SavedSupplierCreditor saved = creditorStore.save(range.dateFrom(), range.dateTo(), row, LocalDateTime.now(), error);
+        return toCreditorRow(effectiveIdentity, saved, creditorStore.preference(effectiveIdentity.key()).active());
+    }
+
+    public SupplierCreditorOverviewDto setCreditorActive(String supplierKey, boolean active, LocalDate dateFrom, LocalDate dateTo) {
+        creditorStore.setActive(supplierKey, active);
+        return creditorOverview(dateFrom, dateTo);
     }
 
     private SupplierDebtRowDto supplierRowOrEmpty(SupplierDebtOverviewDto overview, String supplierKey) {
@@ -941,6 +1010,94 @@ public class SupplierDebtService {
 
     private boolean same(BigDecimal left, BigDecimal right) {
         return MoneyUtil.round(left).compareTo(MoneyUtil.round(right)) == 0;
+    }
+
+    private Map<String, SupplierIdentity> knownCreditorSuppliers() {
+        Map<String, SupplierIdentity> suppliers = new LinkedHashMap<>();
+        configStore.getAllSupplierMappings().stream()
+            .filter(mapping -> !mapping.isRsgeExcluded())
+            .map(this::creditorIdentity)
+            .forEach(identity -> suppliers.putIfAbsent(identity.key(), identity));
+        configStore.getUnmappedSuppliers().stream()
+            .filter(supplier -> properties.getPlatforms().getRsge().equals(supplier.getPlatform()))
+            .filter(supplier -> !supplier.isExcluded())
+            .map(StandaloneSupplier::getName)
+            .map(this::supplierIdentity)
+            .forEach(identity -> suppliers.putIfAbsent(identity.key(), identity));
+        return suppliers;
+    }
+
+    private SupplierIdentity creditorIdentity(SupplierMapping mapping) {
+        String tin = normalizeTin(mapping.getRsgeTaxId());
+        String name = blankTo(mapping.getRsgeOfficialName(), blankTo(mapping.getRsgeRawValue(), mapping.getPosterAlias()));
+        if (!tin.isBlank()) {
+            return new SupplierIdentity("tin:" + tin, tin, blankTo(name, tin));
+        }
+        SupplierIdentity rawIdentity = supplierIdentity(blankTo(mapping.getRsgeRawValue(), name));
+        return new SupplierIdentity(rawIdentity.key(), rawIdentity.tin(), blankTo(name, rawIdentity.name()));
+    }
+
+    private Comparator<SupplierCreditorRowDto> creditorRowComparator() {
+        return Comparator.comparing(SupplierCreditorRowDto::active).reversed()
+            .thenComparing(SupplierCreditorRowDto::synced, Comparator.reverseOrder())
+            .thenComparing(SupplierCreditorRowDto::debtLeft, Comparator.reverseOrder())
+            .thenComparing(SupplierCreditorRowDto::supplierName, String.CASE_INSENSITIVE_ORDER);
+    }
+
+    private SupplierCreditorRowDto toCreditorRow(
+        SupplierIdentity identity,
+        SupplierCreditorStore.SavedSupplierCreditor saved,
+        boolean active
+    ) {
+        SupplierDebtRowDto row = saved == null ? emptySupplierRow(identity) : saved.row();
+        return new SupplierCreditorRowDto(
+            row.supplierKey(),
+            blankTo(row.supplierTin(), identity.tin()),
+            blankTo(row.supplierName(), identity.name()),
+            active,
+            saved != null && (saved.lastSyncError() == null || saved.lastSyncError().isBlank()),
+            saved == null ? null : saved.lastSyncedAt(),
+            saved == null ? "" : safe(saved.lastSyncError()),
+            row.purchaseTotal(),
+            row.purchaseCount(),
+            row.bogPaidTotal(),
+            row.bogPaymentCount(),
+            row.tbcPaidTotal(),
+            row.tbcPaymentCount(),
+            row.cashPaidTotal(),
+            row.cashPaymentCount(),
+            row.paidTotal(),
+            row.paymentCount(),
+            row.debtLeft(),
+            row.lastPurchaseDate(),
+            row.lastPaymentDate(),
+            row.purchases(),
+            row.payments()
+        );
+    }
+
+    private SupplierDebtRowDto emptySupplierRow(SupplierIdentity identity) {
+        return new SupplierDebtRowDto(
+            identity.key(),
+            identity.tin(),
+            identity.name(),
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            0,
+            BigDecimal.ZERO,
+            null,
+            null,
+            false,
+            List.of(),
+            List.of()
+        );
     }
 
     private SupplierDebtRowDto emptySupplierRow(String supplierKey) {

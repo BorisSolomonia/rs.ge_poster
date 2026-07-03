@@ -3,6 +3,9 @@ package ge.camora.erp.module.supplierdebt;
 import ge.camora.erp.model.config.SupplierPaymentMapping;
 import ge.camora.erp.model.config.SupplierCashPayment;
 import ge.camora.erp.model.dto.ApiResponse;
+import ge.camora.erp.model.dto.SupplierCreditorActiveRequest;
+import ge.camora.erp.model.dto.SupplierCreditorOverviewDto;
+import ge.camora.erp.model.dto.SupplierCreditorRowDto;
 import ge.camora.erp.model.dto.SupplierCashPaymentRequest;
 import ge.camora.erp.model.dto.SupplierDebtAuditDto;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
@@ -15,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -59,6 +63,38 @@ public class SupplierDebtController {
         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
     ) {
         return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.startAsyncRefresh(dateFrom, dateTo)));
+    }
+
+    @GetMapping("/creditors")
+    public ResponseEntity<ApiResponse<SupplierCreditorOverviewDto>> creditors(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.creditorOverview(dateFrom, dateTo)));
+    }
+
+    @PostMapping("/creditors/{supplierKey}/sync")
+    public ResponseEntity<ApiResponse<SupplierCreditorRowDto>> syncCreditor(
+        @PathVariable String supplierKey,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.syncCreditorSupplier(supplierKey, dateFrom, dateTo)));
+    }
+
+    @PatchMapping("/creditors/{supplierKey}/active")
+    public ResponseEntity<ApiResponse<SupplierCreditorOverviewDto>> setCreditorActive(
+        @PathVariable String supplierKey,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo,
+        @RequestBody SupplierCreditorActiveRequest request
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.setCreditorActive(
+            supplierKey,
+            request.active(),
+            dateFrom,
+            dateTo
+        )));
     }
 
     @GetMapping("/suppliers/{supplierKey}/transactions")
