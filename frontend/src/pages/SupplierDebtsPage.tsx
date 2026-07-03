@@ -26,12 +26,31 @@ function startOfCurrentMonth() {
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
 }
 
+function parseApiDate(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+  const parsed = new Date(value)
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed
+  }
+  const normalized = value.replace(/(\\.\\d{3})\\d+/, '$1')
+  const fallback = new Date(normalized)
+  return Number.isNaN(fallback.getTime()) ? null : fallback
+}
+
 function formatDateTime(value: string | null | undefined) {
-  return value ? dateTimeFormatter.format(new Date(value)) : '-'
+  const date = parseApiDate(value)
+  return date ? dateTimeFormatter.format(date) : '-'
 }
 
 function formatDate(value: string | null | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : '-'
+  const date = parseApiDate(value)
+  return date ? dateFormatter.format(date) : '-'
+}
+
+function safeText(value: unknown) {
+  return typeof value === 'string' ? value : String(value ?? '')
 }
 
 function matchesSupplierFilter(supplier: SupplierCreditorRow, query: string) {
@@ -40,6 +59,7 @@ function matchesSupplierFilter(supplier: SupplierCreditorRow, query: string) {
     return true
   }
   return [supplier.supplierName, supplier.supplierTin, supplier.supplierKey]
+    .map(safeText)
     .filter(Boolean)
     .some((value) => value.toLowerCase().includes(normalizedQuery))
 }
@@ -55,7 +75,7 @@ function sortCreditors(rows: SupplierCreditorRow[]) {
     if (left.debtLeft !== right.debtLeft) {
       return right.debtLeft - left.debtLeft
     }
-    return left.supplierName.localeCompare(right.supplierName)
+    return safeText(left.supplierName).localeCompare(safeText(right.supplierName))
   })
 }
 
@@ -318,13 +338,13 @@ function SupplierDetails({ supplier }: { supplier: SupplierCreditorRow }) {
         title="Purchases"
         empty="No purchases saved for this supplier and date range."
         headers={['Date', 'Waybill', 'Amount']}
-        rows={supplier.purchases.map((purchase) => [formatDate(purchase.date), purchase.waybillNumber || '-', formatGel(purchase.amount)])}
+        rows={(supplier.purchases ?? []).map((purchase) => [formatDate(purchase.date), purchase.waybillNumber || '-', formatGel(purchase.amount)])}
       />
       <DetailTable
         title="Payments"
         empty="No payments saved for this supplier and date range."
         headers={['Date', 'Provider', 'Amount', 'Reference']}
-        rows={supplier.payments.map((payment) => [formatDate(payment.date), payment.provider, formatGel(payment.amount), payment.reference || payment.description || '-'])}
+        rows={(supplier.payments ?? []).map((payment) => [formatDate(payment.date), payment.provider, formatGel(payment.amount), payment.reference || payment.description || '-'])}
       />
     </div>
   )
