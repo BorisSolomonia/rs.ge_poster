@@ -16,4 +16,18 @@ public record BankTransaction(
     String reference,
     String rawPayload
 ) {
+    public static final String CREDIT = "CREDIT";
+    public static final String DEBIT = "DEBIT";
+
+    public boolean isExpense() {
+        return hasDirection(DEBIT) && amount != null && amount.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    public boolean isIncome() {
+        return hasDirection(CREDIT) && amount != null && amount.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    private boolean hasDirection(String expected) {
+        return direction != null && expected.equalsIgnoreCase(direction.trim());
+    }
 }

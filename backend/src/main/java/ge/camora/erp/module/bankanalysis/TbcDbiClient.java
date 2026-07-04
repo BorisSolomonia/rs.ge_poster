@@ -432,10 +432,10 @@ public class TbcDbiClient {
     private String parseDirection(String debitCredit) {
         String value = debitCredit == null ? "" : debitCredit.trim().toLowerCase(Locale.ROOT);
         if (value.equals("1") || value.equals("credit") || value.equals("cr") || value.equals("c")) {
-            return "CREDIT";
+            return BankTransaction.CREDIT;
         }
         if (value.equals("0") || value.equals("debit") || value.equals("dr") || value.equals("d")) {
-            return "DEBIT";
+            return BankTransaction.DEBIT;
         }
         return "";
     }

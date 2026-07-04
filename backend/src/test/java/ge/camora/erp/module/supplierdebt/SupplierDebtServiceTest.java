@@ -259,6 +259,37 @@ class SupplierDebtServiceTest {
     }
 
     @Test
+    void syncCreditorSupplierIgnoresBankIncomeRows() {
+        LocalDate from = LocalDate.of(2025, 1, 1);
+        LocalDate to = LocalDate.of(2025, 1, 31);
+        configStore.supplierMappings = List.of(
+            supplierMapping("123456789", "Supplier X")
+        );
+        rsge.records = List.of(
+            purchaseWithSellerTin("WB-1", "Supplier X", "123456789", "599.00", LocalDate.of(2025, 1, 10))
+        );
+        bog.transactions = List.of(
+            credit("300.00", "Supplier X", "123456789"),
+            debit("100.00", "Supplier X", "123456789")
+        );
+
+        var row = service.syncCreditorSupplier("tin:123456789", from, to);
+        var overview = service.creditorOverview(from, to);
+
+        assertThat(row.synced()).isTrue();
+        assertThat(row.purchaseTotal()).isEqualByComparingTo("599.00");
+        assertThat(row.bogPaidTotal()).isEqualByComparingTo("100.00");
+        assertThat(row.bogPaymentCount()).isEqualTo(1);
+        assertThat(row.paidTotal()).isEqualByComparingTo("100.00");
+        assertThat(row.debtLeft()).isEqualByComparingTo("499.00");
+        assertThat(row.payments())
+            .singleElement()
+            .extracting(payment -> payment.amount())
+            .isEqualTo(new BigDecimal("100.00"));
+        assertThat(overview.approximateDebtTotal()).isEqualByComparingTo("499.00");
+    }
+
+    @Test
     void creditorActiveFlagIsSeparateAndMovesUncheckedSuppliersToBottom() {
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 1, 31);
@@ -754,6 +785,22 @@ class SupplierDebtServiceTest {
             "GE00BG0000000000000001GEL",
             "payment",
             "REF-1",
+            "{}"
+        );
+    }
+
+    private BankTransaction credit(String amount, String counterparty, String inn) {
+        return new BankTransaction(
+            LocalDate.of(2025, 1, 11),
+            "CREDIT",
+            new BigDecimal(amount),
+            "GEL",
+            "GE00BG0000000000000000GEL",
+            counterparty,
+            inn,
+            "GE00BG0000000000000001GEL",
+            "incoming payment",
+            "REF-INCOME-1",
             "{}"
         );
     }

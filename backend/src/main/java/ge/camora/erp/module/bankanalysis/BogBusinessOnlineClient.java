@@ -270,10 +270,10 @@ public class BogBusinessOnlineClient {
             BigDecimal debit = decimal(record, "EntryAmountDebit");
             BigDecimal credit = decimal(record, "EntryAmountCredit");
             if (credit.compareTo(BigDecimal.ZERO) > 0) {
-                transactions.add(toTransaction(record, "CREDIT", credit, config));
+                transactions.add(toTransaction(record, BankTransaction.CREDIT, credit, config));
             }
             if (debit.compareTo(BigDecimal.ZERO) > 0) {
-                transactions.add(toTransaction(record, "DEBIT", debit, config));
+                transactions.add(toTransaction(record, BankTransaction.DEBIT, debit, config));
             }
         }
         return transactions;
@@ -313,7 +313,7 @@ public class BogBusinessOnlineClient {
     }
 
     private String counterparty(JsonNode record, String direction) {
-        if (direction.equals("CREDIT")) {
+        if (BankTransaction.CREDIT.equals(direction)) {
             return firstNonBlank(
                 text(record.path("SenderDetails"), "Name"),
                 text(record, "DocumentPayerName")
@@ -326,7 +326,7 @@ public class BogBusinessOnlineClient {
     }
 
     private String counterpartyInn(JsonNode record, String direction) {
-        if (direction.equals("CREDIT")) {
+        if (BankTransaction.CREDIT.equals(direction)) {
             return firstNonBlank(
                 text(record.path("SenderDetails"), "Inn"),
                 text(record, "DocumentPayerInn")
@@ -339,7 +339,7 @@ public class BogBusinessOnlineClient {
     }
 
     private String counterpartyAccount(JsonNode record, String direction) {
-        if (direction.equals("CREDIT")) {
+        if (BankTransaction.CREDIT.equals(direction)) {
             return text(record.path("SenderDetails"), "AccountNumber");
         }
         return text(record.path("BeneficiaryDetails"), "AccountNumber");

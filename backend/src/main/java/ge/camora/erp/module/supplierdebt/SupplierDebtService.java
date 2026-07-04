@@ -567,7 +567,7 @@ public class SupplierDebtService {
         int debitCount = 0;
         BigDecimal debitTotal = BigDecimal.ZERO;
         for (BankTransaction transaction : source.records()) {
-            if (!"DEBIT".equals(transaction.direction()) || transaction.amount().compareTo(BigDecimal.ZERO) <= 0) {
+            if (!transaction.isExpense()) {
                 continue;
             }
             debitCount++;
@@ -777,7 +777,7 @@ public class SupplierDebtService {
         BigDecimal total = BigDecimal.ZERO;
         for (int index = 0; index < source.records().size(); index++) {
             BankTransaction transaction = source.records().get(index);
-            if ("DEBIT".equals(transaction.direction())) {
+            if (transaction.isExpense()) {
                 total = total.add(MoneyUtil.round(transaction.amount()));
             }
             payloads.add(new SupplierDebtRawPayloadItemDto(
