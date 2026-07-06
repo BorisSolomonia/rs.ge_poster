@@ -48,8 +48,26 @@ class SupplierDebtServiceTest {
         new ObjectMapper(),
         snapshotStore,
         rsgeLedgerStore,
-        creditorStore
+        creditorStore,
+        new PassThroughSourceLedgerStore()
     );
+
+    /** Bypasses ledger persistence so service tests exercise the fetchers directly. */
+    private static final class PassThroughSourceLedgerStore extends SourceLedgerStore {
+        private PassThroughSourceLedgerStore() {
+            super(new ObjectMapper(), new CamoraProperties());
+        }
+
+        @Override
+        public List<BankTransaction> syncBank(String source, LocalDate rangeFrom, LocalDate rangeTo, SourceFetcher<BankTransaction> fetcher) {
+            return fetcher.fetch(rangeFrom, rangeTo);
+        }
+
+        @Override
+        public List<RsgeRecord> syncPurchases(LocalDate rangeFrom, LocalDate rangeTo, SourceFetcher<RsgeRecord> fetcher) {
+            return fetcher.fetch(rangeFrom, rangeTo);
+        }
+    }
 
     @Test
     void subtractsMatchedBogDebitsFromSupplierPurchases() {
@@ -318,7 +336,8 @@ class SupplierDebtServiceTest {
             new ObjectMapper(),
             snapshotStore,
             rsgeLedgerStore,
-        creditorStore
+        creditorStore,
+            new PassThroughSourceLedgerStore()
         );
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 3, 5);
@@ -349,7 +368,8 @@ class SupplierDebtServiceTest {
             new ObjectMapper(),
             snapshotStore,
             rsgeLedgerStore,
-        creditorStore
+        creditorStore,
+            new PassThroughSourceLedgerStore()
         );
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 1, 3);
@@ -377,7 +397,8 @@ class SupplierDebtServiceTest {
             new ObjectMapper(),
             snapshotStore,
             rsgeLedgerStore,
-        creditorStore
+        creditorStore,
+            new PassThroughSourceLedgerStore()
         );
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 1, 31);
@@ -404,7 +425,8 @@ class SupplierDebtServiceTest {
             new ObjectMapper(),
             snapshotStore,
             rsgeLedgerStore,
-        creditorStore
+        creditorStore,
+            new PassThroughSourceLedgerStore()
         );
         LocalDate from = LocalDate.of(2026, 5, 27);
         LocalDate to = LocalDate.of(2026, 5, 27);
@@ -593,7 +615,8 @@ class SupplierDebtServiceTest {
             new ObjectMapper(),
             snapshotStore,
             rsgeLedgerStore,
-        creditorStore
+        creditorStore,
+            new PassThroughSourceLedgerStore()
         );
 
         var result = restartedService.supplierTransactions("tin:123456789", from, to, false);

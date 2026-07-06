@@ -90,6 +90,9 @@ camora:
     scheduled-sync-enabled: "${CAMORA_SUPPLIER_DEBT_SCHEDULED_SYNC_ENABLED:true}"
     sync-fixed-delay: "${CAMORA_SUPPLIER_DEBT_SYNC_FIXED_DELAY:3600000}"
     sync-initial-delay: "${CAMORA_SUPPLIER_DEBT_SYNC_INITIAL_DELAY:60000}"
+    bank-sync-overlap-days: "${CAMORA_SUPPLIER_DEBT_BANK_SYNC_OVERLAP_DAYS:3}"
+    rsge-recheck-days: "${CAMORA_SUPPLIER_DEBT_RSGE_RECHECK_DAYS:62}"
+    min-sync-interval-seconds: "${CAMORA_SUPPLIER_DEBT_MIN_SYNC_INTERVAL_SECONDS:120}"
   tbc-dbi:
     enabled: "${CAMORA_TBC_DBI_ENABLED:false}"
     endpoint: "${CAMORA_TBC_DBI_ENDPOINT:https://secdbi.tbconline.ge/dbi/dbiService}"

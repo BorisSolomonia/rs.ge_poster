@@ -85,6 +85,7 @@ public class SupplierDebtService {
     private final SupplierDebtSnapshotStore snapshotStore;
     private final RsgePurchaseLedgerStore rsgePurchaseLedgerStore;
     private final SupplierCreditorStore creditorStore;
+    private final SourceLedgerStore sourceLedgerStore;
     private final Cache<RangeKey, List<RsgeRecord>> purchaseCache;
     private final Cache<RangeKey, List<Map<String, Object>>> rawPurchaseCache;
     private final Cache<RangeKey, List<BankTransaction>> bogTransactionCache;
@@ -105,7 +106,8 @@ public class SupplierDebtService {
         ObjectMapper objectMapper,
         SupplierDebtSnapshotStore snapshotStore,
         RsgePurchaseLedgerStore rsgePurchaseLedgerStore,
-        SupplierCreditorStore creditorStore
+        SupplierCreditorStore creditorStore,
+        SourceLedgerStore sourceLedgerStore
     ) {
         this.rsgePurchaseWaybillService = rsgePurchaseWaybillService;
         this.bogBusinessOnlineClient = bogBusinessOnlineClient;
@@ -116,6 +118,7 @@ public class SupplierDebtService {
         this.snapshotStore = snapshotStore;
         this.rsgePurchaseLedgerStore = rsgePurchaseLedgerStore;
         this.creditorStore = creditorStore;
+        this.sourceLedgerStore = sourceLedgerStore;
         long cacheTtlMinutes = Math.max(1, properties.getSupplierDebt().getSourceCacheTtlMinutes());
         long maximumCacheSize = Math.max(1, properties.getSupplierDebt().getMaximumSourceCacheSize());
         this.purchaseCache = sourceCache(cacheTtlMinutes, maximumCacheSize);
@@ -207,7 +210,7 @@ public class SupplierDebtService {
             fetchSource(RSGE, rawPurchaseCache, range, () -> rsgePurchaseWaybillService.fetchRawPurchaseWaybills(range.dateFrom(), range.dateTo()))
         );
         CompletableFuture<SourceFetchResult<BankTransaction>> bogFuture = CompletableFuture.supplyAsync(() ->
-            fetchSource(BOG, bogTransactionCache, range, () -> fetchBogStatementsInBankAnalysisWindows(range))
+            fetchSource(BOG, bogTransactionCache, range, () -> fetchBogStatementsInBankAnalysisWindows(range.dateFrom(), range.dateTo()))
         );
         CompletableFuture<SourceFetchResult<BankTransaction>> tbcFuture = CompletableFuture.supplyAsync(() ->
             fetchSource(TBC, tbcTransactionCache, range, () -> tbcDbiClient.getAccountMovements(range.dateFrom(), range.dateTo()))
@@ -463,13 +466,16 @@ public class SupplierDebtService {
         }
 
         CompletableFuture<SourceFetchResult<RsgeRecord>> purchaseFuture = CompletableFuture.supplyAsync(() ->
-            fetchSource(RSGE, purchaseCache, range, () -> rsgePurchaseWaybillService.fetchPurchaseRecords(range.dateFrom(), range.dateTo()))
+            fetchSource(RSGE, purchaseCache, range, () ->
+                sourceLedgerStore.syncPurchases(range.dateFrom(), range.dateTo(), rsgePurchaseWaybillService::fetchPurchaseRecords))
         );
         CompletableFuture<SourceFetchResult<BankTransaction>> bogFuture = CompletableFuture.supplyAsync(() ->
-            fetchSource(BOG, bogTransactionCache, range, () -> fetchBogStatementsInBankAnalysisWindows(range))
+            fetchSource(BOG, bogTransactionCache, range, () ->
+                sourceLedgerStore.syncBank(BOG, range.dateFrom(), range.dateTo(), this::fetchBogStatementsInBankAnalysisWindows))
         );
         CompletableFuture<SourceFetchResult<BankTransaction>> tbcFuture = CompletableFuture.supplyAsync(() ->
-            fetchSource(TBC, tbcTransactionCache, range, () -> tbcDbiClient.getAccountMovements(range.dateFrom(), range.dateTo()))
+            fetchSource(TBC, tbcTransactionCache, range, () ->
+                sourceLedgerStore.syncBank(TBC, range.dateFrom(), range.dateTo(), tbcDbiClient::getAccountMovements))
         );
 
         SourceFetchResult<RsgeRecord> purchaseSource = purchaseFuture.join();
@@ -847,20 +853,20 @@ public class SupplierDebtService {
         }
     }
 
-    private List<BankTransaction> fetchBogStatementsInBankAnalysisWindows(RangeKey range) {
+    private List<BankTransaction> fetchBogStatementsInBankAnalysisWindows(LocalDate dateFrom, LocalDate dateTo) {
         int windowDays = properties.getSupplierDebt().getBogStatementWindowDays();
         if (windowDays <= 0) {
             windowDays = properties.getBogApi().getStatementChunkDays();
         }
-        if (windowDays <= 0 || !range.dateTo().isAfter(range.dateFrom().plusDays(windowDays - 1L))) {
-            return bogBusinessOnlineClient.getStatement(range.dateFrom(), range.dateTo());
+        if (windowDays <= 0 || !dateTo.isAfter(dateFrom.plusDays(windowDays - 1L))) {
+            return bogBusinessOnlineClient.getStatement(dateFrom, dateTo);
         }
 
         List<BankTransaction> transactions = new ArrayList<>();
-        LocalDate windowStart = range.dateFrom();
-        while (!windowStart.isAfter(range.dateTo())) {
+        LocalDate windowStart = dateFrom;
+        while (!windowStart.isAfter(dateTo)) {
             LocalDate windowEnd = minDate(
-                range.dateTo(),
+                dateTo,
                 windowStart.plusDays(windowDays - 1L),
                 windowStart.with(TemporalAdjusters.lastDayOfMonth())
             );

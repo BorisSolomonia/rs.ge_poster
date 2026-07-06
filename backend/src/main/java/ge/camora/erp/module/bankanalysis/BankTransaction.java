@@ -1,5 +1,7 @@
 package ge.camora.erp.module.bankanalysis;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
@@ -21,10 +23,13 @@ public record BankTransaction(
 
     // Amounts are signed: a negative debit is a payment reversal and must be
     // included so it nets against the original payment in downstream sums.
+    // @JsonIgnore keeps these derived values out of the persisted ledger JSON.
+    @JsonIgnore
     public boolean isExpense() {
         return hasDirection(DEBIT) && amount != null && amount.signum() != 0;
     }
 
+    @JsonIgnore
     public boolean isIncome() {
         return hasDirection(CREDIT) && amount != null && amount.signum() != 0;
     }

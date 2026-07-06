@@ -516,6 +516,9 @@ public class CamoraProperties {
         private long maximumSourceCacheSize;
         private int bogStatementWindowDays;
         private boolean scheduledSyncEnabled;
+        private int bankSyncOverlapDays;
+        private int rsgeRecheckDays;
+        private long minSyncIntervalSeconds;
 
         public long getSourceCacheTtlMinutes() {
             return sourceCacheTtlMinutes;
@@ -547,6 +550,30 @@ public class CamoraProperties {
 
         public void setScheduledSyncEnabled(boolean scheduledSyncEnabled) {
             this.scheduledSyncEnabled = scheduledSyncEnabled;
+        }
+
+        public int getBankSyncOverlapDays() {
+            return bankSyncOverlapDays;
+        }
+
+        public void setBankSyncOverlapDays(int bankSyncOverlapDays) {
+            this.bankSyncOverlapDays = bankSyncOverlapDays;
+        }
+
+        public int getRsgeRecheckDays() {
+            return rsgeRecheckDays;
+        }
+
+        public void setRsgeRecheckDays(int rsgeRecheckDays) {
+            this.rsgeRecheckDays = rsgeRecheckDays;
+        }
+
+        public long getMinSyncIntervalSeconds() {
+            return minSyncIntervalSeconds;
+        }
+
+        public void setMinSyncIntervalSeconds(long minSyncIntervalSeconds) {
+            this.minSyncIntervalSeconds = minSyncIntervalSeconds;
         }
     }
 
