@@ -61,7 +61,7 @@ class TbcDbiClientTest {
         config.setCurrency("GEL");
 
         TbcDbiClient client = new TbcDbiClient(properties);
-        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config);
+        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config).transactions();
 
         assertThat(transactions).hasSize(1);
         BankTransaction tx = transactions.get(0);
@@ -98,7 +98,7 @@ class TbcDbiClientTest {
         config.setCurrency("GEL");
 
         TbcDbiClient client = new TbcDbiClient(properties);
-        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config);
+        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config).transactions();
 
         assertThat(transactions).hasSize(1);
         BankTransaction tx = transactions.get(0);
@@ -130,7 +130,7 @@ class TbcDbiClientTest {
         config.setCurrency("GEL");
 
         TbcDbiClient client = new TbcDbiClient(properties);
-        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config);
+        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config).transactions();
 
         assertThat(transactions).hasSize(1);
         BankTransaction tx = transactions.get(0);
@@ -157,8 +157,9 @@ class TbcDbiClientTest {
         CamoraProperties properties = new CamoraProperties();
         CamoraProperties.TbcDbi config = properties.getTbcDbi();
         TbcDbiClient client = new TbcDbiClient(properties);
-        java.util.List<BankTransaction> transactions = client.parseMovements(soapXml, config);
+        TbcDbiClient.ParsedMovements parsed = client.parseMovements(soapXml, config);
 
-        assertThat(transactions).isEmpty();
+        assertThat(parsed.transactions()).isEmpty();
+        assertThat(parsed.rawCount()).isEqualTo(1);
     }
 }

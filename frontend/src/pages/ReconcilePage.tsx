@@ -21,13 +21,19 @@ function formatGel(val: number) {
   return `${val.toFixed(2)} ₾`
 }
 
+function formatLocalDate(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 function getDefaultDateRange() {
   const end = new Date()
   const start = new Date()
   if (env.defaultDateRangeMode === 'current-month') start.setDate(1)
   return {
-    from: start.toISOString().slice(0, 10),
-    to: end.toISOString().slice(0, 10),
+    from: formatLocalDate(start),
+    to: formatLocalDate(end),
   }
 }
 

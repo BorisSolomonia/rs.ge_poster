@@ -165,7 +165,7 @@ public class SupplierDebtService {
         if (!properties.getSupplierDebt().isScheduledSyncEnabled()) {
             return;
         }
-        RangeKey range = normalizeRange(LocalDate.now().withDayOfMonth(1), LocalDate.now());
+        RangeKey range = normalizeRange(null, null);
         try {
             refreshSnapshot(range, true);
             log.info("Supplier debt scheduled source sync completed for {}..{}", range.dateFrom(), range.dateTo());
@@ -289,15 +289,23 @@ public class SupplierDebtService {
         SupplierIdentity effectiveIdentity = identity;
         SupplierDebtRowDto row;
         String error = "";
+        LocalDateTime syncedAt = LocalDateTime.now();
         try {
             SupplierDebtOverviewDto overview = calculateOverview(range, true, true);
             assertCompleteSources(overview);
             row = findSupplierRow(overview, supplierKey).orElseGet(() -> emptySupplierRow(effectiveIdentity));
         } catch (RuntimeException exception) {
-            row = emptySupplierRow(effectiveIdentity);
             error = exceptionSummary(exception);
+            Optional<SupplierCreditorStore.SavedSupplierCreditor> existing =
+                creditorStore.find(range.dateFrom(), range.dateTo(), supplierKey);
+            if (existing.isPresent()) {
+                row = existing.get().row();
+                syncedAt = existing.get().lastSyncedAt();
+            } else {
+                row = emptySupplierRow(effectiveIdentity);
+            }
         }
-        SupplierCreditorStore.SavedSupplierCreditor saved = creditorStore.save(range.dateFrom(), range.dateTo(), row, LocalDateTime.now(), error);
+        SupplierCreditorStore.SavedSupplierCreditor saved = creditorStore.save(range.dateFrom(), range.dateTo(), row, syncedAt, error);
         return toCreditorRow(effectiveIdentity, saved, creditorStore.preference(effectiveIdentity.key()).active());
     }
 

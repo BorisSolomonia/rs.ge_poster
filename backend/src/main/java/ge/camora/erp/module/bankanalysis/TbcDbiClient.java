@@ -66,9 +66,9 @@ public class TbcDbiClient {
                 buildAccountMovementsEnvelope(config, currentPassword(config), dateFrom, dateTo, pageIndex, pageSize),
                 "\"http://www.mygemini.com/schemas/mygemini/GetAccountMovements\""
             );
-            List<BankTransaction> page = parseMovements(response, config);
-            all.addAll(page);
-            if (page.size() < pageSize) {
+            ParsedMovements page = parseMovements(response, config);
+            all.addAll(page.transactions());
+            if (page.rawCount() < pageSize) {
                 return all;
             }
             pageIndex++;
@@ -230,13 +230,14 @@ public class TbcDbiClient {
             );
     }
 
-    List<BankTransaction> parseMovements(String body, CamoraProperties.TbcDbi config) {
+    ParsedMovements parseMovements(String body, CamoraProperties.TbcDbi config) {
         try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
             factory.setNamespaceAware(true);
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
             Document document = factory.newDocumentBuilder().parse(new InputSource(new StringReader(body)));
             List<BankTransaction> transactions = new ArrayList<>();
+            int rawCount = 0;
             NodeList elements = document.getElementsByTagName("*");
             for (int i = 0; i < elements.getLength(); i++) {
                 Element element = (Element) elements.item(i);
@@ -244,12 +245,13 @@ public class TbcDbiClient {
                     || !hasChild(element, "debitCredit", "debitcredit", "debCred", "entryType", "movementType")) {
                     continue;
                 }
+                rawCount++;
                 BankTransaction transaction = toTransaction(element, config);
                 if (transaction != null) {
                     transactions.add(transaction);
                 }
             }
-            return transactions;
+            return new ParsedMovements(transactions, rawCount);
         } catch (Exception exception) {
             throw new IllegalStateException("Could not parse TBC DBI response: " + exception.getMessage(), exception);
         }
@@ -400,7 +402,9 @@ public class TbcDbiClient {
             String match = matcher.group();
             String normalized = match.replace(",", "");
             try {
-                return new BigDecimal(normalized).abs();
+                // Sign is preserved: a negative debit is a payment reversal and
+                // must net against the original payment instead of adding to it.
+                return new BigDecimal(normalized);
             } catch (NumberFormatException exception) {
                 return BigDecimal.ZERO;
             }
@@ -542,5 +546,8 @@ public class TbcDbiClient {
     }
 
     private record SoapFault(String code, String message) {
+    }
+
+    record ParsedMovements(List<BankTransaction> transactions, int rawCount) {
     }
 }

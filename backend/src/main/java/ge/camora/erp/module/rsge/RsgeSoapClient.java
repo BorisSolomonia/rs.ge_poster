@@ -141,6 +141,10 @@ public class RsgeSoapClient {
             return fetchInChunks(operation, params);
         }
 
+        if (statusCode < 0) {
+            throw new RsgeIntegrationException("RS.ge returned status " + statusCode + " for operation " + operation);
+        }
+
         return extractWaybillsDeep(result);
     }
 
@@ -185,7 +189,15 @@ public class RsgeSoapClient {
             chunkParams.put("create_date_e", endInclusive.plusDays(1).atStartOfDay().format(DATE_FORMAT));
             String response = sendSoapRequest(operation, chunkParams);
             Map<String, Object> result = parseSoapResponse(response, operation);
+            int statusCode = getStatusCode(result);
+            if (statusCode < 0) {
+                throw new RsgeIntegrationException(
+                    String.format("RS.ge returned status %d for chunk %s..%s", statusCode, startInclusive, endInclusive)
+                );
+            }
             return extractWaybillsDeep(result);
+        } catch (RsgeIntegrationException ex) {
+            throw ex;
         } catch (Exception ex) {
             throw new RsgeIntegrationException(
                 String.format("Failed to fetch rs.ge purchase waybills chunk %s..%s", startInclusive, endInclusive),

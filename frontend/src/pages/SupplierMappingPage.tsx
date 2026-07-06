@@ -94,7 +94,9 @@ export default function SupplierMappingPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['supplier-mappings-status'] }),
   })
 
-  const unmappedCount = (status?.unmappedPoster.length ?? 0) + (status?.unmappedRsge.length ?? 0)
+  const unmappedCount =
+    (status?.unmappedPoster.filter((s) => !s.excluded).length ?? 0) +
+    (status?.unmappedRsge.filter((s) => !s.excluded).length ?? 0)
 
   return (
     <div className="p-6 max-w-6xl mx-auto">
@@ -250,9 +252,9 @@ function UnmappedSection({
       </div>
       <div className="divide-y divide-gray-50">
         {items.map((s) => (
-          <div key={s.name} className={`flex items-center justify-between px-4 py-3 ${s.isExcluded ? 'opacity-50' : ''}`}>
+          <div key={s.name} className={`flex items-center justify-between px-4 py-3 ${s.excluded ? 'opacity-50' : ''}`}>
             <span className="text-sm text-gray-800 truncate flex-1">{s.name}</span>
-            {!s.isExcluded && (
+            {!s.excluded && (
               <div className="flex items-center gap-2 ml-3">
                 <button
                   onClick={() => onMap(s.name)}
@@ -268,7 +270,7 @@ function UnmappedSection({
                 </button>
               </div>
             )}
-            {s.isExcluded && (
+            {s.excluded && (
               <span className="ml-3 text-xs text-gray-400">{env.suppliersExcludedLabel}</span>
             )}
           </div>

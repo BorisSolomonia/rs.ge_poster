@@ -137,6 +137,7 @@ public class ConfigStore {
     public SupplierMapping addSupplierMapping(SupplierMapping mapping) {
         lock.writeLock().lock();
         try {
+            assertNoDuplicateMapping(mapping, null);
             if (mapping.getId() == null) mapping.setId(UUID.randomUUID().toString());
             if (mapping.getCreatedAt() == null) mapping.setCreatedAt(LocalDateTime.now());
             enrichFromRawValue(mapping);
@@ -148,11 +149,29 @@ public class ConfigStore {
         }
     }
 
+    // The same rs.ge entity mapped twice is always ambiguous, so it is rejected;
+    // several rs.ge entities sharing one Poster alias is a legitimate many-to-one
+    // case and stays allowed (the engine reconciles those as one group).
+    private void assertNoDuplicateMapping(SupplierMapping candidate, String ignoreId) {
+        String rawValue = candidate.getRsgeRawValue() == null ? "" : candidate.getRsgeRawValue().trim();
+        if (rawValue.isEmpty()) return;
+        for (SupplierMapping existing : supplierMappings) {
+            if (existing.getId() != null && existing.getId().equals(ignoreId)) continue;
+            String existingRaw = existing.getRsgeRawValue() == null ? "" : existing.getRsgeRawValue().trim();
+            if (existingRaw.equalsIgnoreCase(rawValue)) {
+                throw new IllegalArgumentException(
+                    "rs.ge supplier '" + candidate.getRsgeRawValue() + "' is already mapped to Poster supplier '"
+                        + existing.getPosterAlias() + "'");
+            }
+        }
+    }
+
     public SupplierMapping updateSupplierMapping(String id, SupplierMapping updated) {
         lock.writeLock().lock();
         try {
             for (int i = 0; i < supplierMappings.size(); i++) {
                 if (supplierMappings.get(i).getId().equals(id)) {
+                    assertNoDuplicateMapping(updated, id);
                     updated.setId(id);
                     updated.setCreatedAt(supplierMappings.get(i).getCreatedAt());
                     enrichFromRawValue(updated);
@@ -308,6 +327,18 @@ public class ConfigStore {
         lock.readLock().lock();
         try {
             return List.copyOf(standaloneSuppliers);
+        } finally {
+            lock.readLock().unlock();
+        }
+    }
+
+    public Set<String> getExcludedStandaloneNames(String platform) {
+        lock.readLock().lock();
+        try {
+            return standaloneSuppliers.stream()
+                .filter(s -> s.getPlatform().equals(platform) && s.isExcluded())
+                .map(StandaloneSupplier::getName)
+                .collect(Collectors.toSet());
         } finally {
             lock.readLock().unlock();
         }
@@ -931,8 +962,8 @@ public class ConfigStore {
         try {
             return objectMapper.readValue(path.toFile(), type);
         } catch (IOException e) {
-            log.warn("Could not load {}: {}", path, e.getMessage());
-            return new ArrayList<>();
+            log.error("Could not load {}: {}", path, e.getMessage(), e);
+            throw new IllegalStateException("Failed to load config file " + path + " — refusing to start with possibly corrupt data", e);
         }
     }
 

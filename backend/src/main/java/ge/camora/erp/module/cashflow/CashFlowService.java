@@ -181,7 +181,8 @@ public class CashFlowService {
             .filter(row -> row.monthKey().equals(month))
             .filter(row -> group == null || group.isBlank() || row.group().name().equalsIgnoreCase(group))
             .filter(row -> category == null || category.isBlank() || row.category().equalsIgnoreCase(category))
-            .sorted(Comparator.comparing(CashFlowLedgerRow::date).thenComparing(CashFlowLedgerRow::sourceRow))
+            .sorted(Comparator.comparing(CashFlowLedgerRow::date, Comparator.nullsLast(Comparator.naturalOrder()))
+                .thenComparing(CashFlowLedgerRow::sourceRow))
             .map(this::toTransactionDto)
             .toList();
         return new CashFlowTransactionsResponseDto(month, group, category, transactions);
@@ -442,9 +443,9 @@ public class CashFlowService {
         BigDecimal bogOutflow = sum(rows, CashFlowLedgerRow::bogOutflow);
         BigDecimal tbcInflow = sum(rows, CashFlowLedgerRow::tbcInflow);
         BigDecimal tbcOutflow = sum(rows, CashFlowLedgerRow::tbcOutflow);
-        BigDecimal endingCash = lastBalance(rows, CashFlowLedgerRow::cashBalance);
-        BigDecimal endingBog = lastBalance(rows, CashFlowLedgerRow::bogBalance);
-        BigDecimal endingTbc = lastBalance(rows, CashFlowLedgerRow::tbcBalance);
+        BigDecimal endingCash = lastBalance(rows, CashFlowLedgerRow::cashBalance, CashFlowLedgerRow::rawCashBalance);
+        BigDecimal endingBog = lastBalance(rows, CashFlowLedgerRow::bogBalance, CashFlowLedgerRow::rawBogBalance);
+        BigDecimal endingTbc = lastBalance(rows, CashFlowLedgerRow::tbcBalance, CashFlowLedgerRow::rawTbcBalance);
         BigDecimal totalBankBalance = endingBog.add(endingTbc);
         BigDecimal totalEndingBalance = endingCash.add(totalBankBalance);
         BigDecimal netMovement = totalInflow.subtract(totalOutflow).setScale(2, RoundingMode.HALF_UP);
@@ -713,10 +714,14 @@ public class CashFlowService {
         return false;
     }
 
-    private BigDecimal lastBalance(List<CashFlowLedgerRow> rows, BalanceExtractor extractor) {
+    private BigDecimal lastBalance(List<CashFlowLedgerRow> rows, BalanceExtractor extractor, RawBalanceExtractor rawExtractor) {
         return rows.stream()
             .sorted(Comparator.comparing(CashFlowLedgerRow::date, Comparator.nullsLast(Comparator.naturalOrder()))
                 .thenComparing(CashFlowLedgerRow::sourceRow))
+            .filter(row -> {
+                String raw = rawExtractor.extract(row);
+                return raw != null && !raw.isBlank();
+            })
             .map(extractor::extract)
             .reduce((left, right) -> right)
             .orElse(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP));
@@ -858,6 +863,9 @@ public class CashFlowService {
         long spanDays = java.time.temporal.ChronoUnit.DAYS.between(effectiveFrom, effectiveTo) + 1;
         LocalDate previousMonthFrom = effectiveFrom.minusMonths(1);
         LocalDate previousMonthTo = previousMonthFrom.plusDays(spanDays - 1);
+        if (previousMonthTo.isAfter(effectiveFrom.minusDays(1))) {
+            previousMonthTo = effectiveFrom.minusDays(1);
+        }
         LocalDate previousYearFrom = effectiveFrom.minusYears(1);
         LocalDate previousYearTo = previousYearFrom.plusDays(spanDays - 1);
 
@@ -888,9 +896,9 @@ public class CashFlowService {
         BigDecimal totalInflow = round(sumGroupAmount(rows, CashFlowGroup.INCOME));
         BigDecimal totalOutflow = round(sumGroupAmount(rows, CashFlowGroup.EXPENSE));
         BigDecimal totalEndingBalance = round(
-            lastBalance(rows, CashFlowLedgerRow::cashBalance)
-                .add(lastBalance(rows, CashFlowLedgerRow::bogBalance))
-                .add(lastBalance(rows, CashFlowLedgerRow::tbcBalance))
+            lastBalance(rows, CashFlowLedgerRow::cashBalance, CashFlowLedgerRow::rawCashBalance)
+                .add(lastBalance(rows, CashFlowLedgerRow::bogBalance, CashFlowLedgerRow::rawBogBalance))
+                .add(lastBalance(rows, CashFlowLedgerRow::tbcBalance, CashFlowLedgerRow::rawTbcBalance))
         );
         BigDecimal netMovement = round(totalInflow.subtract(totalOutflow));
         return new PeriodMetrics(totalInflow, totalOutflow, netMovement, totalEndingBalance);
@@ -1048,6 +1056,11 @@ public class CashFlowService {
     @FunctionalInterface
     private interface BalanceExtractor {
         BigDecimal extract(CashFlowLedgerRow row);
+    }
+
+    @FunctionalInterface
+    private interface RawBalanceExtractor {
+        String extract(CashFlowLedgerRow row);
     }
 
     @FunctionalInterface

@@ -99,7 +99,8 @@ public class BankAnalysisService {
             unmappedGroups(analyzed, DEBIT, BigDecimal.ZERO),
             mappings,
             analyzed.stream()
-                .sorted(Comparator.comparing((AnalyzedTransaction row) -> row.transaction().date()).reversed())
+                .sorted(Comparator.comparing((AnalyzedTransaction row) -> row.transaction().date(),
+                        Comparator.nullsLast(Comparator.naturalOrder())).reversed())
                 .map(this::toDto)
                 .toList()
         );

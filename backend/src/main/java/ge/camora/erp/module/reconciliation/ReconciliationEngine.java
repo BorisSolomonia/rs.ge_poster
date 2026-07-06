@@ -1,12 +1,14 @@
 package ge.camora.erp.module.reconciliation;
 
 import ge.camora.erp.config.CamoraProperties;
+import ge.camora.erp.model.config.ProductMapping;
 import ge.camora.erp.model.config.SupplierMapping;
 import ge.camora.erp.model.dto.*;
 import ge.camora.erp.model.record.PosterRecord;
 import ge.camora.erp.model.record.RsgeRecord;
 import ge.camora.erp.store.ConfigStore;
 import ge.camora.erp.util.MoneyUtil;
+import ge.camora.erp.util.PatternMatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -36,6 +38,17 @@ public class ReconciliationEngine {
         LocalDate dateFrom,
         LocalDate dateTo
     ) {
+        return run(rsgeRecords, posterRecords, dateFrom, dateTo, 0, 0);
+    }
+
+    public ReconciliationResult run(
+        List<RsgeRecord> rsgeRecords,
+        List<PosterRecord> posterRecords,
+        LocalDate dateFrom,
+        LocalDate dateTo,
+        int skippedRsgeRows,
+        int skippedPosterRows
+    ) {
         List<SupplierMapping> activeMappings = configStore.getAllSupplierMappings();
         Set<String> knownRsgeRaw = activeMappings.stream()
             .map(SupplierMapping::getRsgeRawValue)
@@ -57,6 +70,34 @@ public class ReconciliationEngine {
 
         log.info("Filtered: rsge={}/{}, poster={}/{}", rsgeFiltered.size(), rsgeRecords.size(),
                  posterFiltered.size(), posterRecords.size());
+
+        // ── STEP 1b: Drop records matching excluded product patterns ──────────
+        // An excluded ProductMapping removes matching rs.ge product lines (and
+        // Poster documents whose product text matches) from the supplier totals.
+        Map<String, List<ProductMapping>> excludedRsgePatterns = new HashMap<>();
+        Map<String, List<ProductMapping>> excludedPosterPatterns = new HashMap<>();
+        for (SupplierMapping mapping : activeMappings) {
+            List<ProductMapping> excluded = configStore.getProductMappings(mapping.getId()).stream()
+                .filter(ProductMapping::isExcluded)
+                .collect(Collectors.toList());
+            if (excluded.isEmpty()) continue;
+            excludedRsgePatterns.put(mapping.getRsgeRawValue(), excluded);
+            excludedPosterPatterns.put(mapping.getPosterAlias(), excluded);
+        }
+        if (!excludedRsgePatterns.isEmpty()) {
+            int beforeRsge = rsgeFiltered.size();
+            int beforePoster = posterFiltered.size();
+            rsgeFiltered = rsgeFiltered.stream()
+                .filter(r -> excludedRsgePatterns.getOrDefault(r.supplierRaw(), List.of()).stream()
+                    .noneMatch(p -> PatternMatcher.matches(p.getRsgeProductPattern(), r.productName(), p.isRegex())))
+                .collect(Collectors.toList());
+            posterFiltered = posterFiltered.stream()
+                .filter(r -> excludedPosterPatterns.getOrDefault(r.supplierAlias(), List.of()).stream()
+                    .noneMatch(p -> PatternMatcher.matches(p.getPosterProductPattern(), r.productsRaw(), p.isRegex())))
+                .collect(Collectors.toList());
+            log.info("Product exclusions dropped: rsge={}, poster={}",
+                     beforeRsge - rsgeFiltered.size(), beforePoster - posterFiltered.size());
+        }
 
         // ── STEP 2: Group rs.ge records by supplierRaw ─────────────────────────
         Map<String, BigDecimal> rsgeTotals   = new LinkedHashMap<>();
@@ -88,12 +129,40 @@ public class ReconciliationEngine {
 
         List<ReconciliationLineResult> results = new ArrayList<>();
 
-        // ── STEP 4: Process mapped suppliers ──────────────────────────────────
-        for (SupplierMapping mapping : activeMappings) {
-            if (mapping.isPosterExcluded() && mapping.isRsgeExcluded()) continue;
+        // ── STEP 4: Process mapped suppliers, grouped by Poster alias ─────────
+        // Several rs.ge entities may legitimately map to one Poster supplier;
+        // grouping compares the summed rs.ge total against the Poster total once
+        // instead of letting the first mapping consume the whole Poster total.
+        Map<String, List<SupplierMapping>> mappingsByAlias = activeMappings.stream()
+            .collect(Collectors.groupingBy(SupplierMapping::getPosterAlias, LinkedHashMap::new, Collectors.toList()));
+        Set<String> consumedRsgeRaw = new HashSet<>();
 
-            BigDecimal rsgeTotal   = rsgeTotals.getOrDefault(mapping.getRsgeRawValue(), BigDecimal.ZERO);
-            BigDecimal posterTotal = posterTotals.getOrDefault(mapping.getPosterAlias(), BigDecimal.ZERO);
+        for (Map.Entry<String, List<SupplierMapping>> aliasGroup : mappingsByAlias.entrySet()) {
+            String alias = aliasGroup.getKey();
+
+            List<SupplierMapping> active = new ArrayList<>();
+            for (SupplierMapping mapping : aliasGroup.getValue()) {
+                if (mapping.isPosterExcluded() && mapping.isRsgeExcluded()) {
+                    rsgeTotals.remove(mapping.getRsgeRawValue());
+                } else {
+                    active.add(mapping);
+                }
+            }
+            if (active.isEmpty()) {
+                posterTotals.remove(alias);
+                continue;
+            }
+
+            List<String> rawValues = active.stream()
+                .map(SupplierMapping::getRsgeRawValue)
+                .distinct()
+                .filter(consumedRsgeRaw::add)
+                .collect(Collectors.toList());
+
+            BigDecimal rsgeTotal = rawValues.stream()
+                .map(rv -> rsgeTotals.getOrDefault(rv, BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal posterTotal = posterTotals.getOrDefault(alias, BigDecimal.ZERO);
             BigDecimal diff = MoneyUtil.round(rsgeTotal.subtract(posterTotal));
 
             ReconciliationStatus status = MoneyUtil.isMatch(
@@ -104,33 +173,44 @@ public class ReconciliationEngine {
                 ? ReconciliationStatus.MATCH
                 : ReconciliationStatus.DISCREPANCY;
 
-            String correctionAction = buildCorrectionText(mapping, rsgeTotal, posterTotal, diff, status,
-                rsgeProducts.get(mapping.getRsgeRawValue()),
-                rsgeWaybills.get(mapping.getRsgeRawValue()),
-                posterDocs.get(mapping.getPosterAlias()));
+            List<String> groupProducts = rawValues.stream()
+                .flatMap(rv -> rsgeProducts.getOrDefault(rv, List.of()).stream())
+                .distinct()
+                .collect(Collectors.toList());
+            List<String> groupWaybills = rawValues.stream()
+                .flatMap(rv -> rsgeWaybills.getOrDefault(rv, List.of()).stream())
+                .distinct()
+                .collect(Collectors.toList());
+
+            String correctionAction = buildCorrectionText(active.get(0), rsgeTotal, posterTotal, diff, status,
+                groupProducts, groupWaybills, posterDocs.get(alias));
 
             results.add(new ReconciliationLineResult(
-                mapping.getPosterAlias(),
-                mapping.getRsgeOfficialName(),
-                mapping.getRsgeRawValue(),
+                alias,
+                joinDistinct(active.stream().map(SupplierMapping::getRsgeOfficialName)),
+                joinDistinct(active.stream().map(SupplierMapping::getRsgeRawValue)),
                 MoneyUtil.round(rsgeTotal),
                 MoneyUtil.round(posterTotal),
                 diff,
                 status,
-                rsgeProducts.getOrDefault(mapping.getRsgeRawValue(), List.of()),
-                posterProds.getOrDefault(mapping.getPosterAlias(), List.of()),
-                rsgeWaybills.getOrDefault(mapping.getRsgeRawValue(), List.of()),
-                posterDocs.getOrDefault(mapping.getPosterAlias(), List.of()),
+                groupProducts,
+                posterProds.getOrDefault(alias, List.of()),
+                groupWaybills,
+                posterDocs.getOrDefault(alias, List.of()),
                 correctionAction
             ));
 
-            rsgeTotals.remove(mapping.getRsgeRawValue());
-            posterTotals.remove(mapping.getPosterAlias());
+            rawValues.forEach(rsgeTotals::remove);
+            posterTotals.remove(alias);
         }
+
+        Set<String> excludedRsgeStandalone = configStore.getExcludedStandaloneNames(properties.getPlatforms().getRsge());
+        Set<String> excludedPosterStandalone = configStore.getExcludedStandaloneNames(properties.getPlatforms().getPoster());
 
         // ── STEP 5: Remaining rs.ge suppliers ─────────────────────────────────
         for (Map.Entry<String, BigDecimal> entry : rsgeTotals.entrySet()) {
             String supplierRaw = entry.getKey();
+            if (excludedRsgeStandalone.contains(supplierRaw)) continue;
             BigDecimal total = MoneyUtil.round(entry.getValue());
             results.add(new ReconciliationLineResult(
                 null, supplierRaw, supplierRaw,
@@ -147,6 +227,7 @@ public class ReconciliationEngine {
         // ── STEP 6: Remaining Poster suppliers ────────────────────────────────
         for (Map.Entry<String, BigDecimal> entry : posterTotals.entrySet()) {
             String alias = entry.getKey();
+            if (excludedPosterStandalone.contains(alias)) continue;
             BigDecimal total = MoneyUtil.round(entry.getValue());
             results.add(new ReconciliationLineResult(
                 alias, null, null,
@@ -165,12 +246,14 @@ public class ReconciliationEngine {
             .map(RsgeRecord::supplierRaw)
             .distinct()
             .filter(s -> !knownRsgeRaw.contains(s))
+            .filter(s -> !excludedRsgeStandalone.contains(s))
             .collect(Collectors.toList());
 
         List<String> newPoster = posterFiltered.stream()
             .map(PosterRecord::supplierAlias)
             .distinct()
             .filter(s -> !knownPosterAliases.contains(s))
+            .filter(s -> !excludedPosterStandalone.contains(s))
             .collect(Collectors.toList());
 
         newRsge.forEach(s -> configStore.registerStandaloneSupplier(properties.getPlatforms().getRsge(), s));
@@ -194,8 +277,15 @@ public class ReconciliationEngine {
             new ReconciliationSummary(results.size(), (int) matched, (int) discrepancy,
                                       (int) missingPoster, (int) missingRsge),
             results,
-            new NewSuppliersDiscovered(newRsge, newPoster)
+            new NewSuppliersDiscovered(newRsge, newPoster),
+            skippedRsgeRows,
+            skippedPosterRows
         );
+    }
+
+    private String joinDistinct(java.util.stream.Stream<String> values) {
+        List<String> list = values.filter(Objects::nonNull).distinct().collect(Collectors.toList());
+        return list.isEmpty() ? null : String.join(" + ", list);
     }
 
     private String buildCorrectionText(

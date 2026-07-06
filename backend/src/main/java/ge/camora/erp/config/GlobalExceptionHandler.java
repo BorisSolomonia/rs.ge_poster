@@ -15,8 +15,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MultipartException;
 
 import jakarta.servlet.http.HttpServletRequest;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -64,7 +62,7 @@ public class GlobalExceptionHandler {
             case BogApiException.DISABLED, BogApiException.CONFIG_MISSING -> HttpStatus.CONFLICT;
             default -> HttpStatus.BAD_GATEWAY;
         };
-        return ResponseEntity.status(status).body(ApiResponse.error(ex.getCode(), ex.getMessage(), stackTrace(ex)));
+        return ResponseEntity.status(status).body(ApiResponse.error(ex.getCode(), ex.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -100,11 +98,5 @@ public class GlobalExceptionHandler {
         log.error("Unexpected error: {}", ex.getMessage(), ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
             .body(ApiResponse.error(properties.getMessages().getInternalServerErrorPrefix() + "See backend logs for details."));
-    }
-
-    private String stackTrace(Exception exception) {
-        StringWriter writer = new StringWriter();
-        exception.printStackTrace(new PrintWriter(writer));
-        return writer.toString();
     }
 }

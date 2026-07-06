@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { ChevronDown, ChevronUp, Download } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import StatusBadge from '../common/StatusBadge'
 import { env } from '../../env'
 import type { ReconciliationResult, ReconciliationStatus } from '../../types'
@@ -71,6 +71,21 @@ export default function ReconciliationResults({
           </div>
         ))}
       </div>
+
+      {((result.skippedRsgeRows ?? 0) > 0 || (result.skippedPosterRows ?? 0) > 0) && (
+        <div className="mb-4 flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-xl p-4">
+          <AlertTriangle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-orange-800">
+            <p className="font-semibold text-sm mb-1">Some source rows could not be parsed</p>
+            {(result.skippedRsgeRows ?? 0) > 0 && (
+              <p>{result.skippedRsgeRows} rs.ge rows were skipped and are missing from the totals.</p>
+            )}
+            {(result.skippedPosterRows ?? 0) > 0 && (
+              <p>{result.skippedPosterRows} Poster rows were skipped and are missing from the totals.</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {(result.newSuppliersDiscovered.rsge.length > 0 ||
         result.newSuppliersDiscovered.poster.length > 0) && (

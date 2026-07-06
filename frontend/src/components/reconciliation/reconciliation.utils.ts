@@ -9,6 +9,12 @@ export function formatGel(value: number) {
   return `${gelFormatter.format(value)} GEL`
 }
 
+export function formatLocalDate(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 export function getDefaultDateRange() {
   const end = new Date()
   const start = new Date()
@@ -18,7 +24,7 @@ export function getDefaultDateRange() {
   }
 
   return {
-    from: start.toISOString().slice(0, 10),
-    to: end.toISOString().slice(0, 10),
+    from: formatLocalDate(start),
+    to: formatLocalDate(end),
   }
 }

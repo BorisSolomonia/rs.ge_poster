@@ -17,13 +17,19 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
 
+function formatLocalDate(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 function today() {
-  return new Date().toISOString().slice(0, 10)
+  return formatLocalDate(new Date())
 }
 
 function startOfCurrentMonth() {
   const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+  return formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1))
 }
 
 function parseApiDate(value: string | null | undefined) {
@@ -34,7 +40,7 @@ function parseApiDate(value: string | null | undefined) {
   if (!Number.isNaN(parsed.getTime())) {
     return parsed
   }
-  const normalized = value.replace(/(\\.\\d{3})\\d+/, '$1')
+  const normalized = value.replace(/(\.\d{3})\d+/, '$1')
   const fallback = new Date(normalized)
   return Number.isNaN(fallback.getTime()) ? null : fallback
 }

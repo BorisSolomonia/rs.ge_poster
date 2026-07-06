@@ -269,10 +269,10 @@ public class BogBusinessOnlineClient {
         for (JsonNode record : records) {
             BigDecimal debit = decimal(record, "EntryAmountDebit");
             BigDecimal credit = decimal(record, "EntryAmountCredit");
-            if (credit.compareTo(BigDecimal.ZERO) > 0) {
+            if (credit.signum() != 0) {
                 transactions.add(toTransaction(record, BankTransaction.CREDIT, credit, config));
             }
-            if (debit.compareTo(BigDecimal.ZERO) > 0) {
+            if (debit.signum() != 0) {
                 transactions.add(toTransaction(record, BankTransaction.DEBIT, debit, config));
             }
         }
@@ -373,10 +373,11 @@ public class BogBusinessOnlineClient {
             return BigDecimal.ZERO;
         }
         if (value.isNumber()) {
-            return value.decimalValue().abs();
+            // Sign is preserved so reversal entries net against their originals.
+            return value.decimalValue();
         }
         try {
-            return new BigDecimal(value.asText().replace(",", "")).abs();
+            return new BigDecimal(value.asText().replace(",", ""));
         } catch (NumberFormatException exception) {
             return BigDecimal.ZERO;
         }

@@ -4,6 +4,7 @@ import type {
   ApiResponse,
   ProductMapping,
   CreateProductMappingRequest,
+  UpdateProductMappingRequest,
   PatternTestRequest,
   PatternTestResult,
 } from '../types'
@@ -24,7 +25,7 @@ export async function createProductMapping(req: CreateProductMappingRequest): Pr
 
 export async function updateProductMapping(
   id: string,
-  req: Partial<CreateProductMappingRequest>
+  req: UpdateProductMappingRequest
 ): Promise<ProductMapping> {
   const res = await client.put<ApiResponse<ProductMapping>>(`${BASE}/${id}`, req)
   return res.data.data

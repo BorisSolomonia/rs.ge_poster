@@ -4,12 +4,12 @@ import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.config.ProductMapping;
 import ge.camora.erp.model.dto.*;
 import ge.camora.erp.store.ConfigStore;
+import ge.camora.erp.util.PatternMatcher;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
-import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 @RestController
@@ -84,11 +84,10 @@ public class ProductMappingController {
         String error = null;
         try {
             if (request.isRegex()) {
-                matches = Pattern.compile(request.getPattern())
+                matches = PatternMatcher.compile(request.getPattern())
                     .matcher(request.getTestValue()).find();
             } else {
-                matches = request.getTestValue().toLowerCase()
-                    .contains(request.getPattern().toLowerCase());
+                matches = PatternMatcher.matches(request.getPattern(), request.getTestValue(), false);
             }
         } catch (PatternSyntaxException e) {
             matches = false;

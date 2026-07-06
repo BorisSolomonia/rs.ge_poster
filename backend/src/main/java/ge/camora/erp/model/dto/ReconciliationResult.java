@@ -12,5 +12,7 @@ public record ReconciliationResult(
     LocalDateTime expiresAt,
     ReconciliationSummary summary,
     List<ReconciliationLineResult> lines,
-    NewSuppliersDiscovered newSuppliersDiscovered
+    NewSuppliersDiscovered newSuppliersDiscovered,
+    int skippedRsgeRows,
+    int skippedPosterRows
 ) {}

@@ -55,7 +55,8 @@ public class MoneyUtil {
             return 0;
         }
 
-        int digitsBeforeSeparator = cleaned.substring(0, separatorIndex).replaceAll("[^\\d]", "").length();
+        String digitsBefore = cleaned.substring(0, separatorIndex).replaceAll("[^\\d]", "");
+        int digitsBeforeSeparator = digitsBefore.length();
         int digitsAfterSeparator = cleaned.substring(separatorIndex + 1).replaceAll("[^\\d]", "").length();
         if (digitsAfterSeparator == 0) {
             return 0;
@@ -63,18 +64,19 @@ public class MoneyUtil {
         if (digitsAfterSeparator <= 2) {
             return cleaned.charAt(separatorIndex);
         }
-        if (digitsAfterSeparator == 3 && digitsBeforeSeparator >= 2 && digitsBeforeSeparator <= 3) {
+        if (digitsAfterSeparator == 3 && digitsBeforeSeparator >= 1 && digitsBeforeSeparator <= 3
+            && !(digitsBeforeSeparator == 1 && digitsBefore.charAt(0) == '0')) {
             return 0;
         }
         return cleaned.charAt(separatorIndex);
     }
 
     public static boolean isMatch(BigDecimal a, BigDecimal b) {
-        return a.subtract(b).abs().compareTo(MATCH_THRESHOLD) < 0;
+        return a.subtract(b).abs().compareTo(MATCH_THRESHOLD) <= 0;
     }
 
     public static boolean isMatch(BigDecimal a, BigDecimal b, BigDecimal threshold) {
-        return a.subtract(b).abs().compareTo(threshold) < 0;
+        return a.subtract(b).abs().compareTo(threshold) <= 0;
     }
 
     private MoneyUtil() {}

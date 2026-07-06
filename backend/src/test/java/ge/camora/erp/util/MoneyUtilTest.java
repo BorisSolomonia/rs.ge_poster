@@ -21,4 +21,15 @@ class MoneyUtilTest {
         assertThat(MoneyUtil.parse("0.001")).isEqualByComparingTo("0.00");
         assertThat(MoneyUtil.parse("16,000")).isEqualByComparingTo("16000.00");
     }
+
+    @Test
+    void treatsSingleSeparatorWithThreeTrailingDigitsAsThousandsSeparator() {
+        assertThat(MoneyUtil.parse("1,234")).isEqualByComparingTo("1234.00");
+        assertThat(MoneyUtil.parse("1.234")).isEqualByComparingTo("1234.00");
+        assertThat(MoneyUtil.parse("12,345")).isEqualByComparingTo("12345.00");
+        assertThat(MoneyUtil.parse("1,5")).isEqualByComparingTo("1.50");
+        assertThat(MoneyUtil.parse("0,50")).isEqualByComparingTo("0.50");
+        // Leading zero keeps the separator decimal; parse rounds to 2 decimals.
+        assertThat(MoneyUtil.parse("0,125")).isEqualByComparingTo("0.13");
+    }
 }

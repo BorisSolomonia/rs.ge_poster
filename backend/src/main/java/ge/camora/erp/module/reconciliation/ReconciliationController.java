@@ -5,6 +5,7 @@ import ge.camora.erp.model.dto.ReconciliationResult;
 import ge.camora.erp.model.dto.ReconciliationResultSummary;
 import ge.camora.erp.model.record.PosterRecord;
 import ge.camora.erp.model.record.RsgeRecord;
+import ge.camora.erp.module.ingestion.ParsedRows;
 import ge.camora.erp.module.ingestion.PosterXlsxParser;
 import ge.camora.erp.module.ingestion.RsgeCsvParser;
 import ge.camora.erp.module.ingestion.FileParsingException;
@@ -53,18 +54,19 @@ public class ReconciliationController {
         log.info("Reconciliation analyze: dateFrom={}, dateTo={}, rsge={}, poster={}",
                  dateFrom, dateTo, rsgeFile.getOriginalFilename(), posterFile.getOriginalFilename());
 
-        List<RsgeRecord> rsgeRecords;
-        List<PosterRecord> posterRecords;
+        ParsedRows<RsgeRecord> rsgeParsed;
+        ParsedRows<PosterRecord> posterParsed;
         try {
-            rsgeRecords   = csvParser.parse(rsgeFile.getInputStream());
-            posterRecords = xlsxParser.parse(posterFile.getInputStream());
+            rsgeParsed   = csvParser.parse(rsgeFile.getInputStream());
+            posterParsed = xlsxParser.parse(posterFile.getInputStream());
         } catch (Exception e) {
             log.error("File parsing failed: {}", e.getMessage(), e);
             return ResponseEntity.badRequest()
                 .body(ApiResponse.error("File parsing failed: " + e.getMessage()));
         }
 
-        ReconciliationResult result = engine.run(rsgeRecords, posterRecords, dateFrom, dateTo);
+        ReconciliationResult result = engine.run(rsgeParsed.records(), posterParsed.records(), dateFrom, dateTo,
+            rsgeParsed.skippedRows(), posterParsed.skippedRows());
         resultCache.store(result.runId(), result);
 
         log.info("Reconciliation complete: runId={}, totalLines={}", result.runId(),
@@ -84,8 +86,10 @@ public class ReconciliationController {
 
         List<RsgeRecord> rsgeRecords = rsgePurchaseWaybillService.fetchPurchaseRecords(dateFrom, dateTo);
         try {
-            List<PosterRecord> posterRecords = xlsxParser.parse(posterFile.getInputStream());
-            ReconciliationResult result = engine.run(rsgeRecords, posterRecords, dateFrom, dateTo);
+            ParsedRows<PosterRecord> posterParsed = xlsxParser.parse(posterFile.getInputStream());
+            ReconciliationResult result = engine.run(rsgeRecords, posterParsed.records(), dateFrom, dateTo,
+                0, posterParsed.skippedRows());
+            resultCache.store(result.runId(), result);
             log.info("Purchase reconciliation complete: totalLines={}", result.summary().totalLines());
             return ResponseEntity.ok(ApiResponse.ok(result));
         } catch (Exception e) {

@@ -8,17 +8,37 @@ import type { SupplierDebtOverview, SupplierDebtRow } from '../types'
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
+function formatLocalDate(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
 function startOfCurrentMonth() {
   const now = new Date()
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
+  return formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1))
 }
 
 function today() {
-  return new Date().toISOString().slice(0, 10)
+  return formatLocalDate(new Date())
+}
+
+function parseApiDate(value: string | null | undefined) {
+  if (!value) {
+    return null
+  }
+  const parsed = new Date(value)
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed
+  }
+  const normalized = value.replace(/(\.\d{3})\d+/, '$1')
+  const fallback = new Date(normalized)
+  return Number.isNaN(fallback.getTime()) ? null : fallback
 }
 
 function formatDateTime(value: string | null | undefined) {
-  return value ? dateFormatter.format(new Date(value)) : '-'
+  const date = parseApiDate(value)
+  return date ? dateFormatter.format(date) : '-'
 }
 
 function csvEscape(value: string | number | null | undefined) {
@@ -40,7 +60,7 @@ function downloadSupplierLedgerCsv(overview: SupplierDebtOverview) {
     'Purchases Count',
     'Payments Count',
   ]
-  const rows = overview.suppliers.map((supplier) => [
+  const rows = (overview.suppliers ?? []).map((supplier) => [
     supplier.supplierKey,
     supplier.supplierTin,
     supplier.supplierName,
@@ -192,7 +212,7 @@ export default function AuditControlPage() {
                     <td className="px-4 py-3 text-slate-500">{status.message || '-'}</td>
                   </tr>
                 ))}
-                {!overview?.sourceStatuses.length ? (
+                {!overview?.sourceStatuses?.length ? (
                   <tr>
                     <td className="px-4 py-5 text-slate-500" colSpan={5}>No source status is available yet.</td>
                   </tr>

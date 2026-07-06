@@ -31,7 +31,7 @@ public class RsgeCsvParser {
         this.rsgeProperties = properties.getParsers().getRsge();
     }
 
-    public List<RsgeRecord> parse(InputStream is) {
+    public ParsedRows<RsgeRecord> parse(InputStream is) {
         List<RsgeRecord> records = new ArrayList<>();
         int rowNum = 0;
         int skipped = 0;
@@ -51,7 +51,10 @@ public class RsgeCsvParser {
                     continue;
                 }
                 if (row.length < rsgeProperties.getMinColumns()) {
-                    skipped++;
+                    // Blank lines are non-data rows; only count structurally broken ones.
+                    if (!isBlankRow(row)) {
+                        skipped++;
+                    }
                     continue;
                 }
                 String totalRaw = row[rsgeProperties.getColumns().getTotalPrice()].trim();
@@ -61,7 +64,7 @@ public class RsgeCsvParser {
                 }
                 BigDecimal total = MoneyUtil.parse(totalRaw);
                 if (total.compareTo(BigDecimal.ZERO) == 0) {
-                    skipped++;
+                    // Zero-total rows are filtered by design, not parse failures.
                     continue;
                 }
 
@@ -91,6 +94,15 @@ public class RsgeCsvParser {
 
         log.info("rs.ge CSV: {} records parsed, {} skipped (total rows: {})",
                  records.size(), skipped, rowNum);
-        return records;
+        return new ParsedRows<>(records, skipped);
+    }
+
+    private boolean isBlankRow(String[] row) {
+        for (String cell : row) {
+            if (cell != null && !cell.isBlank()) {
+                return false;
+            }
+        }
+        return true;
     }
 }

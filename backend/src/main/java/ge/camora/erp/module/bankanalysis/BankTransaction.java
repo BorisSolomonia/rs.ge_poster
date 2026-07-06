@@ -19,12 +19,14 @@ public record BankTransaction(
     public static final String CREDIT = "CREDIT";
     public static final String DEBIT = "DEBIT";
 
+    // Amounts are signed: a negative debit is a payment reversal and must be
+    // included so it nets against the original payment in downstream sums.
     public boolean isExpense() {
-        return hasDirection(DEBIT) && amount != null && amount.compareTo(BigDecimal.ZERO) > 0;
+        return hasDirection(DEBIT) && amount != null && amount.signum() != 0;
     }
 
     public boolean isIncome() {
-        return hasDirection(CREDIT) && amount != null && amount.compareTo(BigDecimal.ZERO) > 0;
+        return hasDirection(CREDIT) && amount != null && amount.signum() != 0;
     }
 
     private boolean hasDirection(String expected) {

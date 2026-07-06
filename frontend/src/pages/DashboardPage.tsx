@@ -27,8 +27,8 @@ export default function DashboardPage() {
   })
 
   const unmappedCount =
-    (supplierStatus?.unmappedPoster.length ?? 0) +
-    (supplierStatus?.unmappedRsge.length ?? 0)
+    (supplierStatus?.unmappedPoster.filter((s) => !s.excluded).length ?? 0) +
+    (supplierStatus?.unmappedRsge.filter((s) => !s.excluded).length ?? 0)
 
   const latest = results?.[0]
   const chartData = latest

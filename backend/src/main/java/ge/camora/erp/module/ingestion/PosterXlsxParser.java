@@ -27,7 +27,7 @@ public class PosterXlsxParser {
         this.posterProperties = properties.getParsers().getPoster();
     }
 
-    public List<PosterRecord> parse(InputStream is) {
+    public ParsedRows<PosterRecord> parse(InputStream is) {
         List<PosterRecord> records = new ArrayList<>();
         int skipped = 0;
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern(posterProperties.getDateFormat());
@@ -42,7 +42,7 @@ public class PosterXlsxParser {
 
                 Cell docCell = row.getCell(posterProperties.getColumns().getDocumentNumber());
                 if (docCell == null || isBlankCell(docCell, formatter)) {
-                    skipped++;
+                    // Rows without a document number are non-data rows, not parse failures.
                     continue;
                 }
 
@@ -69,7 +69,7 @@ public class PosterXlsxParser {
         }
 
         log.info("Poster XLSX: {} records parsed, {} skipped", records.size(), skipped);
-        return records;
+        return new ParsedRows<>(records, skipped);
     }
 
     private String getCellString(Row row, int col, DataFormatter formatter) {

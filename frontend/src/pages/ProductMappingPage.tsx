@@ -4,7 +4,7 @@ import * as suppliersApi from '../api/suppliers.api'
 import * as productsApi from '../api/products.api'
 import { env } from '../env'
 import type { SupplierMapping, ProductMapping } from '../types'
-import { Plus, Trash2, TestTube2, Check, X } from 'lucide-react'
+import { Plus, Trash2, TestTube2, Check, X, AlertCircle } from 'lucide-react'
 import ConfirmDialog from '../components/common/ConfirmDialog'
 
 export default function ProductMappingPage() {
@@ -33,7 +33,7 @@ export default function ProductMappingPage() {
   })
 
   const testMut = useMutation({
-    mutationFn: () => productsApi.testPattern({ pattern: testPattern, testValue, isRegex: testIsRegex }),
+    mutationFn: () => productsApi.testPattern({ pattern: testPattern, testValue, regex: testIsRegex }),
   })
 
   const selectedSupplier = suppliers?.find((s) => s.id === selectedSupplierId)
@@ -90,13 +90,13 @@ export default function ProductMappingPage() {
                     <td className="px-4 py-3 font-mono text-xs text-gray-900">{pm.rsgeProductPattern}</td>
                     <td className="px-4 py-3 font-mono text-xs text-gray-900">{pm.posterProductPattern}</td>
                     <td className="px-4 py-3 text-center">
-                      {pm.isRegex
+                      {pm.regex
                         ? <Check className="w-4 h-4 text-green-600 mx-auto" />
                         : <X className="w-4 h-4 text-gray-300 mx-auto" />}
                     </td>
                     <td className="px-4 py-3 text-center text-gray-600">{pm.priority}</td>
                     <td className="px-4 py-3 text-center">
-                      {pm.isExcluded
+                      {pm.excluded
                         ? <X className="w-4 h-4 text-red-500 mx-auto" />
                         : <Check className="w-4 h-4 text-green-500 mx-auto" />}
                     </td>
@@ -172,6 +172,12 @@ export default function ProductMappingPage() {
                 {testMut.data.error && <p className="text-xs mt-1 font-normal">{testMut.data.error}</p>}
               </div>
             )}
+            {testMut.isError && (
+              <div className="mt-3 flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg p-3">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                {testMut.error instanceof Error ? testMut.error.message : 'Error'}
+              </div>
+            )}
           </div>
 
           {showAdd && (
@@ -208,6 +214,7 @@ function AddPatternModal({
   const [rsge, setRsge] = useState('')
   const [poster, setPoster] = useState('')
   const [isRegex, setIsRegex] = useState(false)
+  const [excluded, setExcluded] = useState(false)
   const [priority, setPriority] = useState(0)
 
   const addMut = useMutation({
@@ -215,8 +222,8 @@ function AddPatternModal({
       supplierMappingId: supplierId,
       rsgeProductPattern: rsge.trim(),
       posterProductPattern: poster.trim(),
-      isRegex,
-      isExcluded: false,
+      regex: isRegex,
+      excluded,
       priority,
     }),
     onSuccess: () => { onSaved(); onClose() },
@@ -240,17 +247,27 @@ function AddPatternModal({
               <input type="checkbox" checked={isRegex} onChange={(e) => setIsRegex(e.target.checked)} className="w-4 h-4" />
               {env.productsUseRegexLabel}
             </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={excluded} onChange={(e) => setExcluded(e.target.checked)} className="w-4 h-4" />
+              Exclude from totals
+            </label>
             <div>
               <label className="text-xs text-gray-600">{env.productsPriorityLabel}</label>
               <input type="number" value={priority} onChange={(e) => setPriority(Number(e.target.value))} className="ml-2 w-16 border border-gray-300 rounded-lg px-2 py-1 text-sm" />
             </div>
           </div>
         </div>
+        {addMut.isError && (
+          <div className="mt-3 flex items-center gap-2 text-red-600 text-sm bg-red-50 border border-red-200 rounded-lg p-3">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            {addMut.error instanceof Error ? addMut.error.message : 'Error'}
+          </div>
+        )}
         <div className="flex justify-end gap-3 mt-5">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">{env.suppliersCancelLabel}</button>
           <button
             onClick={() => addMut.mutate()}
-            disabled={!rsge || !poster || addMut.isPending}
+            disabled={(!rsge && !poster) || addMut.isPending}
             className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
           >
             {addMut.isPending ? env.productsSavingLabel : env.suppliersSaveLabel}

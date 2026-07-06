@@ -5,13 +5,13 @@ import { runPurchaseAnalysis } from '../api/reconciliation.api'
 import { getSupplierDebtOverview, saveSupplierPaymentMapping } from '../api/supplier-debts.api'
 import FileDropzone from '../components/common/FileDropzone'
 import ReconciliationResults from '../components/reconciliation/ReconciliationResults'
-import { formatGel } from '../components/reconciliation/reconciliation.utils'
+import { formatGel, formatLocalDate } from '../components/reconciliation/reconciliation.utils'
 import { env } from '../env'
 import type { ReconciliationResult, SupplierDebtPayment, SupplierDebtRow } from '../types'
 
 export default function PurchaseReconcilePage() {
   const queryClient = useQueryClient()
-  const defaults = { from: '2025-01-01', to: new Date().toISOString().slice(0, 10) }
+  const defaults = { from: '2025-01-01', to: formatLocalDate(new Date()) }
   const [posterFile, setPosterFile] = useState<File | null>(null)
   const [dateFrom, setDateFrom] = useState(defaults.from)
   const [dateTo, setDateTo] = useState(defaults.to)
@@ -253,7 +253,7 @@ function SupplierDebtPanel({
           </div>
 
           <UnmatchedPaymentsPanel
-            payments={overview.unmatchedPayments}
+            payments={overview.unmatchedPayments ?? []}
             suppliers={suppliers}
             mappingDrafts={mappingDrafts}
             setMappingDrafts={setMappingDrafts}

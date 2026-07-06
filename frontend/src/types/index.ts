@@ -16,8 +16,8 @@ export interface ProductMapping {
   supplierMappingId: string
   rsgeProductPattern: string
   posterProductPattern: string
-  isRegex: boolean
-  isExcluded: boolean
+  regex: boolean
+  excluded: boolean
   priority: number
   createdAt: string
 }
@@ -25,7 +25,7 @@ export interface ProductMapping {
 export interface StandaloneSupplier {
   platform: 'RSGE' | 'POSTER'
   name: string
-  isExcluded: boolean
+  excluded: boolean
   firstSeen: string
 }
 
@@ -70,6 +70,8 @@ export interface ReconciliationResult {
   summary: ReconciliationSummary
   lines: ReconciliationLineResult[]
   newSuppliersDiscovered: NewSuppliersDiscovered
+  skippedRsgeRows?: number
+  skippedPosterRows?: number
 }
 
 export interface ReconciliationResultSummary {
@@ -118,15 +120,23 @@ export interface CreateProductMappingRequest {
   supplierMappingId: string
   rsgeProductPattern: string
   posterProductPattern: string
-  isRegex: boolean
-  isExcluded: boolean
+  regex: boolean
+  excluded: boolean
   priority: number
+}
+
+export interface UpdateProductMappingRequest {
+  rsgeProductPattern?: string
+  posterProductPattern?: string
+  isRegex?: boolean
+  isExcluded?: boolean
+  priority?: number
 }
 
 export interface PatternTestRequest {
   pattern: string
   testValue: string
-  isRegex: boolean
+  regex: boolean
 }
 
 export interface PatternTestResult {
