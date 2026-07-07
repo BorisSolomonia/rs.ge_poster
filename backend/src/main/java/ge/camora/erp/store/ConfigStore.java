@@ -4,7 +4,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.config.BankTransactionMapping;
-import ge.camora.erp.model.config.CashFlowCategoryMapping;
 import ge.camora.erp.model.config.ProductMapping;
 import ge.camora.erp.model.config.SalesEvent;
 import ge.camora.erp.model.config.SalesProductExclusion;
@@ -52,7 +51,6 @@ public class ConfigStore {
     private List<StandaloneSupplier> standaloneSuppliers = new ArrayList<>();
     private List<SalesProductExclusion> salesProductExclusions = new ArrayList<>();
     private List<SalesEvent> salesEvents = new ArrayList<>();
-    private List<CashFlowCategoryMapping> cashFlowCategoryMappings = new ArrayList<>();
     private List<BankTransactionMapping> bankTransactionMappings = new ArrayList<>();
     private List<SupplierPaymentMapping> supplierPaymentMappings = new ArrayList<>();
     private List<SupplierCashPayment> supplierCashPayments = new ArrayList<>();
@@ -79,8 +77,6 @@ public class ConfigStore {
         salesProductExclusions = loadJson(configDir.resolve(properties.getConfigFiles().getSalesProductExclusions()),
                                       new TypeReference<>() {});
         salesEvents = loadJson(configDir.resolve(properties.getConfigFiles().getSalesEvents()),
-                                      new TypeReference<>() {});
-        cashFlowCategoryMappings = loadJson(configDir.resolve(properties.getConfigFiles().getCashFlowCategoryMappings()),
                                       new TypeReference<>() {});
         bankTransactionMappings = loadJson(configDir.resolve(properties.getConfigFiles().getBankTransactionMappings()),
                                       new TypeReference<>() {});
@@ -488,76 +484,6 @@ public class ConfigStore {
         }
     }
 
-    public List<CashFlowCategoryMapping> getCashFlowCategoryMappings() {
-        lock.readLock().lock();
-        try {
-            return cashFlowCategoryMappings.stream()
-                .sorted(Comparator.comparing(CashFlowCategoryMapping::getSourceCategory, String.CASE_INSENSITIVE_ORDER))
-                .toList();
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public Optional<CashFlowCategoryMapping> findCashFlowCategoryMapping(String sourceCategory) {
-        String normalizedSource = normalizeSalesKey(sourceCategory);
-        lock.readLock().lock();
-        try {
-            return cashFlowCategoryMappings.stream()
-                .filter(mapping -> mapping.getNormalizedSourceCategory().equals(normalizedSource))
-                .findFirst();
-        } finally {
-            lock.readLock().unlock();
-        }
-    }
-
-    public CashFlowCategoryMapping upsertCashFlowCategoryMapping(String sourceCategory, String targetCategory, String source) {
-        String normalizedSource = normalizeSalesKey(sourceCategory);
-        String normalizedTarget = normalizeSalesKey(targetCategory);
-        lock.writeLock().lock();
-        try {
-            List<CashFlowCategoryMapping> previous = copyCashFlowCategoryMappings();
-            LocalDateTime now = LocalDateTime.now();
-            for (CashFlowCategoryMapping mapping : cashFlowCategoryMappings) {
-                if (mapping.getNormalizedSourceCategory().equals(normalizedSource)) {
-                    mapping.setSourceCategory(sourceCategory.trim());
-                    mapping.setTargetCategory(targetCategory.trim());
-                    mapping.setNormalizedTargetCategory(normalizedTarget);
-                    mapping.setSource(source);
-                    mapping.setUpdatedAt(now);
-                    persistCashFlowCategoryMappingsWithRollback(previous);
-                    return mapping;
-                }
-            }
-            CashFlowCategoryMapping created = new CashFlowCategoryMapping(
-                sourceCategory.trim(),
-                normalizedSource,
-                targetCategory.trim(),
-                normalizedTarget,
-                source,
-                now,
-                now
-            );
-            cashFlowCategoryMappings.add(created);
-            persistCashFlowCategoryMappingsWithRollback(previous);
-            return created;
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
-    public void deleteCashFlowCategoryMapping(String sourceCategory) {
-        String normalizedSource = normalizeSalesKey(sourceCategory);
-        lock.writeLock().lock();
-        try {
-            List<CashFlowCategoryMapping> previous = copyCashFlowCategoryMappings();
-            cashFlowCategoryMappings.removeIf(mapping -> mapping.getNormalizedSourceCategory().equals(normalizedSource));
-            persistCashFlowCategoryMappingsWithRollback(previous);
-        } finally {
-            lock.writeLock().unlock();
-        }
-    }
-
     public List<BankTransactionMapping> getBankTransactionMappings() {
         lock.readLock().lock();
         try {
@@ -841,10 +767,6 @@ public class ConfigStore {
         writeJson(configDir.resolve(properties.getConfigFiles().getSalesEvents()), salesEvents);
     }
 
-    private void persistCashFlowCategoryMappings() {
-        writeJson(configDir.resolve(properties.getConfigFiles().getCashFlowCategoryMappings()), cashFlowCategoryMappings);
-    }
-
     private void persistBankTransactionMappings() {
         writeJson(configDir.resolve(properties.getConfigFiles().getBankTransactionMappings()), bankTransactionMappings);
     }
@@ -855,29 +777,6 @@ public class ConfigStore {
 
     private void persistSupplierCashPayments() {
         writeJson(configDir.resolve(properties.getConfigFiles().getSupplierCashPayments()), supplierCashPayments);
-    }
-
-    private void persistCashFlowCategoryMappingsWithRollback(List<CashFlowCategoryMapping> previous) {
-        try {
-            persistCashFlowCategoryMappings();
-        } catch (RuntimeException exception) {
-            cashFlowCategoryMappings = previous;
-            throw exception;
-        }
-    }
-
-    private List<CashFlowCategoryMapping> copyCashFlowCategoryMappings() {
-        return cashFlowCategoryMappings.stream()
-            .map(mapping -> new CashFlowCategoryMapping(
-                mapping.getSourceCategory(),
-                mapping.getNormalizedSourceCategory(),
-                mapping.getTargetCategory(),
-                mapping.getNormalizedTargetCategory(),
-                mapping.getSource(),
-                mapping.getCreatedAt(),
-                mapping.getUpdatedAt()
-            ))
-            .collect(Collectors.toCollection(ArrayList::new));
     }
 
     private void persistBankTransactionMappingsWithRollback(List<BankTransactionMapping> previous) {

@@ -53,11 +53,6 @@ public class HealthController {
             "hasClientSecret", present(properties.getBogApi().getClientSecret()),
             "hasAccountNumber", present(properties.getBogApi().getAccountNumber())
         ));
-        checks.put("cashFlow", Map.of(
-            "enabled", properties.getCashFlow().isEnabled(),
-            "hasSheetId", present(properties.getCashFlow().getSheetId()),
-            "hasServiceAccount", present(properties.getCashFlow().getServiceAccountPath()) || present(properties.getCashFlow().getServiceAccountJson())
-        ));
         checks.put("rsge", Map.of(
             "hasUsername", present(properties.getRsgeApi().getUsername()),
             "hasPassword", present(properties.getRsgeApi().getPassword())
