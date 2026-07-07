@@ -33,7 +33,22 @@
       "Bash(timeout 20 bash:*)",
       "Bash(grep -E \"\\\\.env$|node_modules\")",
       "Bash(./mvnw -q test)",
-      "Bash(mvn -q test)"
+      "Bash(mvn -q test)",
+      "PowerShell(git *)",
+      "Bash(grep -iE '\\\\.env|secret|pfx|\\\\.json$|pem|key')",
+      "Bash(grep -oE '\\\\$\\\\{[A-Z_0-9]+' backend/src/main/resources/application.yml backend/src/main/resources/application-gcp.yml)",
+      "Bash(sed 's/=$//')",
+      "Bash(grep -v \"^import\\\\|^package\\\\|^$\")",
+      "Bash(awk -F= '/=/{print $1\" len=\"length\\($2\\)}' frontend/.env)",
+      "Bash(awk -F= '/^[A-Z]/{print $1\" len=\"length\\($2\\)}' backend/.env)",
+      "PowerShell(mvn *)",
+      "PowerShell(npm run *)",
+      "PowerShell(Select-String -Path backend\\\\src\\\\test\\\\java\\\\ge\\\\camora\\\\erp\\\\module\\\\supplierdebt\\\\SupplierDebtServiceTest.java -Pattern \"new ConfigStore|CamoraProperties|@TempDir|ObjectMapper\" | Select-Object -First 15 | ForEach-Object { \"$\\($_.LineNumber\\): $\\($_.Line.Trim\\(\\)\\)\" })",
+      "PowerShell(Get-Content backend\\\\src\\\\main\\\\java\\\\ge\\\\camora\\\\erp\\\\model\\\\dto\\\\ReconciliationLineResult.java, backend\\\\src\\\\main\\\\java\\\\ge\\\\camora\\\\erp\\\\model\\\\dto\\\\ReconciliationSummary.java; Select-String -Path backend\\\\src\\\\main\\\\java\\\\ge\\\\camora\\\\erp\\\\config\\\\CamoraProperties.java -Pattern \"setResultExpireAfterHours|setRsge\\\\\\(|setPoster\\\\\\(|setMissingInPosterTemplate|setMissingInRsgeTemplate|setDiscrepancyCorrectionTemplate\" | ForEach-Object { $_.LineNumber })",
+      "PowerShell(Set-Content *)",
+      "PowerShell(Select-String -Path backend\\\\src\\\\test\\\\java\\\\ge\\\\camora\\\\erp\\\\module\\\\supplierdebt\\\\SupplierDebtServiceTest.java -Pattern \"PassThroughSourceLedgerStore\\\\\\(\\\\\\)\" -Context 3,1 | ForEach-Object { $_.LineNumber; $_.Context.PreContext; $_.Line; $_.Context.PostContext; '---' })",
+      "PowerShell($path = \\(Resolve-Path 'backend\\\\src\\\\test\\\\java\\\\ge\\\\camora\\\\erp\\\\module\\\\supplierdebt\\\\SupplierDebtServiceTest.java'\\).Path; $content = [System.IO.File]::ReadAllText\\($path\\); if \\($content[0] -eq [char]0xFEFF\\) { $content = $content.Substring\\(1\\) }; [System.IO.File]::WriteAllText\\($path, $content, \\(New-Object System.Text.UTF8Encoding\\($false\\)\\)\\); [System.IO.File]::ReadAllBytes\\($path\\)[0..2] -join ',')",
+      "PowerShell(Remove-Item *)"
     ]
   }
 }
