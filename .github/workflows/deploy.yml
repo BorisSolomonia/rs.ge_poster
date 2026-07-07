@@ -313,8 +313,19 @@ jobs:
             export TAG="$DEPLOY_TAG"
             export GCP_PROJECT_ID="${{ env.PROJECT_ID }}"
 
+            # Free disk from dangling images before pulling so a nearly full disk on
+            # the shared VM cannot break the pull. Only untagged/dangling images are
+            # removed — other apps' running containers and tagged images are untouched.
+            $DOCKER image prune -f || true
+
             $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml pull
-            $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml down --timeout 30 || true
+
+            # Stop and remove the previous Camora containers BEFORE starting the new
+            # ones, so stale containers can't cause name/port conflicts or pile up.
+            # --remove-orphans drops containers for services no longer in the compose
+            # file; both are scoped to the camora-erp project and never touch orderapp
+            # or the shared proxy on this VM.
+            $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml down --timeout 30 --remove-orphans || true
 
             for container in camora-erp-backend camora-erp-frontend; do
               if $DOCKER inspect "$container" >/dev/null 2>&1; then
@@ -323,7 +334,7 @@ jobs:
               fi
             done
 
-            $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml up -d
+            $COMPOSE_RUNNER -p camora-erp -f docker/compose.production.yml up -d --remove-orphans
 
             if $DOCKER inspect camora-erp-backend >/dev/null 2>&1; then
               echo "Fixing /data/camora permissions..."
