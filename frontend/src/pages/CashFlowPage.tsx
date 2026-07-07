@@ -2,6 +2,18 @@ import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, ChevronDown, ChevronRight, FolderTree, ListChecks, RefreshCcw, Trash2 } from 'lucide-react'
 import {
+  Bar,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
+import {
   categorizeTransaction,
   createCashFlowCategory,
   deleteCashFlowCategory,
@@ -22,11 +34,18 @@ import { env } from '../env'
 import type {
   CashFlowCategory,
   CashFlowMatchType,
+  CashFlowMatrix,
   CashFlowMatrixCategory,
   CashFlowRule,
   CashFlowSectionKey,
   CashFlowTransaction,
 } from '../types'
+
+const EXPENSE_COLORS = ['#0e7490', '#0891b2', '#38bdf8', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6']
+const OTHER_COLOR = '#94a3b8'
+const SALES_COLOR = '#16a34a'
+const NET_COLOR = '#0f172a'
+const TOP_EXPENSES = 7
 
 const SECTION_OPTIONS: { key: CashFlowSectionKey; nameKa: string }[] = [
   { key: 'OPERATING', nameKa: 'საოპერაციო საქმიანობა' },
@@ -216,6 +235,8 @@ export default function CashFlowPage() {
           <p className="text-sm font-semibold">{(actionError ?? loadError)?.message}</p>
         </div>
       ) : null}
+
+      {matrix && matrix.sections.length > 0 ? <CashFlowCharts matrix={matrix} /> : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
@@ -492,6 +513,83 @@ function CategoryRow({ category, onDelete }: { category: CashFlowCategory; onDel
         </button>
       )}
     </div>
+  )
+}
+
+function compactGel(value: number) {
+  const abs = Math.abs(value)
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000) return `${Math.round(value / 1_000)}K`
+  return `${Math.round(value)}`
+}
+
+/**
+ * Combo chart (golden path): expenses as a STACKED bar (segments = expense types,
+ * so the stack height is total expenses and the breakdown is visible within), the
+ * sales income as a line, and net cash (all inflows − all outflows) as a line.
+ * All three requested series in one legible view over the monthly axis.
+ */
+function CashFlowCharts({ matrix }: { matrix: CashFlowMatrix }) {
+  const months = matrix.months
+  if (months.length === 0) {
+    return null
+  }
+
+  const outflowCategories = matrix.sections.flatMap((section) =>
+    section.directions.filter((direction) => direction.direction === 'OUTFLOW').flatMap((direction) => direction.categories))
+  const sortedExpenses = [...outflowCategories].sort((left, right) => right.total - left.total)
+  const topExpenses = sortedExpenses.slice(0, TOP_EXPENSES)
+  const otherExpenses = sortedExpenses.slice(TOP_EXPENSES)
+  const hasOther = otherExpenses.length > 0
+
+  const salesCategory = matrix.sections
+    .flatMap((section) => section.directions.filter((direction) => direction.direction === 'INFLOW').flatMap((direction) => direction.categories))
+    .find((category) => category.categoryId === 'sales')
+
+  const monthTotal = (month: string, dir: 'INFLOW' | 'OUTFLOW') =>
+    matrix.sections.reduce((sum, section) =>
+      sum + section.directions.filter((direction) => direction.direction === dir)
+        .reduce((acc, direction) => acc + (direction.monthly[month] ?? 0), 0), 0)
+
+  const data = months.map((month) => {
+    const row: Record<string, number | string> = { month }
+    topExpenses.forEach((category) => {
+      row[category.categoryId] = category.monthly[month] ?? 0
+    })
+    if (hasOther) {
+      row.__other = otherExpenses.reduce((sum, category) => sum + (category.monthly[month] ?? 0), 0)
+    }
+    row.__sales = salesCategory?.monthly[month] ?? 0
+    row.__net = monthTotal(month, 'INFLOW') - monthTotal(month, 'OUTFLOW')
+    return row
+  })
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 className="mb-3 text-base font-black text-slate-950">{env.cashFlowChartTitle}</h2>
+      <ResponsiveContainer width="100%" height={340}>
+        <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+          <YAxis tick={{ fontSize: 11 }} tickFormatter={compactGel} width={54} />
+          <Tooltip formatter={(value: number, name: string) => [formatGel(value), name]} />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <ReferenceLine y={0} stroke="#94a3b8" />
+          {topExpenses.map((category, index) => (
+            <Bar
+              key={category.categoryId}
+              dataKey={category.categoryId}
+              stackId="expenses"
+              name={category.nameKa}
+              fill={EXPENSE_COLORS[index % EXPENSE_COLORS.length]}
+            />
+          ))}
+          {hasOther ? <Bar dataKey="__other" stackId="expenses" name={env.cashFlowChartOtherLabel} fill={OTHER_COLOR} /> : null}
+          <Line type="monotone" dataKey="__sales" name={env.cashFlowChartSalesLabel} stroke={SALES_COLOR} strokeWidth={2.5} dot={false} />
+          <Line type="monotone" dataKey="__net" name={env.cashFlowChartNetLabel} stroke={NET_COLOR} strokeWidth={2.5} dot={false} />
+        </ComposedChart>
+      </ResponsiveContainer>
+    </section>
   )
 }
 
