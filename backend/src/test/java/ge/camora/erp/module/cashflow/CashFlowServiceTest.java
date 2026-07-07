@@ -133,6 +133,27 @@ class CashFlowServiceTest {
         assertThat(cell(matrix, "sales")).isEqualByComparingTo("150.00");
     }
 
+    @Test
+    void drilldownReturnsTransactionsForCategoryAndMonth() {
+        ruleStore.upsert(CashFlowMatchType.TAX_ID, "123456789", null, "rent", "user");
+        bog.transactions = List.of(
+            debit("100.00", "123456789", "Landlord"),
+            debit("40.00", "123456789", "Landlord")
+        );
+        var drilldown = service.drilldown("rent", "2026-02", FROM, TO);
+        assertThat(drilldown.transactions()).hasSize(2);
+        assertThat(drilldown.total()).isEqualByComparingTo("140.00");
+        assertThat(drilldown.transactions()).allMatch(txn -> txn.resolvedBy().equals("RULE_TAX_ID"));
+        assertThat(drilldown.transactions().get(0).fingerprint()).isNotBlank();
+    }
+
+    @Test
+    void categoriesExposeSeededGeorgianTree() {
+        var categories = service.categories();
+        assertThat(categories).anyMatch(c -> c.id().equals("rent") && c.directionNameKa().equals("გასავლები"));
+        assertThat(categories).anyMatch(c -> c.sectionNameKa().equals("საოპერაციო საქმიანობა"));
+    }
+
     // helpers ------------------------------------------------------------------
 
     private static BigDecimal cell(CashFlowMatrixDto matrix, String categoryId) {
