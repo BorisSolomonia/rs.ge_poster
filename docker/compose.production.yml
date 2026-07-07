@@ -17,7 +17,10 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          # Cash-flow/supplier-debt load the full bank ledgers (tens of thousands of
+          # rows) into memory for a wide range; 1G (heap ~768M at MaxRAMPercentage=75)
+          # gives headroom over the previous 768M. Raises the cap only.
+          memory: 1G
           cpus: "0.5"
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8080/health/readiness"]

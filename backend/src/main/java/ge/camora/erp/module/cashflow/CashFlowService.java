@@ -96,13 +96,14 @@ public class CashFlowService {
         RangeKey range = normalizeRange(dateFrom, dateTo);
         List<SourcedTransaction> transactions = sourced(range, false);
         List<String> months = monthColumns(range);
-        Map<String, CashFlowCategory> categories = categoriesById();
+        ResolutionContext context = loadContext();
+        Map<String, CashFlowCategory> categories = context.categoriesById();
 
         // categoryId -> (monthKey -> signed total) and categoryId -> count
         Map<String, Map<String, BigDecimal>> byCategory = new LinkedHashMap<>();
         Map<String, Integer> counts = new LinkedHashMap<>();
         for (SourcedTransaction sourced : transactions) {
-            Resolution resolution = resolve(sourced, categories);
+            Resolution resolution = resolve(sourced, context);
             String monthKey = sourced.transaction().date().format(MONTH_KEY);
             byCategory.computeIfAbsent(resolution.categoryId(), ignored -> new LinkedHashMap<>())
                 .merge(monthKey, MoneyUtil.round(sourced.transaction().amount()), BigDecimal::add);
@@ -114,7 +115,7 @@ public class CashFlowService {
             List<CashFlowMatrixDirectionDto> directions = new ArrayList<>();
             for (CashFlowDirection direction : List.of(CashFlowDirection.INFLOW, CashFlowDirection.OUTFLOW)) {
                 List<CashFlowMatrixCategoryDto> categoryRows = new ArrayList<>();
-                List<CashFlowCategory> leaves = categoryStore.list().stream()
+                List<CashFlowCategory> leaves = context.categories().stream()
                     .filter(category -> category.getSection() == section && category.getDirection() == direction)
                     .toList();
                 for (CashFlowCategory leaf : leaves) {
@@ -166,13 +167,14 @@ public class CashFlowService {
             throw new IllegalArgumentException("categoryId is required");
         }
         RangeKey range = normalizeRange(dateFrom, dateTo);
-        Map<String, CashFlowCategory> categories = categoriesById();
+        ResolutionContext context = loadContext();
+        Map<String, CashFlowCategory> categories = context.categoriesById();
         List<SourcedTransaction> transactions = sourced(range, false);
 
         List<CashFlowTransactionDto> rows = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
         for (SourcedTransaction sourced : transactions) {
-            Resolution resolution = resolve(sourced, categories);
+            Resolution resolution = resolve(sourced, context);
             if (!resolution.categoryId().equals(categoryId)) {
                 continue;
             }
@@ -294,31 +296,33 @@ public class CashFlowService {
     // ── Internals ─────────────────────────────────────────────────────────────
 
     private List<SourcedTransaction> sourced(RangeKey range, boolean forceRefresh) {
-        if (!forceRefresh) {
-            List<SourcedTransaction> cached = sourceCache.getIfPresent(range);
-            if (cached != null) {
-                return cached;
-            }
+        if (forceRefresh) {
+            sourceCache.invalidate(range);
         }
         try {
-            List<SourcedTransaction> combined = new ArrayList<>();
-            List<BankTransaction> bog = sourceLedgerStore.syncBank(BOG, range.dateFrom(), range.dateTo(),
-                this::fetchBogStatementsInWindows);
-            bog.forEach(txn -> combined.add(new SourcedTransaction(BOG, txn)));
-            List<BankTransaction> tbc = sourceLedgerStore.syncBank(TBC, range.dateFrom(), range.dateTo(),
-                tbcDbiClient::getAccountMovements);
-            tbc.forEach(txn -> combined.add(new SourcedTransaction(TBC, txn)));
-            List<SourcedTransaction> dated = combined.stream()
-                .filter(sourced -> sourced.transaction().date() != null)
-                .toList();
-            sourceCache.put(range, dated);
-            lastRefreshAt = LocalDateTime.now();
-            lastRefreshError = "";
-            return dated;
+            // Atomic load: concurrent requests for the same range share ONE fetch so
+            // the (large) ledgers are not loaded into memory several times at once.
+            return sourceCache.get(range, this::loadSources);
         } catch (RuntimeException exception) {
             lastRefreshError = exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage();
             throw exception;
         }
+    }
+
+    private List<SourcedTransaction> loadSources(RangeKey range) {
+        List<SourcedTransaction> combined = new ArrayList<>();
+        List<BankTransaction> bog = sourceLedgerStore.syncBank(BOG, range.dateFrom(), range.dateTo(),
+            this::fetchBogStatementsInWindows);
+        bog.forEach(txn -> combined.add(new SourcedTransaction(BOG, txn)));
+        List<BankTransaction> tbc = sourceLedgerStore.syncBank(TBC, range.dateFrom(), range.dateTo(),
+            tbcDbiClient::getAccountMovements);
+        tbc.forEach(txn -> combined.add(new SourcedTransaction(TBC, txn)));
+        List<SourcedTransaction> dated = combined.stream()
+            .filter(sourced -> sourced.transaction().date() != null)
+            .toList();
+        lastRefreshAt = LocalDateTime.now();
+        lastRefreshError = "";
+        return dated;
     }
 
     /** Wraps BOG statement calls in windows to respect its pagination limits (mirrors SupplierDebtService). */
@@ -343,10 +347,22 @@ public class CashFlowService {
         return transactions;
     }
 
-    Resolution resolve(SourcedTransaction sourced, Map<String, CashFlowCategory> categories) {
+    // Rules, overrides and categories are loaded ONCE per request into the context
+    // and reused for every transaction. Reading those files per transaction (there
+    // can be tens of thousands in a wide range) was an allocation storm that
+    // exhausted the heap.
+    private ResolutionContext loadContext() {
+        List<CashFlowCategory> categories = categoryStore.list();
+        Map<String, CashFlowCategory> byId = categories.stream()
+            .collect(Collectors.toMap(CashFlowCategory::getId, category -> category, (left, ignored) -> left, LinkedHashMap::new));
+        return new ResolutionContext(byId, categories, ruleStore.list(), overrideStore.categoryByFingerprint());
+    }
+
+    Resolution resolve(SourcedTransaction sourced, ResolutionContext context) {
         BankTransaction txn = sourced.transaction();
         CashFlowDirection direction = directionOf(txn);
         String fingerprint = CashFlowFingerprint.of(sourced.source(), txn);
+        Map<String, CashFlowCategory> categories = context.categoriesById();
 
         // A credit (inflow) must land in an INFLOW category and a debit (outflow) in
         // an OUTFLOW one. So an override/rule only applies when its target category's
@@ -354,14 +370,13 @@ public class CashFlowService {
         // occasional opposite-direction transaction (e.g. a supplier refund) would be
         // filed under the wrong side. Mismatches fall through to the correct-direction
         // UNCATEGORIZED bucket.
-        Optional<String> override = overrideStore.categoryFor(fingerprint);
-        if (override.isPresent() && matchesDirection(override.get(), direction, categories)) {
-            return new Resolution(override.get(), RESOLVED_OVERRIDE, fingerprint, direction);
+        String overrideCategory = context.overridesByFingerprint().get(fingerprint);
+        if (overrideCategory != null && matchesDirection(overrideCategory, direction, categories)) {
+            return new Resolution(overrideCategory, RESOLVED_OVERRIDE, fingerprint, direction);
         }
 
-        List<TransactionCategoryRule> rules = ruleStore.list();
         for (RuleCandidate candidate : ruleCandidates(txn)) {
-            Optional<TransactionCategoryRule> match = findRule(rules, candidate.matchType(), candidate.value(), direction);
+            Optional<TransactionCategoryRule> match = findRule(context.rules(), candidate.matchType(), candidate.value(), direction);
             if (match.isPresent() && matchesDirection(match.get().getCategoryId(), direction, categories)) {
                 return new Resolution(match.get().getCategoryId(), "RULE_" + candidate.matchType().name(), fingerprint, direction);
             }
@@ -559,6 +574,14 @@ public class CashFlowService {
     }
 
     record Resolution(String categoryId, String resolvedBy, String fingerprint, CashFlowDirection direction) {
+    }
+
+    record ResolutionContext(
+        Map<String, CashFlowCategory> categoriesById,
+        List<CashFlowCategory> categories,
+        List<TransactionCategoryRule> rules,
+        Map<String, String> overridesByFingerprint
+    ) {
     }
 
     private record RangeKey(LocalDate dateFrom, LocalDate dateTo) {
