@@ -120,6 +120,39 @@ class SourceLedgerStoreTest {
         assertThat(narrow.get(0).amount()).isEqualByComparingTo("600.00");
     }
 
+    @Test
+    void rawPayloadIsNeverPersistedInTheBankLedger() throws Exception {
+        String hugePayload = "X".repeat(50_000);
+        BankTransaction withPayload = new BankTransaction(
+            LocalDate.now().minusDays(3), BankTransaction.DEBIT, new BigDecimal("10.00"), "GEL",
+            "GE00OUR", "Vendor", "123456789", "GE00CP", "desc", "REF-1", hugePayload);
+
+        store.syncBank("TBC", LocalDate.now().minusDays(30), LocalDate.now(), recordingFetcher(List.of(withPayload)));
+
+        String ledgerJson = java.nio.file.Files.readString(tempDir.resolve("bank-ledger-tbc.json"));
+        assertThat(ledgerJson).doesNotContain(hugePayload);
+        assertThat(ledgerJson).doesNotContain("rawPayload");
+    }
+
+    @Test
+    void bloatedLedgerRowsDeserializeWithRawPayloadDropped() throws Exception {
+        // A pre-fix ledger on disk carries rawPayload per row; loading it must not
+        // materialize those strings (this is the path that OOM'd in production).
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        String json = "{"
+            + "\"date\":\"2026-02-01\",\"direction\":\"DEBIT\",\"amount\":10.00,\"currency\":\"GEL\","
+            + "\"accountNumber\":\"GE00OUR\",\"counterparty\":\"Vendor\",\"counterpartyInn\":\"123456789\","
+            + "\"counterpartyAccount\":\"GE00CP\",\"description\":\"desc\",\"reference\":\"REF-1\","
+            + "\"rawPayload\":\"" + "X".repeat(50_000) + "\"}";
+
+        BankTransaction loaded = mapper.readValue(json, BankTransaction.class);
+
+        assertThat(loaded.rawPayload()).isNull();
+        assertThat(loaded.counterparty()).isEqualTo("Vendor");
+        assertThat(loaded.amount()).isEqualByComparingTo("10.00");
+    }
+
     private SourceLedgerStore.SourceFetcher<BankTransaction> recordingFetcher(List<BankTransaction> result) {
         return (from, to) -> {
             fetchCalls.add(new LocalDate[]{from, to});

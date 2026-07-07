@@ -1,10 +1,18 @@
 package ge.camora.erp.module.bankanalysis;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
+// rawPayload holds the full raw bank payload per transaction. It is useful only
+// at fetch time (debug views force-refresh to see it) and must NOT be persisted:
+// the SourceLedgerStore ledgers accumulate a full date range across both banks,
+// so writing rawPayload per row bloats the JSON until loading it OOMs the heap.
+// @JsonIgnoreProperties keeps it out of serialization AND skips it on read, so
+// existing over-sized ledger files also load without materializing those strings.
+@JsonIgnoreProperties({"rawPayload"})
 public record BankTransaction(
     LocalDate date,
     String direction,
