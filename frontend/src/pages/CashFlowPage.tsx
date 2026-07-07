@@ -299,6 +299,7 @@ export default function CashFlowPage() {
         <DrilldownPanel
           title={`${env.cashFlowDrilldownTitle}: ${drilldown.categoryNameKa}${drilldown.month ? ` · ${drilldown.month}` : ''}`}
           loading={drilldownQuery.isLoading}
+          error={drilldownQuery.error instanceof Error ? drilldownQuery.error : null}
           transactions={drilldownQuery.data?.transactions ?? []}
           categories={categories}
           onClose={() => setDrilldown(null)}
@@ -352,6 +353,7 @@ export default function CashFlowPage() {
 function DrilldownPanel({
   title,
   loading,
+  error,
   transactions,
   categories,
   onClose,
@@ -359,33 +361,41 @@ function DrilldownPanel({
 }: {
   title: string
   loading: boolean
+  error: Error | null
   transactions: CashFlowTransaction[]
   categories: CashFlowCategory[]
   onClose: () => void
   onSelectCategory: (txn: CashFlowTransaction, categoryId: string) => void
 }) {
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-slate-100 p-4">
-        <h2 className="text-base font-black text-slate-950">{title}</h2>
-        <button type="button" onClick={onClose} className="text-sm font-semibold text-slate-500 hover:text-slate-800">✕</button>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="min-w-[820px] w-full text-left text-xs">
-          <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wide text-slate-500">
-            <tr>
-              <th className="px-3 py-2">{env.cashFlowColDateLabel}</th>
-              <th className="px-3 py-2">{env.cashFlowColSourceLabel}</th>
-              <th className="px-3 py-2">{env.cashFlowColCounterpartyLabel}</th>
-              <th className="px-3 py-2 text-right">{env.cashFlowColAmountLabel}</th>
-              <th className="px-3 py-2">{env.cashFlowColCategoryLabel}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {loading ? (
-              <tr><td className="px-3 py-5 text-slate-500" colSpan={5}>...</td></tr>
-            ) : null}
-            {transactions.map((txn) => (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 p-4 sm:p-8">
+      <section className="w-full max-w-5xl rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="flex items-center justify-between border-b border-slate-100 p-4">
+          <h2 className="text-base font-black text-slate-950">{title}</h2>
+          <button type="button" onClick={onClose} className="rounded-lg px-2 py-1 text-sm font-black text-slate-500 hover:bg-slate-100 hover:text-slate-800">✕</button>
+        </div>
+        {error ? (
+          <div className="m-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-red-800">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" aria-hidden="true" />
+            <p className="text-xs font-semibold">{error.message}</p>
+          </div>
+        ) : null}
+        <div className="max-h-[70vh] overflow-auto">
+          <table className="min-w-[820px] w-full text-left text-xs">
+            <thead className="sticky top-0 bg-slate-50 text-[11px] font-black uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-3 py-2">{env.cashFlowColDateLabel}</th>
+                <th className="px-3 py-2">{env.cashFlowColSourceLabel}</th>
+                <th className="px-3 py-2">{env.cashFlowColCounterpartyLabel}</th>
+                <th className="px-3 py-2 text-right">{env.cashFlowColAmountLabel}</th>
+                <th className="px-3 py-2">{env.cashFlowColCategoryLabel}</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {loading ? (
+                <tr><td className="px-3 py-5 text-slate-500" colSpan={5}>{env.cashFlowRefreshingLabel}</td></tr>
+              ) : null}
+              {transactions.map((txn) => (
               <tr key={txn.fingerprint} className="text-slate-700">
                 <td className="px-3 py-2">{txn.date}</td>
                 <td className="px-3 py-2">{txn.source}</td>
@@ -412,13 +422,14 @@ function DrilldownPanel({
                 </td>
               </tr>
             ))}
-            {!loading && transactions.length === 0 ? (
-              <tr><td className="px-3 py-5 text-slate-500" colSpan={5}>{env.cashFlowNoDataLabel}</td></tr>
-            ) : null}
-          </tbody>
-        </table>
-      </div>
-    </section>
+              {!loading && !error && transactions.length === 0 ? (
+                <tr><td className="px-3 py-5 text-slate-500" colSpan={5}>{env.cashFlowNoDataLabel}</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
   )
 }
 
