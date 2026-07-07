@@ -7,7 +7,6 @@ import ge.camora.erp.model.dto.SupplierCreditorActiveRequest;
 import ge.camora.erp.model.dto.SupplierCreditorOverviewDto;
 import ge.camora.erp.model.dto.SupplierCreditorRowDto;
 import ge.camora.erp.model.dto.SupplierCashPaymentRequest;
-import ge.camora.erp.model.dto.SupplierDebtAuditDto;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
 import ge.camora.erp.model.dto.SupplierDebtRawPayloadDto;
 import ge.camora.erp.model.dto.SupplierDebtRowDto;
@@ -47,14 +46,6 @@ public class SupplierDebtController {
         @RequestParam(defaultValue = "false") boolean refreshSources
     ) {
         return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.overview(dateFrom, dateTo, refreshSources)));
-    }
-
-    @PostMapping("/sync-now")
-    public ResponseEntity<ApiResponse<SupplierDebtOverviewDto>> syncNow(
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
-    ) {
-        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.syncNow(dateFrom, dateTo)));
     }
 
     @PostMapping("/refresh")
@@ -118,14 +109,6 @@ public class SupplierDebtController {
             dateTo,
             refreshSources
         )));
-    }
-
-    @PostMapping("/audit-random")
-    public ResponseEntity<ApiResponse<SupplierDebtAuditDto>> auditRandom(
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
-        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
-    ) {
-        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.auditRandom(dateFrom, dateTo)));
     }
 
     @GetMapping("/debug/raw-payloads")

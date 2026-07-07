@@ -645,34 +645,6 @@ export interface SupplierDebtUnmatchedGroup {
   examples: SupplierDebtPayment[]
 }
 
-export interface SupplierDebtAuditSupplier {
-  supplierKey: string
-  supplierTin: string
-  supplierName: string
-  passed: boolean
-  snapshotPurchaseTotal: number
-  freshPurchaseTotal: number
-  snapshotBogPaidTotal: number
-  freshBogPaidTotal: number
-  snapshotTbcPaidTotal: number
-  freshTbcPaidTotal: number
-  snapshotCashPaidTotal: number
-  freshCashPaidTotal: number
-  snapshotDebtLeft: number
-  freshDebtLeft: number
-  debtDifference: number
-}
-
-export interface SupplierDebtAudit {
-  dateFrom: string
-  dateTo: string
-  auditedAt: string
-  passed: boolean
-  sampledSupplierCount: number
-  failedSupplierCount: number
-  suppliers: SupplierDebtAuditSupplier[]
-}
-
 export interface SupplierDebtOverview {
   dateFrom: string
   dateTo: string
@@ -696,7 +668,6 @@ export interface SupplierDebtOverview {
   lastRefreshStartedAt: string | null
   lastRefreshCompletedAt: string | null
   lastRefreshError: string
-  latestAudit: SupplierDebtAudit | null
 }
 
 export interface SupplierCashPayment {

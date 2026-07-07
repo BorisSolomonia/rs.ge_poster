@@ -13,8 +13,6 @@ import ge.camora.erp.model.dto.SupplierCreditorOverviewDto;
 import ge.camora.erp.model.dto.SupplierCreditorRowDto;
 import ge.camora.erp.model.dto.SupplierCreditorOverviewDto;
 import ge.camora.erp.model.dto.SupplierCreditorRowDto;
-import ge.camora.erp.model.dto.SupplierDebtAuditDto;
-import ge.camora.erp.model.dto.SupplierDebtAuditSupplierDto;
 import ge.camora.erp.model.dto.SupplierDebtOverviewDto;
 import ge.camora.erp.model.dto.SupplierDebtPaymentDto;
 import ge.camora.erp.model.dto.SupplierDebtPurchaseDto;
@@ -47,7 +45,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HexFormat;
@@ -154,10 +151,6 @@ public class SupplierDebtService {
         }
         startBackgroundRefresh(range);
         return emptyOverview(range, refreshInProgress.get());
-    }
-
-    public SupplierDebtOverviewDto syncNow(LocalDate dateFrom, LocalDate dateTo) {
-        return refreshSnapshot(normalizeRange(dateFrom, dateTo), true);
     }
 
     @Scheduled(
@@ -371,39 +364,6 @@ public class SupplierDebtService {
             && tbcTransactionCache.getIfPresent(range) != null;
     }
 
-    public SupplierDebtAuditDto auditRandom(LocalDate dateFrom, LocalDate dateTo) {
-        RangeKey range = normalizeRange(dateFrom, dateTo);
-        SupplierDebtOverviewDto snapshot = snapshotStore.load()
-            .filter(saved -> canServeSavedSnapshot(saved, range))
-            .orElseGet(() -> refreshSnapshot(range, true));
-        SupplierDebtOverviewDto fresh = calculateOverview(range, true, false);
-
-        List<SupplierDebtRowDto> sample = new ArrayList<>(snapshot.suppliers());
-        Collections.shuffle(sample);
-        int sampleSize = Math.min(10, Math.max(3, (int) Math.ceil(sample.size() * 0.10)));
-        if (sample.size() > sampleSize) {
-            sample = sample.subList(0, sampleSize);
-        }
-
-        Map<String, SupplierDebtRowDto> freshBySupplier = fresh.suppliers().stream()
-            .collect(Collectors.toMap(SupplierDebtRowDto::supplierKey, row -> row, (left, ignored) -> left));
-        List<SupplierDebtAuditSupplierDto> auditedSuppliers = sample.stream()
-            .map(snapshotRow -> auditSupplier(snapshotRow, freshBySupplier.get(snapshotRow.supplierKey())))
-            .toList();
-        int failedCount = (int) auditedSuppliers.stream().filter(row -> !row.passed()).count();
-        SupplierDebtAuditDto audit = new SupplierDebtAuditDto(
-            range.dateFrom(),
-            range.dateTo(),
-            LocalDateTime.now(),
-            failedCount == 0,
-            auditedSuppliers.size(),
-            failedCount,
-            auditedSuppliers
-        );
-        snapshotStore.save(withAudit(snapshot, audit));
-        return audit;
-    }
-
     private void startBackgroundRefresh(RangeKey range) {
         if (!refreshInProgress.compareAndSet(false, true)) {
             return;
@@ -425,8 +385,7 @@ public class SupplierDebtService {
                     false,
                     startedAt,
                     completedAt,
-                    "",
-                    latestAuditFromSnapshot()
+                    ""
                 ));
             } catch (RuntimeException exception) {
                 lastRefreshCompletedAt = LocalDateTime.now();
@@ -455,8 +414,7 @@ public class SupplierDebtService {
                 false,
                 startedAt,
                 completedAt,
-                "",
-                latestAuditFromSnapshot()
+                ""
             );
             return snapshotStore.save(snapshot);
         } catch (RuntimeException exception) {
@@ -489,8 +447,7 @@ public class SupplierDebtService {
             inProgress,
             lastRefreshStartedAt,
             lastRefreshCompletedAt,
-            lastRefreshError == null ? "" : lastRefreshError,
-            latestAuditFromSnapshot()
+            lastRefreshError == null ? "" : lastRefreshError
         );
     }
 
@@ -595,8 +552,7 @@ public class SupplierDebtService {
             false,
             null,
             null,
-            "",
-            null
+            ""
         );
     }
 
@@ -1029,37 +985,6 @@ public class SupplierDebtService {
         return new SupplierIdentity("name:" + ConfigStore.normalizeSalesKey(name), "", name);
     }
 
-    private SupplierDebtAuditSupplierDto auditSupplier(SupplierDebtRowDto snapshotRow, SupplierDebtRowDto freshRow) {
-        SupplierDebtRowDto effectiveFresh = freshRow == null ? emptySupplierRow(snapshotRow.supplierKey()) : freshRow;
-        BigDecimal debtDifference = MoneyUtil.round(snapshotRow.debtLeft().subtract(effectiveFresh.debtLeft()));
-        boolean passed = same(snapshotRow.purchaseTotal(), effectiveFresh.purchaseTotal())
-            && same(snapshotRow.bogPaidTotal(), effectiveFresh.bogPaidTotal())
-            && same(snapshotRow.tbcPaidTotal(), effectiveFresh.tbcPaidTotal())
-            && same(snapshotRow.cashPaidTotal(), effectiveFresh.cashPaidTotal())
-            && same(snapshotRow.debtLeft(), effectiveFresh.debtLeft());
-        return new SupplierDebtAuditSupplierDto(
-            snapshotRow.supplierKey(),
-            snapshotRow.supplierTin(),
-            snapshotRow.supplierName(),
-            passed,
-            snapshotRow.purchaseTotal(),
-            effectiveFresh.purchaseTotal(),
-            snapshotRow.bogPaidTotal(),
-            effectiveFresh.bogPaidTotal(),
-            snapshotRow.tbcPaidTotal(),
-            effectiveFresh.tbcPaidTotal(),
-            snapshotRow.cashPaidTotal(),
-            effectiveFresh.cashPaidTotal(),
-            snapshotRow.debtLeft(),
-            effectiveFresh.debtLeft(),
-            debtDifference
-        );
-    }
-
-    private boolean same(BigDecimal left, BigDecimal right) {
-        return MoneyUtil.round(left).compareTo(MoneyUtil.round(right)) == 0;
-    }
-
     private Map<String, SupplierIdentity> knownCreditorSuppliers() {
         Map<String, SupplierIdentity> suppliers = new LinkedHashMap<>();
         configStore.getAllSupplierMappings().stream()
@@ -1231,10 +1156,6 @@ public class SupplierDebtService {
         return new RangeKey(effectiveDateFrom, effectiveDateTo);
     }
 
-    private SupplierDebtAuditDto latestAuditFromSnapshot() {
-        return snapshotStore.load().map(SupplierDebtOverviewDto::latestAudit).orElse(null);
-    }
-
     private List<SupplierDebtRowDto> markNewRsgeSuppliers(
         List<SupplierDebtRowDto> rows,
         boolean hasPreviousSnapshot,
@@ -1279,8 +1200,7 @@ public class SupplierDebtService {
             inProgress,
             lastRefreshStartedAt == null ? overview.lastRefreshStartedAt() : lastRefreshStartedAt,
             lastRefreshCompletedAt == null ? overview.lastRefreshCompletedAt() : lastRefreshCompletedAt,
-            lastRefreshError == null || lastRefreshError.isBlank() ? overview.lastRefreshError() : lastRefreshError,
-            overview.latestAudit()
+            lastRefreshError == null || lastRefreshError.isBlank() ? overview.lastRefreshError() : lastRefreshError
         );
     }
 
@@ -1296,20 +1216,7 @@ public class SupplierDebtService {
             false,
             startedAt,
             completedAt,
-            error,
-            overview.latestAudit()
-        );
-    }
-
-    private SupplierDebtOverviewDto withAudit(SupplierDebtOverviewDto overview, SupplierDebtAuditDto audit) {
-        return withSnapshotMetadata(
-            overview,
-            overview.snapshotGeneratedAt(),
-            false,
-            overview.lastRefreshStartedAt(),
-            overview.lastRefreshCompletedAt(),
-            overview.lastRefreshError(),
-            audit
+            error
         );
     }
 
@@ -1319,8 +1226,7 @@ public class SupplierDebtService {
         boolean refreshInProgress,
         LocalDateTime lastRefreshStartedAt,
         LocalDateTime lastRefreshCompletedAt,
-        String lastRefreshError,
-        SupplierDebtAuditDto latestAudit
+        String lastRefreshError
     ) {
         return new SupplierDebtOverviewDto(
             overview.dateFrom(),
@@ -1344,8 +1250,7 @@ public class SupplierDebtService {
             refreshInProgress,
             lastRefreshStartedAt,
             lastRefreshCompletedAt,
-            lastRefreshError == null ? "" : lastRefreshError,
-            latestAudit
+            lastRefreshError == null ? "" : lastRefreshError
         );
     }
 

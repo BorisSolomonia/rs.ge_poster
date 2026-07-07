@@ -10,7 +10,6 @@ const SalesAnalysisPage = lazy(() => import('./pages/SalesAnalysisPage'))
 const CashFlowPage = lazy(() => import('./pages/CashFlowPage'))
 const BankAnalysisPage = lazy(() => import('./pages/BankAnalysisPage'))
 const SupplierDebtsPage = lazy(() => import('./pages/SupplierDebtsPage'))
-const AuditControlPage = lazy(() => import('./pages/AuditControlPage'))
 const SalesProductsPage = lazy(() => import('./pages/SalesProductsPage'))
 const SupplierMappingPage = lazy(() => import('./pages/SupplierMappingPage'))
 const ProductMappingPage = lazy(() => import('./pages/ProductMappingPage'))
@@ -64,7 +63,6 @@ export default function AppRoutes() {
             <Route path={env.routeCashFlow} element={<CashFlowPage />} />
             <Route path={env.routeBankAnalysis} element={<BankAnalysisPage />} />
             <Route path={env.routeSupplierDebts} element={<SupplierDebtsPage />} />
-            <Route path={env.routeAuditControl} element={<AuditControlPage />} />
             <Route path={env.routeSalesProducts} element={<SalesProductsPage />} />
             <Route path={env.routeSupplierMappings} element={<SupplierMappingPage />} />
             <Route path={env.routeProductMappings} element={<ProductMappingPage />} />

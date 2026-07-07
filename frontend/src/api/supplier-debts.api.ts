@@ -6,7 +6,6 @@ import type {
   SupplierCashPaymentInput,
   SupplierCreditorOverview,
   SupplierCreditorRow,
-  SupplierDebtAudit,
   SupplierDebtOverview,
   SupplierDebtRawPayloads,
   SupplierDebtRow,
@@ -85,16 +84,6 @@ export async function startSupplierDebtRefresh(
   return unwrapData(res)
 }
 
-export async function syncSupplierDebtSources(
-  dateFrom?: string,
-  dateTo?: string,
-): Promise<SupplierDebtOverview> {
-  const res = await client.post<ApiResponse<SupplierDebtOverview>>(`${BASE}/sync-now`, null, {
-    params: dateParams(dateFrom, dateTo),
-  })
-  return unwrapData(res)
-}
-
 export async function getSupplierDebtSupplierTransactions(
   supplierKey: string,
   dateFrom?: string,
@@ -103,13 +92,6 @@ export async function getSupplierDebtSupplierTransactions(
 ): Promise<SupplierDebtRow> {
   const res = await client.get<ApiResponse<SupplierDebtRow>>(`${BASE}/suppliers/${encodeURIComponent(supplierKey)}/transactions`, {
     params: dateParams(dateFrom, dateTo, refreshSources),
-  })
-  return unwrapData(res)
-}
-
-export async function auditSupplierDebts(dateFrom?: string, dateTo?: string): Promise<SupplierDebtAudit> {
-  const res = await client.post<ApiResponse<SupplierDebtAudit>>(`${BASE}/audit-random`, null, {
-    params: dateParams(dateFrom, dateTo),
   })
   return unwrapData(res)
 }

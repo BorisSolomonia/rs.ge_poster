@@ -10,7 +10,6 @@ import {
   Wallet,
   CreditCard,
   ReceiptText,
-  ClipboardCheck,
   Menu,
   X,
 } from 'lucide-react'
@@ -22,7 +21,6 @@ const navItems = [
   { to: env.routeCashFlow, label: env.navCashFlowLabel, icon: Wallet },
   { to: env.routeBankAnalysis, label: env.navBankAnalysisLabel, icon: CreditCard },
   { to: env.routeSupplierDebts, label: env.navSupplierDebtsLabel, icon: ReceiptText },
-  { to: env.routeAuditControl, label: env.navAuditControlLabel, icon: ClipboardCheck },
   { to: env.routeSalesProducts, label: env.navSalesProductsLabel, icon: Package },
   { to: env.routeSupplierMappings, label: env.navSuppliersLabel, icon: Users },
   { to: env.routeProductMappings, label: env.navProductsLabel, icon: Package },

@@ -29,7 +29,6 @@ public record SupplierDebtOverviewDto(
     boolean refreshInProgress,
     LocalDateTime lastRefreshStartedAt,
     LocalDateTime lastRefreshCompletedAt,
-    String lastRefreshError,
-    SupplierDebtAuditDto latestAudit
+    String lastRefreshError
 ) {
 }

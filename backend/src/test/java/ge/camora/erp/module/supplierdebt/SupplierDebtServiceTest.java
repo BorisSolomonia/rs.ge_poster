@@ -513,7 +513,7 @@ class SupplierDebtServiceTest {
     }
 
     @Test
-    void syncNowForcesFreshSourcesAndReplacesSavedSnapshot() {
+    void forcedRefreshFetchesFreshSourcesAndReplacesSavedSnapshot() {
         LocalDate from = LocalDate.of(2025, 1, 1);
         LocalDate to = LocalDate.of(2025, 1, 31);
         rsge.records = List.of(
@@ -532,7 +532,7 @@ class SupplierDebtServiceTest {
         );
 
         var staleRead = service.overview(from, to, false);
-        var synced = service.syncNow(from, to);
+        var synced = service.overview(from, to, true);
 
         assertThat(staleRead.purchaseTotal()).isEqualByComparingTo(saved.purchaseTotal());
         assertThat(synced.purchaseTotal()).isEqualByComparingTo("800.00");
@@ -854,8 +854,7 @@ class SupplierDebtServiceTest {
             overview.refreshInProgress(),
             overview.lastRefreshStartedAt(),
             overview.lastRefreshCompletedAt(),
-            overview.lastRefreshError(),
-            overview.latestAudit()
+            overview.lastRefreshError()
         );
     }
 
