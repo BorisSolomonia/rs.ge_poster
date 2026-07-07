@@ -1,885 +1,532 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ChevronDown, ChevronRight, RefreshCcw, Wallet } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, ListChecks, RefreshCcw, Trash2 } from 'lucide-react'
 import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import {
-  getCashFlowCategoryDebug,
+  categorizeTransaction,
+  deleteCashFlowRule,
   getCashFlowCategories,
-  getCashFlowOverview,
+  getCashFlowMatrix,
+  getCashFlowRules,
   getCashFlowStatus,
   getCashFlowTransactions,
-  getCashFlowWarnings,
   refreshCashFlow,
+  upsertCashFlowRule,
+  type CategorizeScope,
 } from '../api/cash-flow.api'
-import { deleteCashFlowMapping, getCashFlowMappings, upsertCashFlowMapping } from '../api/cash-flow-mappings.api'
+import Drawer from '../components/common/Drawer'
+import ChoiceDialog from '../components/common/ChoiceDialog'
 import { formatGel } from '../components/reconciliation/reconciliation.utils'
 import { env } from '../env'
 import type {
-  CashFlowAnalysisMetric,
-  CashFlowCategoryDebugRow,
+  CashFlowCategory,
+  CashFlowMatchType,
+  CashFlowRule,
   CashFlowTransaction,
-  CashFlowUnmappedCategory,
-  CashFlowWarning,
 } from '../types'
 
-const groupColors = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#64748b']
+const DEFAULT_FROM = '2025-01-01'
+
+function formatLocalDate(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+function today() {
+  return formatLocalDate(new Date())
+}
+
+function cell(value: number) {
+  return value === 0 ? '—' : formatGel(value)
+}
+
+type Drilldown = { categoryId: string; categoryNameKa: string; month: string | null }
+type PendingChange = { txn: CashFlowTransaction; categoryId: string }
 
 export default function CashFlowPage() {
   const queryClient = useQueryClient()
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [selectedMonth, setSelectedMonth] = useState('')
-  const [expandedMonths, setExpandedMonths] = useState<string[]>([])
-  const [drilldown, setDrilldown] = useState<{ month: string; group?: string; category?: string } | null>(null)
-  const [mappingSelections, setMappingSelections] = useState<Record<string, string>>({})
+  const [dateFrom, setDateFrom] = useState(DEFAULT_FROM)
+  const [dateTo, setDateTo] = useState(today)
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set(['OPERATING']))
+  const [openDirections, setOpenDirections] = useState<Set<string>>(new Set(['OPERATING|INFLOW', 'OPERATING|OUTFLOW']))
+  const [drilldown, setDrilldown] = useState<Drilldown | null>(null)
+  const [pendingChange, setPendingChange] = useState<PendingChange | null>(null)
+  const [mappingOpen, setMappingOpen] = useState(false)
 
-  const statusQuery = useQuery({
-    queryKey: ['cash-flow-status'],
-    queryFn: getCashFlowStatus,
-    refetchInterval: 30_000,
+  const matrixQuery = useQuery({
+    queryKey: ['cash-flow-matrix', dateFrom, dateTo],
+    queryFn: () => getCashFlowMatrix(dateFrom, dateTo),
   })
+  const categoriesQuery = useQuery({ queryKey: ['cash-flow-categories'], queryFn: getCashFlowCategories })
+  const statusQuery = useQuery({ queryKey: ['cash-flow-status'], queryFn: getCashFlowStatus })
 
-  const overviewQuery = useQuery({
-    queryKey: ['cash-flow-overview', from, to],
-    queryFn: () => getCashFlowOverview(from || undefined, to || undefined),
-    refetchInterval: 60_000,
+  const drilldownQuery = useQuery({
+    queryKey: ['cash-flow-drilldown', drilldown?.categoryId, drilldown?.month, dateFrom, dateTo],
+    queryFn: () => getCashFlowTransactions(drilldown!.categoryId, drilldown!.month, dateFrom, dateTo),
+    enabled: drilldown != null,
   })
-
-  const months = useMemo(() => overviewQuery.data?.months ?? [], [overviewQuery.data?.months])
-
-  useEffect(() => {
-    if (!selectedMonth && months.length > 0) {
-      setSelectedMonth(months[months.length - 1].month)
-    }
-    if (expandedMonths.length === 0 && months.length > 0) {
-      setExpandedMonths([months[months.length - 1].month])
-    }
-  }, [months, selectedMonth, expandedMonths.length])
-
-  useEffect(() => {
-    if (months.length === 0) {
-      if (selectedMonth) {
-        setSelectedMonth('')
-      }
-      return
-    }
-    if (!months.some((month) => month.month === selectedMonth)) {
-      setSelectedMonth(months[months.length - 1].month)
-    }
-  }, [months, selectedMonth])
 
   const refreshMutation = useMutation({
-    mutationFn: refreshCashFlow,
-    onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-status'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-overview'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-categories'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-warnings'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-transactions'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-income-debug'] }),
-      ])
+    mutationFn: () => refreshCashFlow(dateFrom, dateTo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-matrix'] })
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-status'] })
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-drilldown'] })
     },
   })
 
-  const categoriesQuery = useQuery({
-    queryKey: ['cash-flow-categories', selectedMonth],
-    queryFn: () => getCashFlowCategories(selectedMonth),
-    enabled: Boolean(selectedMonth),
+  const categorizeMutation = useMutation({
+    mutationFn: (body: {
+      fingerprint: string
+      categoryId: string
+      scope: CategorizeScope
+      counterpartyInn?: string
+      counterpartyAccount?: string
+      counterparty?: string
+    }) => categorizeTransaction(body),
+    onSuccess: () => {
+      setPendingChange(null)
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-matrix'] })
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-drilldown'] })
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-rules'] })
+    },
   })
 
-  const mappingsQuery = useQuery({
-    queryKey: ['cash-flow-mappings', from, to],
-    queryFn: () => getCashFlowMappings(from || undefined, to || undefined),
-  })
+  const matrix = matrixQuery.data
+  const categories = categoriesQuery.data ?? []
+  const months = matrix?.months ?? []
+  const loadError = matrixQuery.error instanceof Error ? matrixQuery.error : null
+  const actionError =
+    (refreshMutation.error instanceof Error ? refreshMutation.error : null) ??
+    (categorizeMutation.error instanceof Error ? categorizeMutation.error : null)
 
-  const warningsQuery = useQuery({
-    queryKey: ['cash-flow-warnings', selectedMonth],
-    queryFn: () => getCashFlowWarnings(selectedMonth || undefined),
-    enabled: Boolean(selectedMonth),
-  })
+  function toggle(set: Set<string>, key: string): Set<string> {
+    const next = new Set(set)
+    if (next.has(key)) {
+      next.delete(key)
+    } else {
+      next.add(key)
+    }
+    return next
+  }
 
-  const incomeDebugQuery = useQuery({
-    queryKey: ['cash-flow-income-debug', from, to],
-    queryFn: () => getCashFlowCategoryDebug('რეალიზაცია', from || undefined, to || undefined),
-    enabled: Boolean(overviewQuery.data),
-  })
-
-  const transactionsQuery = useQuery({
-    queryKey: ['cash-flow-transactions', drilldown?.month, drilldown?.group, drilldown?.category],
-    queryFn: () => getCashFlowTransactions(drilldown!.month, drilldown?.group, drilldown?.category),
-    enabled: Boolean(drilldown),
-  })
-
-  useEffect(() => {
-    if (!mappingsQuery.data) {
+  function onSelectCategory(txn: CashFlowTransaction, categoryId: string) {
+    if (!categoryId || categoryId === txn.categoryId) {
       return
     }
-    setMappingSelections((current) => {
-      const next = { ...current }
-      for (const mapping of mappingsQuery.data.mappings) {
-        next[mapping.sourceCategory] = mapping.targetCategory
-      }
-      return next
-    })
-  }, [mappingsQuery.data])
+    setPendingChange({ txn, categoryId })
+  }
 
-  const mappingMutation = useMutation({
-    mutationFn: ({ sourceCategory, targetCategory }: { sourceCategory: string; targetCategory: string }) =>
-      upsertCashFlowMapping(sourceCategory, targetCategory),
-    onSuccess: async (_, variables) => {
-      setMappingSelections((current) => ({ ...current, [variables.sourceCategory]: variables.targetCategory }))
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-status'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-overview'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-categories'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-warnings'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-transactions'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-mappings'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-income-debug'] }),
-      ])
-    },
-  })
-
-  const deleteMappingMutation = useMutation({
-    mutationFn: deleteCashFlowMapping,
-    onSuccess: async (_, sourceCategory) => {
-      setMappingSelections((current) => {
-        const next = { ...current }
-        delete next[sourceCategory]
-        return next
-      })
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-status'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-overview'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-categories'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-warnings'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-transactions'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-mappings'] }),
-        queryClient.invalidateQueries({ queryKey: ['cash-flow-income-debug'] }),
-      ])
-    },
-  })
-
-  const selectedMonthData = months.find((month) => month.month === selectedMonth) ?? months[months.length - 1]
-  const periodSummary = useMemo(() => {
-    if (months.length === 0) {
-      return null
-    }
-    return months.reduce((summary, month) => ({
-      totalInflow: summary.totalInflow + month.totalInflow,
-      totalOutflow: summary.totalOutflow + month.totalOutflow,
-      netMovement: summary.netMovement + month.netMovement,
-      endingCash: month.endingCash,
-      endingBog: month.endingBog,
-      endingTbc: month.endingTbc,
-      totalEndingBalance: month.totalEndingBalance,
-      warningCount: summary.warningCount + month.warningCount,
-    }), {
-      totalInflow: 0,
-      totalOutflow: 0,
-      netMovement: 0,
-      endingCash: 0,
-      endingBog: 0,
-      endingTbc: 0,
-      totalEndingBalance: 0,
-      warningCount: 0,
-    })
-  }, [months])
-  const trendData = months.map((month) => ({
-    month: month.month,
-    inflow: month.totalInflow,
-    outflow: month.totalOutflow,
-    net: month.netMovement,
-    balance: month.totalEndingBalance,
-  }))
-  const expenseData = useMemo(
-    () =>
-      (categoriesQuery.data ?? [])
-        .flatMap((group) => group.group === 'EXPENSE' ? group.categories : [])
-        .sort((left, right) => right.amount - left.amount)
-        .slice(0, 6)
-        .map((category, index) => ({
-          name: category.category,
-          value: category.amount,
-          color: groupColors[index % groupColors.length],
-        })),
-    [categoriesQuery.data]
-  )
+  const colCount = months.length + 2
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
-      <div className="mb-6 rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-sky-950 p-6 text-white shadow-xl">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="max-w-2xl">
-            <p className="mb-2 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-sky-100">
-              <Wallet className="h-3.5 w-3.5" />
-              {env.navCashFlowLabel}
-            </p>
-            <h1 className="text-3xl font-bold tracking-tight">{env.cashFlowTitle}</h1>
-            <p className="mt-3 text-sm text-slate-200">{env.cashFlowInfo}</p>
+    <main className="mx-auto max-w-[1600px] space-y-4 overflow-x-hidden text-xs sm:text-[13px]">
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div className="min-w-0">
+            <p className="text-[11px] font-black uppercase tracking-[0.22em] text-cyan-700">Cash Flow</p>
+            <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{env.cashFlowTitle}</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{env.cashFlowInfo}</p>
           </div>
-          <div className="min-w-[280px] rounded-2xl bg-white/10 p-4 backdrop-blur">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <StatusLine label={env.cashFlowStatusLabel} value={statusQuery.data?.status ?? 'IDLE'} />
-              <StatusLine label={env.cashFlowLastSyncLabel} value={formatDateTime(statusQuery.data?.lastSuccessAt)} />
-            </div>
-            {statusQuery.data?.lastError && (
-              <div className="mt-3 rounded-xl border border-red-300/40 bg-red-500/10 p-3 text-xs text-red-100">
-                {statusQuery.data.lastError}
-              </div>
-            )}
+          <div className="grid gap-2 sm:grid-cols-[150px_150px_auto_auto] sm:items-end">
+            <label className="grid gap-1 font-bold text-slate-600">
+              {env.cashFlowDateFromLabel}
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(event) => setDateFrom(event.target.value)}
+                className="h-10 rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-950 focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
+              />
+            </label>
+            <label className="grid gap-1 font-bold text-slate-600">
+              {env.cashFlowDateToLabel}
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(event) => setDateTo(event.target.value)}
+                className="h-10 rounded-lg border border-slate-200 bg-white px-3 font-semibold text-slate-950 focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
+              />
+            </label>
+            <button
+              type="button"
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-slate-950 px-4 font-black text-white transition hover:bg-cyan-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100 disabled:cursor-wait disabled:opacity-70"
+            >
+              <RefreshCcw className={`h-4 w-4 ${refreshMutation.isPending ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {refreshMutation.isPending ? env.cashFlowRefreshingLabel : env.cashFlowRefreshLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => setMappingOpen(true)}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 font-black text-slate-700 transition hover:bg-slate-50"
+            >
+              <ListChecks className="h-4 w-4" aria-hidden="true" />
+              {env.cashFlowMappingSheetLabel}
+            </button>
           </div>
         </div>
-      </div>
+        {statusQuery.data?.lastRefreshAt ? (
+          <p className="mt-3 text-[11px] font-semibold text-slate-500">
+            {env.cashFlowLastRefreshLabel}: {new Date(statusQuery.data.lastRefreshAt).toLocaleString()}
+          </p>
+        ) : null}
+      </section>
 
-      <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-end gap-4">
-          <MonthField label={env.cashFlowMonthFromLabel} value={from} onChange={setFrom} />
-          <MonthField label={env.cashFlowMonthToLabel} value={to} onChange={setTo} />
-          <button
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending || statusQuery.data?.refreshInProgress}
-            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <RefreshCcw className={`h-4 w-4 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
-            {env.cashFlowRefreshLabel}
-          </button>
+      {loadError || actionError ? (
+        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-800">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0" aria-hidden="true" />
+          <p className="text-sm font-semibold">{(actionError ?? loadError)?.message}</p>
         </div>
-      </div>
+      ) : null}
 
-      {!selectedMonthData && (
-        <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
-          {env.cashFlowNoDataLabel}
-        </div>
-      )}
-
-      {selectedMonthData && periodSummary && (
-        <>
-          <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricCard label={env.cashFlowTotalInflowLabel} value={periodSummary.totalInflow} tone="emerald" />
-            <MetricCard label={env.cashFlowTotalOutflowLabel} value={periodSummary.totalOutflow} tone="amber" />
-            <MetricCard label={env.cashFlowNetMovementLabel} value={periodSummary.netMovement} tone="sky" />
-            <MetricCard label={env.cashFlowEndingCashLabel} value={periodSummary.endingCash} tone="slate" />
-            <MetricCard label={env.cashFlowEndingBogLabel} value={periodSummary.endingBog} tone="sky" />
-            <MetricCard label={env.cashFlowEndingTbcLabel} value={periodSummary.endingTbc} tone="violet" />
-            <MetricCard label={env.cashFlowEndingTotalLabel} value={periodSummary.totalEndingBalance} tone="emerald" />
-            <MetricCard label={env.cashFlowWarningStateLabel} value={periodSummary.warningCount} tone="rose" isCount />
-          </div>
-
-          {overviewQuery.data?.analysis && (
-            <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4">
-                <h2 className="text-base font-semibold text-slate-800">{env.cashFlowAnalysisTitle}</h2>
-                <p className="mt-1 text-sm text-slate-500">{formatPeriodLabel(overviewQuery.data.analysis.currentPeriod)}</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <HeaderCell>{env.cashFlowCategoryColumnLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowAnalysisCurrentLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowAnalysisPreviousMonthLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowAnalysisDeltaLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowAnalysisPreviousYearLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowAnalysisDeltaLabel}</HeaderCell>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <AnalysisRow
-                      label={env.cashFlowTotalInflowLabel}
-                      metric={overviewQuery.data.analysis.totalInflow}
-                      previousMonthPeriod={overviewQuery.data.analysis.previousMonthPeriod}
-                      previousYearPeriod={overviewQuery.data.analysis.previousYearPeriod}
-                    />
-                    <AnalysisRow
-                      label={env.cashFlowTotalOutflowLabel}
-                      metric={overviewQuery.data.analysis.totalOutflow}
-                      previousMonthPeriod={overviewQuery.data.analysis.previousMonthPeriod}
-                      previousYearPeriod={overviewQuery.data.analysis.previousYearPeriod}
-                    />
-                    <AnalysisRow
-                      label={env.cashFlowNetMovementLabel}
-                      metric={overviewQuery.data.analysis.netMovement}
-                      previousMonthPeriod={overviewQuery.data.analysis.previousMonthPeriod}
-                      previousYearPeriod={overviewQuery.data.analysis.previousYearPeriod}
-                    />
-                    <AnalysisRow
-                      label={env.cashFlowEndingTotalLabel}
-                      metric={overviewQuery.data.analysis.totalEndingBalance}
-                      previousMonthPeriod={overviewQuery.data.analysis.previousMonthPeriod}
-                      previousYearPeriod={overviewQuery.data.analysis.previousYearPeriod}
-                    />
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          <div className="mb-6 grid gap-6 xl:grid-cols-2">
-            <ChartCard title={env.cashFlowTrendInOutTitle}>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(value: number) => formatGel(value)} />
-                  <Legend />
-                  <Bar dataKey="inflow" fill="#059669" name={env.cashFlowTotalInflowLabel} />
-                  <Bar dataKey="outflow" fill="#d97706" name={env.cashFlowTotalOutflowLabel} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard title={env.cashFlowTrendNetTitle}>
-              <ResponsiveContainer width="100%" height={260}>
-                <AreaChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(value: number) => formatGel(value)} />
-                  <Area type="monotone" dataKey="net" stroke="#2563eb" fill="#bfdbfe" name={env.cashFlowNetMovementLabel} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard title={env.cashFlowTrendBalanceTitle}>
-              <ResponsiveContainer width="100%" height={260}>
-                <AreaChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(value: number) => formatGel(value)} />
-                  <Area type="monotone" dataKey="balance" stroke="#0f766e" fill="#a7f3d0" name={env.cashFlowEndingTotalLabel} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard title={env.cashFlowExpenseCompositionTitle}>
-              <ResponsiveContainer width="100%" height={260}>
-                <PieChart>
-                  <Pie data={expenseData} dataKey="value" nameKey="name" outerRadius={88} innerRadius={48}>
-                    {expenseData.map((entry) => (
-                      <Cell key={entry.name} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value: number) => formatGel(value)} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </ChartCard>
-          </div>
-
-          <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-200 px-5 py-4">
-              <h2 className="text-base font-semibold text-slate-800">{env.cashFlowTableTitle}</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <HeaderCell>{env.cashFlowMonthColumnLabel}</HeaderCell>
-                    <HeaderCell>{env.cashFlowTotalInflowLabel}</HeaderCell>
-                    <HeaderCell>{env.cashFlowTotalOutflowLabel}</HeaderCell>
-                    <HeaderCell>{env.cashFlowNetMovementLabel}</HeaderCell>
-                    <HeaderCell>{env.cashFlowEndingTotalLabel}</HeaderCell>
-                    <HeaderCell>{env.cashFlowWarningStateLabel}</HeaderCell>
-                  </tr>
-                </thead>
-                <tbody>
-                  {months.map((month) => {
-                    const expanded = expandedMonths.includes(month.month)
-                    return (
-                      <React.Fragment key={month.month}>
-                        <tr className="border-t border-slate-100">
-                          <BodyCell>
-                            <button
-                              onClick={() =>
-                                setExpandedMonths((current) =>
-                                  current.includes(month.month)
-                                    ? current.filter((item) => item !== month.month)
-                                    : [...current, month.month]
-                                )
-                              }
-                              className="inline-flex items-center gap-2 font-semibold text-slate-800"
-                            >
-                              {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                              {month.month}
-                            </button>
-                          </BodyCell>
-                          <BodyCell>{formatGel(month.totalInflow)}</BodyCell>
-                          <BodyCell>{formatGel(month.totalOutflow)}</BodyCell>
-                          <BodyCell className={month.netMovement < 0 ? 'text-amber-700' : 'text-emerald-700'}>{formatGel(month.netMovement)}</BodyCell>
-                          <BodyCell>{formatGel(month.totalEndingBalance)}</BodyCell>
-                          <BodyCell>{month.warningCount}</BodyCell>
-                        </tr>
-                        {expanded && month.groups.map((group) => (
-                          <React.Fragment key={`${month.month}:${group.group}`}>
-                            <tr className="border-t border-slate-50 bg-slate-50/70">
-                              <BodyCell className="pl-10 font-semibold text-slate-700">{group.group}</BodyCell>
-                              <BodyCell>{''}</BodyCell>
-                              <BodyCell>{''}</BodyCell>
-                              <BodyCell>{formatGel(group.amount)}</BodyCell>
-                              <BodyCell>{''}</BodyCell>
-                              <BodyCell>{group.transactionCount}</BodyCell>
-                            </tr>
-                            {group.categories.map((category) => (
-                              <tr
-                                key={`${month.month}:${group.group}:${category.category}`}
-                                className="cursor-pointer border-t border-slate-50 hover:bg-slate-50"
-                                onClick={() => {
-                                  setSelectedMonth(month.month)
-                                  setDrilldown({ month: month.month, group: group.group, category: category.category })
-                                }}
-                              >
-                                <BodyCell className="pl-16 text-slate-600">{category.category}</BodyCell>
-                                <BodyCell>{''}</BodyCell>
-                                <BodyCell>{''}</BodyCell>
-                                <BodyCell>{formatGel(category.amount)}</BodyCell>
-                                <BodyCell>{''}</BodyCell>
-                                <BodyCell>{category.transactionCount}</BodyCell>
-                              </tr>
-                            ))}
-                          </React.Fragment>
-                        ))}
-                      </React.Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="mb-6 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="mb-4 flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4 text-amber-600" />
-                <h2 className="text-base font-semibold text-slate-800">{env.cashFlowWarningsTitle}</h2>
-              </div>
-              <div className="space-y-3">
-                {(warningsQuery.data?.warnings ?? []).slice(0, 12).map((warning) => (
-                  <WarningItem key={`${warning.month}:${warning.sourceRow}:${warning.code}`} warning={warning} />
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="overflow-x-auto">
+          <table className="min-w-[900px] w-full text-left text-xs">
+            <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="sticky left-0 z-10 bg-slate-50 px-3 py-3">{env.cashFlowCategoryColumnLabel}</th>
+                <th className="px-3 py-3 text-right">{env.cashFlowTotalLabel}</th>
+                {months.map((month) => (
+                  <th key={month} className="px-3 py-3 text-right">{month}</th>
                 ))}
-                {warningsQuery.data && warningsQuery.data.total === 0 && (
-                  <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700">No warnings for this month.</div>
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-base font-semibold text-slate-800">{env.cashFlowDrilldownTitle}</h2>
-              {!drilldown && (
-                <div className="rounded-xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
-                  Click a category row in the monthly cash flow table to inspect source transactions.
-                </div>
-              )}
-              {drilldown && (
-                <div className="space-y-4">
-                  <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-                    <span className="font-semibold">{drilldown.month}</span>
-                    {drilldown.group ? ` • ${drilldown.group}` : ''}
-                    {drilldown.category ? ` • ${drilldown.category}` : ''}
-                  </div>
-                  <div className="max-h-[420px] overflow-auto">
-                    <table className="min-w-full text-sm">
-                      <thead className="bg-slate-50 text-slate-500">
-                        <tr>
-                          <HeaderCell>{env.cashFlowSourceRowColumnLabel}</HeaderCell>
-                          <HeaderCell>{env.cashFlowSourceCategoryColumnLabel}</HeaderCell>
-                          <HeaderCell>{env.cashFlowCategoryColumnLabel}</HeaderCell>
-                          <HeaderCell>{env.cashFlowAmountColumnLabel}</HeaderCell>
-                          <HeaderCell>{env.cashFlowIssuesColumnLabel}</HeaderCell>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {(transactionsQuery.data?.transactions ?? []).map((transaction) => (
-                          <TransactionRow key={`${transaction.sourceRow}:${transaction.category}`} transaction={transaction} />
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-800">{env.cashFlowUnmappedTitle}</h2>
-                <p className="mt-1 text-sm text-slate-500">{env.cashFlowUnmappedInfo}</p>
-              </div>
-              <div className="rounded-xl bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
-                {env.cashFlowUnmappedTotalLabel}: {formatGel(overviewQuery.data?.unmappedTotal ?? 0)}
-              </div>
-            </div>
-
-            {(overviewQuery.data?.unmappedCategories ?? []).length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-300 p-6 text-sm text-slate-500">
-                All source categories are mapped.
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <HeaderCell>{env.cashFlowSourceCategoryColumnLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowAmountColumnLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowTransactionCountLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowMapTargetLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowIssuesColumnLabel}</HeaderCell>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {matrixQuery.isLoading ? (
+                <tr><td className="px-4 py-6 text-slate-500" colSpan={colCount}>...</td></tr>
+              ) : null}
+              {matrix?.sections.map((section) => {
+                const sectionOpen = openSections.has(section.sectionKey)
+                return (
+                  <Fragment key={section.sectionKey}>
+                    <tr className="bg-slate-100/70 font-black text-slate-950">
+                      <td className="sticky left-0 z-10 bg-slate-100/70 px-3 py-2">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-2"
+                          onClick={() => setOpenSections((prev) => toggle(prev, section.sectionKey))}
+                        >
+                          {sectionOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          {section.nameKa}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">{cell(section.total)}</td>
+                      {months.map((month) => (
+                        <td key={month} className="px-3 py-2 text-right tabular-nums">{cell(section.monthly[month] ?? 0)}</td>
+                      ))}
                     </tr>
-                  </thead>
-                  <tbody>
-                    {(overviewQuery.data?.unmappedCategories ?? []).map((category) => (
-                      <UnmappedCategoryRow
-                        key={category.sourceCategory}
-                        category={category}
-                        options={mappingsQuery.data?.canonicalCategories ?? []}
-                        selectedTarget={mappingSelections[category.sourceCategory] ?? ''}
-                        onSelect={(targetCategory) =>
-                          setMappingSelections((current) => ({ ...current, [category.sourceCategory]: targetCategory }))
-                        }
-                        onSave={() => {
-                          const targetCategory = mappingSelections[category.sourceCategory]
-                          if (targetCategory) {
-                            mappingMutation.mutate({ sourceCategory: category.sourceCategory, targetCategory })
-                          }
-                        }}
-                        onDelete={() => deleteMappingMutation.mutate(category.sourceCategory)}
-                        isSaving={
-                          mappingMutation.isPending && mappingMutation.variables?.sourceCategory === category.sourceCategory
-                        }
-                        isDeleting={
-                          deleteMappingMutation.isPending
-                          && deleteMappingMutation.variables === category.sourceCategory
-                        }
-                      />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+                    {sectionOpen && section.directions.map((direction) => {
+                      const dirKey = `${section.sectionKey}|${direction.direction}`
+                      const dirOpen = openDirections.has(dirKey)
+                      return (
+                        <Fragment key={dirKey}>
+                          <tr className="bg-white font-bold text-slate-800">
+                            <td className="sticky left-0 z-10 bg-white px-3 py-2 pl-6">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-2"
+                                onClick={() => setOpenDirections((prev) => toggle(prev, dirKey))}
+                              >
+                                {dirOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                {direction.nameKa}
+                              </button>
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">{cell(direction.total)}</td>
+                            {months.map((month) => (
+                              <td key={month} className="px-3 py-2 text-right tabular-nums">{cell(direction.monthly[month] ?? 0)}</td>
+                            ))}
+                          </tr>
+                          {dirOpen && direction.categories.map((category) => (
+                            <tr key={category.categoryId} className="text-slate-700 hover:bg-cyan-50/50">
+                              <td className="sticky left-0 z-10 bg-white px-3 py-2 pl-12">
+                                <button
+                                  type="button"
+                                  className="text-left hover:text-cyan-700 hover:underline"
+                                  onClick={() => setDrilldown({ categoryId: category.categoryId, categoryNameKa: category.nameKa, month: null })}
+                                >
+                                  {category.nameKa}
+                                </button>
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums font-semibold">
+                                <button
+                                  type="button"
+                                  className="hover:text-cyan-700 hover:underline"
+                                  onClick={() => setDrilldown({ categoryId: category.categoryId, categoryNameKa: category.nameKa, month: null })}
+                                >
+                                  {cell(category.total)}
+                                </button>
+                              </td>
+                              {months.map((month) => {
+                                const value = category.monthly[month] ?? 0
+                                return (
+                                  <td key={month} className="px-3 py-2 text-right tabular-nums">
+                                    {value === 0 ? (
+                                      '—'
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        className="hover:text-cyan-700 hover:underline"
+                                        onClick={() => setDrilldown({ categoryId: category.categoryId, categoryNameKa: category.nameKa, month })}
+                                      >
+                                        {formatGel(value)}
+                                      </button>
+                                    )}
+                                  </td>
+                                )
+                              })}
+                            </tr>
+                          ))}
+                        </Fragment>
+                      )
+                    })}
+                  </Fragment>
+                )
+              })}
+              {!matrixQuery.isLoading && (matrix?.sections.length ?? 0) === 0 ? (
+                <tr><td className="px-4 py-6 text-slate-500" colSpan={colCount}>{env.cashFlowNoDataLabel}</td></tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
 
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <h2 className="text-base font-semibold text-slate-800">{env.cashFlowIncomeDebugTitle}</h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {formatGel(incomeDebugQuery.data?.totalAmount ?? 0)} • {env.cashFlowIncomeDebugIncludedLabel}: {incomeDebugQuery.data?.includedRowCount ?? 0} • {env.cashFlowIncomeDebugExcludedLabel}: {incomeDebugQuery.data?.excludedRowCount ?? 0}
-                </p>
-              </div>
-            </div>
-            <div className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-              <div className="rounded-xl bg-slate-50 p-4">
-                <h3 className="mb-3 text-sm font-semibold text-slate-700">Months</h3>
-                <div className="space-y-2">
-                  {(incomeDebugQuery.data?.months ?? []).map((month) => (
-                    <div key={month.month} className="flex items-center justify-between rounded-lg bg-white px-3 py-2 text-sm">
-                      <span className="font-medium text-slate-700">{month.month}</span>
-                      <span className="font-semibold text-slate-900">{formatGel(month.amount)}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-slate-50 text-slate-500">
-                    <tr>
-                      <HeaderCell>{env.cashFlowSourceRowColumnLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowSourceCategoryColumnLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowCategoryColumnLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowAmountColumnLabel}</HeaderCell>
-                      <HeaderCell>{env.cashFlowIssuesColumnLabel}</HeaderCell>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(incomeDebugQuery.data?.rows ?? []).slice(0, 25).map((row) => (
-                      <IncomeDebugRow key={`${row.sourceRow}:${row.date}`} row={row} />
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
+      {drilldown ? (
+        <DrilldownPanel
+          title={`${env.cashFlowDrilldownTitle}: ${drilldown.categoryNameKa}${drilldown.month ? ` · ${drilldown.month}` : ''}`}
+          loading={drilldownQuery.isLoading}
+          transactions={drilldownQuery.data?.transactions ?? []}
+          categories={categories}
+          onClose={() => setDrilldown(null)}
+          onSelectCategory={onSelectCategory}
+        />
+      ) : null}
 
-function MetricCard({ label, value, tone, isCount = false }: { label: string; value: number; tone: 'emerald' | 'amber' | 'sky' | 'slate' | 'violet' | 'rose'; isCount?: boolean }) {
-  const tones = {
-    emerald: 'from-emerald-50 to-white border-emerald-200',
-    amber: 'from-amber-50 to-white border-amber-200',
-    sky: 'from-sky-50 to-white border-sky-200',
-    slate: 'from-slate-100 to-white border-slate-200',
-    violet: 'from-violet-50 to-white border-violet-200',
-    rose: 'from-rose-50 to-white border-rose-200',
-  }
-  return (
-    <div className={`rounded-2xl border bg-gradient-to-br p-5 shadow-sm ${tones[tone]}`}>
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-      <p className="mt-3 text-2xl font-bold text-slate-900">{isCount ? value : formatGel(value)}</p>
-    </div>
-  )
-}
-
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-4 text-base font-semibold text-slate-800">{title}</h2>
-      {children}
-    </div>
-  )
-}
-
-function HeaderCell({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-[0.14em]">{children}</th>
-}
-
-function BodyCell({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <td className={`px-4 py-3 text-slate-700 ${className}`}>{children}</td>
-}
-
-function AnalysisRow({
-  label,
-  metric,
-  previousMonthPeriod,
-  previousYearPeriod,
-}: {
-  label: string
-  metric: CashFlowAnalysisMetric
-  previousMonthPeriod: { dateFrom: string | null; dateTo: string | null; available: boolean }
-  previousYearPeriod: { dateFrom: string | null; dateTo: string | null; available: boolean }
-}) {
-  return (
-    <tr className="border-t border-slate-100 align-top">
-      <BodyCell className="font-semibold text-slate-800">{label}</BodyCell>
-      <BodyCell>{formatAnalysisValue(metric.currentValue)}</BodyCell>
-      <BodyCell>
-        <div>{previousMonthPeriod.available ? formatAnalysisValue(metric.previousMonthValue) : env.cashFlowAnalysisNoComparisonLabel}</div>
-        <div className="text-xs text-slate-500">{formatPeriodLabel(previousMonthPeriod)}</div>
-      </BodyCell>
-      <BodyCell>{formatDelta(metric.previousMonthDelta.amount, metric.previousMonthDelta.percent)}</BodyCell>
-      <BodyCell>
-        <div>{previousYearPeriod.available ? formatAnalysisValue(metric.previousYearValue) : env.cashFlowAnalysisNoComparisonLabel}</div>
-        <div className="text-xs text-slate-500">{formatPeriodLabel(previousYearPeriod)}</div>
-      </BodyCell>
-      <BodyCell>{formatDelta(metric.previousYearDelta.amount, metric.previousYearDelta.percent)}</BodyCell>
-    </tr>
-  )
-}
-
-function MonthField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return (
-    <div>
-      <label className="mb-1 block text-xs font-medium text-slate-600">{label}</label>
-      <input
-        type="date"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+      <ChoiceDialog
+        open={pendingChange != null}
+        title={env.cashFlowCascadeTitle}
+        message={env.cashFlowCascadeQuestion}
+        busy={categorizeMutation.isPending}
+        cancelLabel={env.cashFlowCancelLabel}
+        onCancel={() => setPendingChange(null)}
+        options={
+          pendingChange
+            ? [
+                {
+                  label: env.cashFlowApplyAllLabel,
+                  info: env.cashFlowApplyAllInfo,
+                  onSelect: () =>
+                    categorizeMutation.mutate({
+                      fingerprint: pendingChange.txn.fingerprint,
+                      categoryId: pendingChange.categoryId,
+                      scope: 'CASCADE',
+                      counterpartyInn: pendingChange.txn.counterpartyInn,
+                      counterpartyAccount: pendingChange.txn.counterpartyAccount,
+                      counterparty: pendingChange.txn.counterparty,
+                    }),
+                },
+                {
+                  label: env.cashFlowApplyOneLabel,
+                  info: env.cashFlowApplyOneInfo,
+                  onSelect: () =>
+                    categorizeMutation.mutate({
+                      fingerprint: pendingChange.txn.fingerprint,
+                      categoryId: pendingChange.categoryId,
+                      scope: 'SINGLE',
+                    }),
+                },
+              ]
+            : []
+        }
       />
-    </div>
+
+      <MappingSheet open={mappingOpen} onClose={() => setMappingOpen(false)} categories={categories} />
+    </main>
   )
 }
 
-function StatusLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl bg-white/10 p-3">
-      <p className="text-[11px] uppercase tracking-[0.2em] text-slate-300">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
-    </div>
-  )
-}
-
-function WarningItem({ warning }: { warning: CashFlowWarning }) {
-  return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-      <div className="flex items-center justify-between gap-4">
-        <span className="font-semibold">{warning.code}</span>
-        <span className="text-xs">{warning.month} • row {warning.sourceRow}</span>
-      </div>
-      <p className="mt-1 text-xs">{warning.message}</p>
-    </div>
-  )
-}
-
-function TransactionRow({ transaction }: { transaction: CashFlowTransaction }) {
-  const amount = transaction.cashInflow + transaction.bogInflow + transaction.tbcInflow
-    - transaction.cashOutflow - transaction.bogOutflow - transaction.tbcOutflow
-    - transaction.materialValue - transaction.serviceValue
-  return (
-    <tr className="border-t border-slate-100 align-top">
-      <BodyCell>{transaction.sourceRow}</BodyCell>
-      <BodyCell>
-        <div className="font-semibold text-slate-800">{transaction.sourceCategory}</div>
-      </BodyCell>
-      <BodyCell>
-        <div className="font-semibold text-slate-800">{transaction.category}</div>
-        <div className="text-xs text-slate-500">{transaction.date ?? transaction.month}</div>
-        {transaction.counterparty && <div className="text-xs text-slate-500">{transaction.counterparty}</div>}
-      </BodyCell>
-      <BodyCell>{formatGel(amount)}</BodyCell>
-      <BodyCell>
-        <div className="flex flex-wrap gap-1">
-          {transaction.issues.length
-            ? transaction.issues.map((issue) => (
-                <span key={issue} className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                  {issue}
-                </span>
-              ))
-            : <span className="text-slate-400">-</span>}
-        </div>
-      </BodyCell>
-    </tr>
-  )
-}
-
-function UnmappedCategoryRow({
-  category,
-  options,
-  selectedTarget,
-  onSelect,
-  onSave,
-  onDelete,
-  isSaving,
-  isDeleting,
+function DrilldownPanel({
+  title,
+  loading,
+  transactions,
+  categories,
+  onClose,
+  onSelectCategory,
 }: {
-  category: CashFlowUnmappedCategory
-  options: string[]
-  selectedTarget: string
-  onSelect: (value: string) => void
-  onSave: () => void
-  onDelete: () => void
-  isSaving: boolean
-  isDeleting: boolean
+  title: string
+  loading: boolean
+  transactions: CashFlowTransaction[]
+  categories: CashFlowCategory[]
+  onClose: () => void
+  onSelectCategory: (txn: CashFlowTransaction, categoryId: string) => void
 }) {
   return (
-    <tr className="border-t border-slate-100 align-top">
-      <BodyCell className="font-semibold text-slate-800">{category.sourceCategory}</BodyCell>
-      <BodyCell>{formatGel(category.amount)}</BodyCell>
-      <BodyCell>{category.transactionCount}</BodyCell>
-      <BodyCell>
-        <select
-          value={selectedTarget}
-          onChange={(e) => onSelect(e.target.value)}
-          className="min-w-[220px] rounded-xl border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/20"
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="flex items-center justify-between border-b border-slate-100 p-4">
+        <h2 className="text-base font-black text-slate-950">{title}</h2>
+        <button type="button" onClick={onClose} className="text-sm font-semibold text-slate-500 hover:text-slate-800">✕</button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-[820px] w-full text-left text-xs">
+          <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-3 py-2">{env.cashFlowColDateLabel}</th>
+              <th className="px-3 py-2">{env.cashFlowColSourceLabel}</th>
+              <th className="px-3 py-2">{env.cashFlowColCounterpartyLabel}</th>
+              <th className="px-3 py-2 text-right">{env.cashFlowColAmountLabel}</th>
+              <th className="px-3 py-2">{env.cashFlowColCategoryLabel}</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {loading ? (
+              <tr><td className="px-3 py-5 text-slate-500" colSpan={5}>...</td></tr>
+            ) : null}
+            {transactions.map((txn) => (
+              <tr key={txn.fingerprint} className="text-slate-700">
+                <td className="px-3 py-2">{txn.date}</td>
+                <td className="px-3 py-2">{txn.source}</td>
+                <td className="px-3 py-2">
+                  <span className="font-semibold text-slate-900">{txn.counterparty || '—'}</span>
+                  {txn.counterpartyInn ? <span className="ml-1 text-[11px] text-slate-400">{txn.counterpartyInn}</span> : null}
+                  {txn.description ? <span className="block text-[11px] text-slate-400">{txn.description}</span> : null}
+                </td>
+                <td className="px-3 py-2 text-right tabular-nums font-semibold">{formatGel(txn.amount)}</td>
+                <td className="px-3 py-2">
+                  <select
+                    value={txn.categoryId}
+                    onChange={(event) => onSelectCategory(txn, event.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs focus-visible:border-cyan-500 focus-visible:outline-none"
+                  >
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.directionNameKa} · {category.nameKa}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+              </tr>
+            ))}
+            {!loading && transactions.length === 0 ? (
+              <tr><td className="px-3 py-5 text-slate-500" colSpan={5}>{env.cashFlowNoDataLabel}</td></tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function MappingSheet({
+  open,
+  onClose,
+  categories,
+}: {
+  open: boolean
+  onClose: () => void
+  categories: CashFlowCategory[]
+}) {
+  const queryClient = useQueryClient()
+  const [matchType, setMatchType] = useState<CashFlowMatchType>('TAX_ID')
+  const [matchValue, setMatchValue] = useState('')
+  const [categoryId, setCategoryId] = useState('')
+
+  const rulesQuery = useQuery({ queryKey: ['cash-flow-rules'], queryFn: getCashFlowRules, enabled: open })
+
+  const addMutation = useMutation({
+    mutationFn: () => upsertCashFlowRule({ matchType, matchValue: matchValue.trim(), categoryId }),
+    onSuccess: () => {
+      setMatchValue('')
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-rules'] })
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-matrix'] })
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-drilldown'] })
+    },
+  })
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteCashFlowRule(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-rules'] })
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-matrix'] })
+      queryClient.invalidateQueries({ queryKey: ['cash-flow-drilldown'] })
+    },
+  })
+
+  const addError = addMutation.error instanceof Error ? addMutation.error : null
+
+  return (
+    <Drawer open={open} title={env.cashFlowMappingSheetTitle} onClose={onClose}>
+      <p className="text-xs text-slate-500">{env.cashFlowMappingSheetInfo}</p>
+
+      <div className="mt-4 space-y-2 rounded-xl border border-slate-200 p-3">
+        <div className="grid grid-cols-2 gap-2">
+          <label className="grid gap-1 text-[11px] font-bold text-slate-600">
+            {env.cashFlowRuleMatchTypeLabel}
+            <select
+              value={matchType}
+              onChange={(event) => setMatchType(event.target.value as CashFlowMatchType)}
+              className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+            >
+              <option value="TAX_ID">TAX_ID</option>
+              <option value="IBAN">IBAN</option>
+              <option value="NAME">NAME</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-[11px] font-bold text-slate-600">
+            {env.cashFlowRuleMatchValueLabel}
+            <input
+              value={matchValue}
+              onChange={(event) => setMatchValue(event.target.value)}
+              className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+            />
+          </label>
+        </div>
+        <label className="grid gap-1 text-[11px] font-bold text-slate-600">
+          {env.cashFlowColCategoryLabel}
+          <select
+            value={categoryId}
+            onChange={(event) => setCategoryId(event.target.value)}
+            className="h-9 rounded-lg border border-slate-200 px-2 text-xs"
+          >
+            <option value="">{env.cashFlowSelectCategoryLabel}</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>{category.directionNameKa} · {category.nameKa}</option>
+            ))}
+          </select>
+        </label>
+        {addError ? <p className="text-[11px] font-semibold text-red-600">{addError.message}</p> : null}
+        <button
+          type="button"
+          disabled={!matchValue.trim() || !categoryId || addMutation.isPending}
+          onClick={() => addMutation.mutate()}
+          className="w-full rounded-lg bg-cyan-700 px-3 py-2 text-xs font-black text-white transition hover:bg-cyan-800 disabled:opacity-50"
         >
-          <option value="">{env.cashFlowSelectCategoryLabel}</option>
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
-      </BodyCell>
-      <BodyCell>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={onSave}
-            disabled={!selectedTarget || isSaving}
-            className="rounded-xl bg-sky-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {env.cashFlowMapSaveLabel}
-          </button>
-          <button
-            onClick={onDelete}
-            disabled={isDeleting}
-            className="rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {env.cashFlowMapDeleteLabel}
-          </button>
-        </div>
-      </BodyCell>
-    </tr>
-  )
-}
+          {env.cashFlowRuleAddLabel}
+        </button>
+      </div>
 
-function IncomeDebugRow({ row }: { row: CashFlowCategoryDebugRow }) {
-  return (
-    <tr className="border-t border-slate-100 align-top">
-      <BodyCell>{row.sourceRow}</BodyCell>
-      <BodyCell>
-        <div className="font-semibold text-slate-800">{row.sourceCategory}</div>
-        <div className="text-xs text-slate-500">{row.normalizedSourceCategory}</div>
-      </BodyCell>
-      <BodyCell>
-        <div className="font-semibold text-slate-800">{row.effectiveCategory}</div>
-        <div className="text-xs text-slate-500">{row.group}</div>
-      </BodyCell>
-      <BodyCell>{formatGel(row.incomeAmount)}</BodyCell>
-      <BodyCell>
-        <div className="space-y-1">
-          <div className={`text-xs font-semibold ${row.countedAsIncome ? 'text-emerald-700' : 'text-amber-700'}`}>
-            {row.classificationReason}
-          </div>
-          <div className="text-[11px] text-slate-500">
-            raw H/K/N: [{row.rawCashInflow || '-'} / {row.rawBogInflow || '-'} / {row.rawTbcInflow || '-'}]
-          </div>
-          <div className="text-[11px] text-slate-500">
-            parsed H/K/N: [{formatGel(row.cashInflow)} / {formatGel(row.bogInflow)} / {formatGel(row.tbcInflow)}]
-          </div>
-          {row.issues.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {row.issues.map((issue) => (
-                <span key={issue} className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
-                  {issue}
-                </span>
-              ))}
+      <div className="mt-4 space-y-2">
+        {(rulesQuery.data ?? []).map((rule: CashFlowRule) => (
+          <div key={rule.id} className="flex items-start justify-between gap-2 rounded-lg border border-slate-200 p-2.5">
+            <div className="min-w-0">
+              <p className="truncate text-xs font-black text-slate-900">{rule.categoryNameKa}</p>
+              <p className="truncate text-[11px] text-slate-500">
+                <span className="font-semibold">{rule.matchType}</span> · {rule.matchValue}
+                {rule.direction ? ` · ${rule.direction}` : ''}
+              </p>
             </div>
-          )}
-        </div>
-      </BodyCell>
-    </tr>
+            <button
+              type="button"
+              onClick={() => deleteMutation.mutate(rule.id)}
+              className="rounded-lg p-1.5 text-red-500 transition hover:bg-red-50"
+              aria-label={env.cashFlowRuleDeleteLabel}
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+        {rulesQuery.data && rulesQuery.data.length === 0 ? (
+          <p className="text-xs text-slate-500">—</p>
+        ) : null}
+      </div>
+    </Drawer>
   )
-}
-
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return '--'
-  return new Date(value).toLocaleString()
-}
-
-function formatAnalysisValue(value: number | null) {
-  if (value === null) {
-    return env.cashFlowAnalysisNoComparisonLabel
-  }
-  return formatGel(value)
-}
-
-function formatDelta(amount: number | null, percent: number | null) {
-  if (amount === null) {
-    return env.cashFlowAnalysisNoComparisonLabel
-  }
-  const amountLabel = `${amount >= 0 ? '+' : ''}${formatGel(amount)}`
-  const percentLabel = percent === null ? env.cashFlowAnalysisNoComparisonLabel : `${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%`
-  return (
-    <div>
-      <div>{amountLabel}</div>
-      <div className="text-xs text-slate-500">{percentLabel}</div>
-    </div>
-  )
-}
-
-function formatPeriodLabel(period: { dateFrom: string | null; dateTo: string | null; available: boolean }) {
-  if (!period.available || !period.dateFrom || !period.dateTo) {
-    return env.cashFlowAnalysisNoComparisonLabel
-  }
-  return `${period.dateFrom} - ${period.dateTo}`
 }

@@ -244,193 +244,101 @@ export interface SalesEvent {
   updatedAt: string
 }
 
-export interface CashFlowCategory {
-  category: string
-  group: string
-  amount: number
-  transactionCount: number
-}
+// ─── Cash flow (bank-driven Agicap-style matrix) ────────────────────────────
 
-export interface CashFlowGroup {
-  group: string
-  amount: number
-  transactionCount: number
-  categories: CashFlowCategory[]
-}
+export type CashFlowSectionKey = 'OPERATING' | 'INVESTING' | 'FINANCING'
+export type CashFlowDirection = 'INFLOW' | 'OUTFLOW'
+export type CashFlowMatchType = 'TAX_ID' | 'IBAN' | 'NAME'
+export type CashFlowResolvedBy = 'OVERRIDE' | 'RULE_TAX_ID' | 'RULE_IBAN' | 'RULE_NAME' | 'UNCATEGORIZED'
 
-export interface CashFlowMonth {
-  month: string
-  totalInflow: number
-  totalOutflow: number
-  cashInflow: number
-  cashOutflow: number
-  bogInflow: number
-  bogOutflow: number
-  tbcInflow: number
-  tbcOutflow: number
-  endingCash: number
-  endingBog: number
-  endingTbc: number
-  totalBankBalance: number
-  totalEndingBalance: number
-  netMovement: number
-  warningCount: number
-  flaggedRowCount: number
-  groups: CashFlowGroup[]
-}
-
-export interface CashFlowAnalysisPeriod {
-  dateFrom: string | null
-  dateTo: string | null
-  available: boolean
-}
-
-export interface CashFlowAnalysisDelta {
-  amount: number | null
-  percent: number | null
-}
-
-export interface CashFlowAnalysisMetric {
-  currentValue: number | null
-  previousMonthValue: number | null
-  previousMonthDelta: CashFlowAnalysisDelta
-  previousYearValue: number | null
-  previousYearDelta: CashFlowAnalysisDelta
-}
-
-export interface CashFlowAnalysis {
-  currentPeriod: CashFlowAnalysisPeriod
-  previousMonthPeriod: CashFlowAnalysisPeriod
-  previousYearPeriod: CashFlowAnalysisPeriod
-  totalInflow: CashFlowAnalysisMetric
-  totalOutflow: CashFlowAnalysisMetric
-  netMovement: CashFlowAnalysisMetric
-  totalEndingBalance: CashFlowAnalysisMetric
-}
-
-export interface CashFlowOverview {
-  dateFrom: string | null
-  dateTo: string | null
-  availableMonths: string[]
-  months: CashFlowMonth[]
-  unmappedTotal: number
-  unmappedCategories: CashFlowUnmappedCategory[]
-  analysis: CashFlowAnalysis | null
-}
-
-export interface CashFlowSyncStatus {
-  status: string
-  lastSyncStartedAt: string | null
-  lastSyncCompletedAt: string | null
-  lastSuccessAt: string | null
-  lastError: string | null
-  rowCount: number
-  refreshInProgress: boolean
-}
-
-export interface CashFlowWarning {
-  month: string
-  sourceRow: number
-  severity: string
-  code: string
-  message: string
-}
-
-export interface CashFlowWarningsResponse {
-  month: string | null
+export interface CashFlowMatrixCategory {
+  categoryId: string
+  nameKa: string
   total: number
-  warnings: CashFlowWarning[]
+  monthly: Record<string, number>
+  transactionCount: number
+}
+
+export interface CashFlowMatrixDirection {
+  direction: CashFlowDirection
+  nameKa: string
+  total: number
+  monthly: Record<string, number>
+  categories: CashFlowMatrixCategory[]
+}
+
+export interface CashFlowMatrixSection {
+  sectionKey: CashFlowSectionKey
+  nameKa: string
+  total: number
+  monthly: Record<string, number>
+  directions: CashFlowMatrixDirection[]
+}
+
+export interface CashFlowMatrix {
+  from: string
+  to: string
+  months: string[]
+  sections: CashFlowMatrixSection[]
+  generatedAt: string
 }
 
 export interface CashFlowTransaction {
-  sourceRow: number
-  date: string | null
-  month: string
-  sourceCategory: string
-  category: string
-  group: string
+  fingerprint: string
+  source: string
+  date: string
+  monthKey: string
+  direction: string
+  amount: number
+  currency: string
   counterparty: string
-  comment: string
-  materialValue: number
-  serviceValue: number
-  cashInflow: number
-  cashOutflow: number
-  cashBalance: number
-  bogInflow: number
-  bogOutflow: number
-  bogBalance: number
-  tbcInflow: number
-  tbcOutflow: number
-  tbcBalance: number
-  validationFlag: string
-  issues: string[]
+  counterpartyInn: string
+  counterpartyAccount: string
+  description: string
+  reference: string
+  categoryId: string
+  categoryNameKa: string
+  resolvedBy: CashFlowResolvedBy
 }
 
-export interface CashFlowTransactionsResponse {
-  month: string
-  group: string | null
-  category: string | null
+export interface CashFlowDrilldown {
+  categoryId: string
+  categoryNameKa: string
+  month: string | null
+  from: string
+  to: string
+  total: number
   transactions: CashFlowTransaction[]
 }
 
-export interface CashFlowUnmappedCategory {
-  sourceCategory: string
-  amount: number
-  transactionCount: number
+export interface CashFlowCategory {
+  id: string
+  code: string
+  sectionKey: CashFlowSectionKey
+  sectionNameKa: string
+  direction: CashFlowDirection
+  directionNameKa: string
+  nameKa: string
+  order: number
+  builtin: boolean
 }
 
-export interface CashFlowCategoryMapping {
-  sourceCategory: string
-  targetCategory: string
+export interface CashFlowRule {
+  id: string
+  matchType: CashFlowMatchType
+  matchValue: string
+  direction: CashFlowDirection | null
+  categoryId: string
+  categoryNameKa: string
   source: string
+  updatedAt: string
 }
 
-export interface CashFlowMappingsView {
-  canonicalCategories: string[]
-  mappings: CashFlowCategoryMapping[]
-  unmappedCategories: CashFlowUnmappedCategory[]
-}
-
-export interface CashFlowCategoryDebugMonth {
-  month: string
-  amount: number
-  rowCount: number
-}
-
-export interface CashFlowCategoryDebugRow {
-  sourceRow: number
-  date: string | null
-  month: string
-  sourceCategory: string
-  normalizedSourceCategory: string
-  effectiveCategory: string
-  normalizedEffectiveCategory: string
-  group: string
-  classificationReason: string
-  countedAsIncome: boolean
-  incomeAmount: number
-  rawCashInflow: string
-  rawBogInflow: string
-  rawTbcInflow: string
-  rawCashBalance: string
-  rawBogBalance: string
-  rawTbcBalance: string
-  cashInflow: number
-  bogInflow: number
-  tbcInflow: number
-  issues: string[]
-}
-
-export interface CashFlowCategoryDebug {
-  category: string
-  normalizedCategory: string
-  dateFrom: string | null
-  dateTo: string | null
-  totalAmount: number
-  includedRowCount: number
-  excludedRowCount: number
-  months: CashFlowCategoryDebugMonth[]
-  rows: CashFlowCategoryDebugRow[]
+export interface CashFlowStatus {
+  bogConfigured: boolean
+  tbcConfigured: boolean
+  lastRefreshAt: string | null
+  lastRefreshError: string
 }
 
 export type BankDirection = 'CREDIT' | 'DEBIT' | 'BOTH'
