@@ -40,6 +40,10 @@ function cell(value: number) {
   return value === 0 ? '—' : formatGel(value)
 }
 
+function directionOf(txn: CashFlowTransaction): 'INFLOW' | 'OUTFLOW' {
+  return txn.direction?.toUpperCase() === 'CREDIT' ? 'INFLOW' : 'OUTFLOW'
+}
+
 type Drilldown = { categoryId: string; categoryNameKa: string; month: string | null }
 type PendingChange = { txn: CashFlowTransaction; categoryId: string }
 
@@ -397,11 +401,13 @@ function DrilldownPanel({
                     onChange={(event) => onSelectCategory(txn, event.target.value)}
                     className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs focus-visible:border-cyan-500 focus-visible:outline-none"
                   >
-                    {categories.map((category) => (
-                      <option key={category.id} value={category.id}>
-                        {category.directionNameKa} · {category.nameKa}
-                      </option>
-                    ))}
+                    {categories
+                      .filter((category) => category.direction === directionOf(txn))
+                      .map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.nameKa}
+                        </option>
+                      ))}
                   </select>
                 </td>
               </tr>

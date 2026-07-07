@@ -83,6 +83,18 @@ class CashFlowServiceTest {
     }
 
     @Test
+    void ruleToWrongDirectionCategoryIsIgnored() {
+        // A debit whose TIN maps to an INFLOW category (sales) must NOT be filed there;
+        // it belongs in the outflow uncategorized bucket, not an income category.
+        ruleStore.upsert(CashFlowMatchType.TAX_ID, "123456789", null, "sales", "user");
+        bog.transactions = List.of(debit("400.00", "123456789", "Refunder"));
+
+        CashFlowMatrixDto matrix = service.matrix(FROM, TO);
+        assertThat(hasCategory(matrix, "sales")).isFalse();
+        assertThat(cell(matrix, CashFlowCategoryDefaults.UNCATEGORIZED_OUTFLOW)).isEqualByComparingTo("400.00");
+    }
+
+    @Test
     void reversalNetsDownTheOutflowTotal() {
         ruleStore.upsert(CashFlowMatchType.TAX_ID, "123456789", null, "rent", "user");
         bog.transactions = List.of(

@@ -56,6 +56,7 @@ public class CashFlowService {
 
     public static final String RESOLVED_OVERRIDE = "OVERRIDE";
     public static final String RESOLVED_UNCATEGORIZED = "UNCATEGORIZED";
+    private static final int DRILLDOWN_LIMIT = 2000;
 
     private final TbcDbiClient tbcDbiClient;
     private final BogBusinessOnlineClient bogBusinessOnlineClient;
@@ -184,6 +185,10 @@ public class CashFlowService {
         }
         rows.sort(Comparator.comparing(CashFlowTransactionDto::date, Comparator.nullsLast(Comparator.naturalOrder()))
             .reversed());
+        // total stays the true sum of ALL matching transactions; only the returned
+        // list is capped (most recent first) so a large all-uncategorized bucket over
+        // a wide range can't produce a multi-MB response that stalls/aborts the write.
+        List<CashFlowTransactionDto> limited = rows.size() > DRILLDOWN_LIMIT ? rows.subList(0, DRILLDOWN_LIMIT) : rows;
         CashFlowCategory category = categories.get(categoryId);
         return new CashFlowDrilldownDto(
             categoryId,
@@ -192,7 +197,7 @@ public class CashFlowService {
             range.dateFrom(),
             range.dateTo(),
             MoneyUtil.round(total),
-            rows
+            List.copyOf(limited)
         );
     }
 
@@ -343,20 +348,31 @@ public class CashFlowService {
         CashFlowDirection direction = directionOf(txn);
         String fingerprint = CashFlowFingerprint.of(sourced.source(), txn);
 
+        // A credit (inflow) must land in an INFLOW category and a debit (outflow) in
+        // an OUTFLOW one. So an override/rule only applies when its target category's
+        // direction matches this transaction — otherwise the same counterparty's
+        // occasional opposite-direction transaction (e.g. a supplier refund) would be
+        // filed under the wrong side. Mismatches fall through to the correct-direction
+        // UNCATEGORIZED bucket.
         Optional<String> override = overrideStore.categoryFor(fingerprint);
-        if (override.isPresent() && categories.containsKey(override.get())) {
+        if (override.isPresent() && matchesDirection(override.get(), direction, categories)) {
             return new Resolution(override.get(), RESOLVED_OVERRIDE, fingerprint, direction);
         }
 
         List<TransactionCategoryRule> rules = ruleStore.list();
         for (RuleCandidate candidate : ruleCandidates(txn)) {
             Optional<TransactionCategoryRule> match = findRule(rules, candidate.matchType(), candidate.value(), direction);
-            if (match.isPresent() && categories.containsKey(match.get().getCategoryId())) {
+            if (match.isPresent() && matchesDirection(match.get().getCategoryId(), direction, categories)) {
                 return new Resolution(match.get().getCategoryId(), "RULE_" + candidate.matchType().name(), fingerprint, direction);
             }
         }
 
         return new Resolution(CashFlowCategoryDefaults.uncategorizedId(direction), RESOLVED_UNCATEGORIZED, fingerprint, direction);
+    }
+
+    private boolean matchesDirection(String categoryId, CashFlowDirection direction, Map<String, CashFlowCategory> categories) {
+        CashFlowCategory category = categories.get(categoryId);
+        return category != null && category.getDirection() == direction;
     }
 
     private List<RuleCandidate> ruleCandidates(BankTransaction txn) {

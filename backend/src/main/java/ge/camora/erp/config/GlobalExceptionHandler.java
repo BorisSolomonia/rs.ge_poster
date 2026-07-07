@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.multipart.MultipartException;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -91,6 +92,14 @@ public class GlobalExceptionHandler {
             request.getHeader("User-Agent")
         );
         return ResponseEntity.badRequest().body(ApiResponse.error("Request must be multipart/form-data"));
+    }
+
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleClientDisconnect(AsyncRequestNotUsableException ex) {
+        // The client (browser/proxy) closed the connection before the response
+        // finished writing (broken pipe). There is nothing left to send, so this is
+        // not a server error — log quietly instead of as a 500.
+        log.debug("Client disconnected before response completed: {}", ex.getMessage());
     }
 
     @ExceptionHandler(Exception.class)
