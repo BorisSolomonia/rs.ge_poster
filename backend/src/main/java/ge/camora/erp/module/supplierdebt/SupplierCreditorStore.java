@@ -90,6 +90,21 @@ public class SupplierCreditorStore {
         }
     }
 
+    // Replaces every row of the given range in one write; also prunes rows of
+    // suppliers that no longer exist for that range.
+    public void saveAll(LocalDate dateFrom, LocalDate dateTo, List<SavedSupplierCreditor> newRows) {
+        lock.writeLock().lock();
+        try {
+            SupplierCreditorState current = loadState();
+            List<SavedSupplierCreditor> rows = new ArrayList<>(current.rows());
+            rows.removeIf(saved -> dateFrom.equals(saved.dateFrom()) && dateTo.equals(saved.dateTo()));
+            rows.addAll(newRows);
+            writeState(new SupplierCreditorState(rows, current.preferences()));
+        } finally {
+            lock.writeLock().unlock();
+        }
+    }
+
     public SupplierCreditorPreference setActive(String supplierKey, boolean active) {
         lock.writeLock().lock();
         try {

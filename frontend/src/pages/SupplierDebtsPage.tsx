@@ -4,6 +4,7 @@ import { AlertTriangle, ChevronDown, ChevronRight, RefreshCcw, Search } from 'lu
 import {
   getSupplierCreditors,
   setSupplierCreditorActive,
+  syncAllSupplierCreditors,
   syncSupplierCreditor,
 } from '../api/supplier-debts.api'
 import { formatGel } from '../components/reconciliation/reconciliation.utils'
@@ -27,10 +28,7 @@ function today() {
   return formatLocalDate(new Date())
 }
 
-function startOfCurrentMonth() {
-  const now = new Date()
-  return formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1))
-}
+const DEFAULT_DATE_FROM = '2025-01-01'
 
 function parseApiDate(value: string | null | undefined) {
   if (!value) {
@@ -104,7 +102,7 @@ function withUpdatedRow(current: SupplierCreditorOverview | undefined, row: Supp
 
 export default function SupplierDebtsPage() {
   const queryClient = useQueryClient()
-  const [dateFrom, setDateFrom] = useState(startOfCurrentMonth)
+  const [dateFrom, setDateFrom] = useState(DEFAULT_DATE_FROM)
   const [dateTo, setDateTo] = useState(today)
   const [supplierFilter, setSupplierFilter] = useState('')
   const [expandedSupplier, setExpandedSupplier] = useState<string | null>(null)
@@ -119,6 +117,13 @@ export default function SupplierDebtsPage() {
     mutationFn: (supplierKey: string) => syncSupplierCreditor(supplierKey, dateFrom, dateTo),
     onSuccess: (row) => {
       queryClient.setQueryData<SupplierCreditorOverview>(queryKey, (current) => withUpdatedRow(current, row))
+    },
+  })
+
+  const syncAllMutation = useMutation({
+    mutationFn: () => syncAllSupplierCreditors(dateFrom, dateTo),
+    onSuccess: (overview) => {
+      queryClient.setQueryData(queryKey, overview)
     },
   })
 
@@ -137,7 +142,9 @@ export default function SupplierDebtsPage() {
   )
   const syncingSupplierKey = syncMutation.variables ?? null
   const loadError = creditorsQuery.error instanceof Error ? creditorsQuery.error : null
-  const syncError = syncMutation.error instanceof Error ? syncMutation.error : null
+  const syncError = syncMutation.error instanceof Error
+    ? syncMutation.error
+    : syncAllMutation.error instanceof Error ? syncAllMutation.error : null
 
   return (
     <main className="mx-auto max-w-[1500px] space-y-4 overflow-x-hidden text-xs sm:text-[13px]">
@@ -150,7 +157,7 @@ export default function SupplierDebtsPage() {
               Suppliers load without calculating debt. Click a supplier row button to fetch fresh RS.ge and bank data, calculate that supplier, and save the result for this date range.
             </p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-[160px_160px_280px] sm:items-end">
+          <div className="grid gap-2 sm:grid-cols-[160px_160px_280px_auto] sm:items-end">
             <label className="grid gap-1 font-bold text-slate-600">
               Date From
               <input
@@ -180,6 +187,15 @@ export default function SupplierDebtsPage() {
                 className="h-10 rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 font-semibold text-slate-950 focus-visible:border-cyan-500 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100"
               />
             </label>
+            <button
+              type="button"
+              onClick={() => syncAllMutation.mutate()}
+              disabled={syncAllMutation.isPending || syncMutation.isPending}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg bg-cyan-700 px-4 font-black text-white transition hover:bg-cyan-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100 disabled:cursor-wait disabled:opacity-70"
+            >
+              <RefreshCcw className={`h-4 w-4 ${syncAllMutation.isPending ? 'animate-spin' : ''}`} aria-hidden="true" />
+              {syncAllMutation.isPending ? 'Syncing All...' : 'Sync All'}
+            </button>
           </div>
         </div>
       </section>

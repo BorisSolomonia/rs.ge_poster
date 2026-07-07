@@ -30,6 +30,16 @@ export async function getSupplierCreditors(dateFrom?: string, dateTo?: string): 
   return unwrapData(res)
 }
 
+export async function syncAllSupplierCreditors(
+  dateFrom?: string,
+  dateTo?: string,
+): Promise<SupplierCreditorOverview> {
+  const res = await client.post<ApiResponse<SupplierCreditorOverview>>(`${BASE}/creditors/sync-all`, null, {
+    params: dateParams(dateFrom, dateTo),
+  })
+  return unwrapData(res)
+}
+
 export async function syncSupplierCreditor(
   supplierKey: string,
   dateFrom?: string,

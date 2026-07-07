@@ -312,6 +312,40 @@ public class SupplierDebtService {
         return toCreditorRow(effectiveIdentity, saved, creditorStore.preference(effectiveIdentity.key()).active());
     }
 
+    public SupplierCreditorOverviewDto syncAllCreditors(LocalDate dateFrom, LocalDate dateTo) {
+        RangeKey range = normalizeRange(dateFrom, dateTo);
+        SupplierDebtOverviewDto overview = calculateOverview(range, true, true);
+        assertCompleteSources(overview);
+        LocalDateTime syncedAt = LocalDateTime.now();
+
+        Map<String, SupplierIdentity> suppliers = knownCreditorSuppliers();
+        for (SupplierDebtRowDto row : overview.suppliers()) {
+            suppliers.putIfAbsent(row.supplierKey(), new SupplierIdentity(
+                row.supplierKey(),
+                safe(row.supplierTin()),
+                blankTo(row.supplierName(), row.supplierKey())
+            ));
+        }
+
+        List<SupplierCreditorStore.SavedSupplierCreditor> saved = new ArrayList<>();
+        for (SupplierIdentity identity : suppliers.values()) {
+            SupplierDebtRowDto row = findSupplierRow(overview, identity.key())
+                .orElseGet(() -> emptySupplierRow(identity));
+            saved.add(new SupplierCreditorStore.SavedSupplierCreditor(
+                range.dateFrom(),
+                range.dateTo(),
+                row.supplierKey(),
+                row.supplierTin(),
+                row.supplierName(),
+                syncedAt,
+                "",
+                row
+            ));
+        }
+        creditorStore.saveAll(range.dateFrom(), range.dateTo(), saved);
+        return creditorOverview(dateFrom, dateTo);
+    }
+
     public SupplierCreditorOverviewDto setCreditorActive(String supplierKey, boolean active, LocalDate dateFrom, LocalDate dateTo) {
         creditorStore.setActive(supplierKey, active);
         return creditorOverview(dateFrom, dateTo);

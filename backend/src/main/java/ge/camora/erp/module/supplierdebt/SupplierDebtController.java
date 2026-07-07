@@ -73,6 +73,14 @@ public class SupplierDebtController {
         return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.creditorOverview(dateFrom, dateTo)));
     }
 
+    @PostMapping("/creditors/sync-all")
+    public ResponseEntity<ApiResponse<SupplierCreditorOverviewDto>> syncAllCreditors(
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
+        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(supplierDebtService.syncAllCreditors(dateFrom, dateTo)));
+    }
+
     @PostMapping("/creditors/{supplierKey}/sync")
     public ResponseEntity<ApiResponse<SupplierCreditorRowDto>> syncCreditor(
         @PathVariable String supplierKey,
