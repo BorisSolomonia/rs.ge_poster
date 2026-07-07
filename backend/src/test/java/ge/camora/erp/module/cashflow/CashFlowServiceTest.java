@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import ge.camora.erp.config.CamoraProperties;
+import ge.camora.erp.model.dto.CashFlowCategoryDto;
 import ge.camora.erp.model.dto.CashFlowMatrixCategoryDto;
 import ge.camora.erp.model.dto.CashFlowMatrixDto;
 import ge.camora.erp.module.bankanalysis.BankTransaction;
@@ -143,6 +144,28 @@ class CashFlowServiceTest {
         tbc.transactions = List.of(credit("50.00", "", "Shop"));
         CashFlowMatrixDto matrix = service.matrix(FROM, TO);
         assertThat(cell(matrix, "sales")).isEqualByComparingTo("150.00");
+    }
+
+    @Test
+    void subCategoryRollsUpUnderParentAndParentDrillIncludesChildren() {
+        CashFlowCategoryDto parent = service.createCategory(CashFlowSection.OPERATING, CashFlowDirection.OUTFLOW, "საქონელი", null, null);
+        CashFlowCategoryDto child = service.createCategory(null, null, "საკვები", parent.id(), null);
+        assertThat(child.direction()).isEqualTo("OUTFLOW"); // inherited
+
+        ruleStore.upsert(CashFlowMatchType.TAX_ID, "111111111", null, parent.id(), "user");
+        ruleStore.upsert(CashFlowMatchType.TAX_ID, "222222222", null, child.id(), "user");
+        bog.transactions = List.of(debit("100.00", "111111111", "A"), debit("40.00", "222222222", "B"));
+
+        CashFlowMatrixDto matrix = service.matrix(FROM, TO);
+        CashFlowMatrixCategoryDto parentRow = findCategory(matrix, parent.id()).orElseThrow();
+        assertThat(parentRow.total()).isEqualByComparingTo("140.00");
+        assertThat(parentRow.children()).extracting(CashFlowMatrixCategoryDto::categoryId).contains(child.id());
+        assertThat(parentRow.children()).anySatisfy(row ->
+            assertThat(row.total()).isEqualByComparingTo("40.00"));
+
+        var drill = service.drilldown(parent.id(), null, FROM, TO);
+        assertThat(drill.transactions()).hasSize(2);
+        assertThat(drill.total()).isEqualByComparingTo("140.00");
     }
 
     @Test

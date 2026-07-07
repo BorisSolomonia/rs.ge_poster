@@ -1,8 +1,10 @@
 import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ChevronDown, ChevronRight, ListChecks, RefreshCcw, Trash2 } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, FolderTree, ListChecks, RefreshCcw, Trash2 } from 'lucide-react'
 import {
   categorizeTransaction,
+  createCashFlowCategory,
+  deleteCashFlowCategory,
   deleteCashFlowRule,
   getCashFlowCategories,
   getCashFlowMatrix,
@@ -20,9 +22,17 @@ import { env } from '../env'
 import type {
   CashFlowCategory,
   CashFlowMatchType,
+  CashFlowMatrixCategory,
   CashFlowRule,
+  CashFlowSectionKey,
   CashFlowTransaction,
 } from '../types'
+
+const SECTION_OPTIONS: { key: CashFlowSectionKey; nameKa: string }[] = [
+  { key: 'OPERATING', nameKa: 'საოპერაციო საქმიანობა' },
+  { key: 'INVESTING', nameKa: 'საინვესტიციო საქმიანობა' },
+  { key: 'FINANCING', nameKa: 'საფინანსო საქმიანობა' },
+]
 
 const DEFAULT_FROM = '2025-01-01'
 
@@ -44,6 +54,19 @@ function directionOf(txn: CashFlowTransaction): 'INFLOW' | 'OUTFLOW' {
   return txn.direction?.toUpperCase() === 'CREDIT' ? 'INFLOW' : 'OUTFLOW'
 }
 
+/** Categories of the given direction, in tree order, sub-categories prefixed for the picker. */
+function categoryOptionsForDirection(categories: CashFlowCategory[], direction: 'INFLOW' | 'OUTFLOW') {
+  const matching = categories.filter((category) => category.direction === direction)
+  const options: { id: string; label: string }[] = []
+  for (const parent of matching.filter((category) => !category.parentId)) {
+    options.push({ id: parent.id, label: parent.nameKa })
+    for (const child of matching.filter((category) => category.parentId === parent.id)) {
+      options.push({ id: child.id, label: `— ${child.nameKa}` })
+    }
+  }
+  return options
+}
+
 type Drilldown = { categoryId: string; categoryNameKa: string; month: string | null }
 type PendingChange = { txn: CashFlowTransaction; categoryId: string }
 
@@ -53,9 +76,11 @@ export default function CashFlowPage() {
   const [dateTo, setDateTo] = useState(today)
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(['OPERATING']))
   const [openDirections, setOpenDirections] = useState<Set<string>>(new Set(['OPERATING|INFLOW', 'OPERATING|OUTFLOW']))
+  const [openCategories, setOpenCategories] = useState<Set<string>>(new Set())
   const [drilldown, setDrilldown] = useState<Drilldown | null>(null)
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null)
   const [mappingOpen, setMappingOpen] = useState(false)
+  const [categoriesOpen, setCategoriesOpen] = useState(false)
 
   const matrixQuery = useQuery({
     queryKey: ['cash-flow-matrix', dateFrom, dateTo],
@@ -132,7 +157,7 @@ export default function CashFlowPage() {
             <h1 className="mt-1 text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">{env.cashFlowTitle}</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{env.cashFlowInfo}</p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-[150px_150px_auto_auto] sm:items-end">
+          <div className="grid gap-2 sm:grid-cols-[150px_150px_auto_auto_auto] sm:items-end">
             <label className="grid gap-1 font-bold text-slate-600">
               {env.cashFlowDateFromLabel}
               <input
@@ -159,6 +184,14 @@ export default function CashFlowPage() {
             >
               <RefreshCcw className={`h-4 w-4 ${refreshMutation.isPending ? 'animate-spin' : ''}`} aria-hidden="true" />
               {refreshMutation.isPending ? env.cashFlowRefreshingLabel : env.cashFlowRefreshLabel}
+            </button>
+            <button
+              type="button"
+              onClick={() => setCategoriesOpen(true)}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-300 px-4 font-black text-slate-700 transition hover:bg-slate-50"
+            >
+              <FolderTree className="h-4 w-4" aria-hidden="true" />
+              {env.cashFlowCategoriesLabel}
             </button>
             <button
               type="button"
@@ -242,44 +275,15 @@ export default function CashFlowPage() {
                             ))}
                           </tr>
                           {dirOpen && direction.categories.map((category) => (
-                            <tr key={category.categoryId} className="text-slate-700 hover:bg-cyan-50/50">
-                              <td className="sticky left-0 z-10 bg-white px-3 py-2 pl-12">
-                                <button
-                                  type="button"
-                                  className="text-left hover:text-cyan-700 hover:underline"
-                                  onClick={() => setDrilldown({ categoryId: category.categoryId, categoryNameKa: category.nameKa, month: null })}
-                                >
-                                  {category.nameKa}
-                                </button>
-                              </td>
-                              <td className="px-3 py-2 text-right tabular-nums font-semibold">
-                                <button
-                                  type="button"
-                                  className="hover:text-cyan-700 hover:underline"
-                                  onClick={() => setDrilldown({ categoryId: category.categoryId, categoryNameKa: category.nameKa, month: null })}
-                                >
-                                  {cell(category.total)}
-                                </button>
-                              </td>
-                              {months.map((month) => {
-                                const value = category.monthly[month] ?? 0
-                                return (
-                                  <td key={month} className="px-3 py-2 text-right tabular-nums">
-                                    {value === 0 ? (
-                                      '—'
-                                    ) : (
-                                      <button
-                                        type="button"
-                                        className="hover:text-cyan-700 hover:underline"
-                                        onClick={() => setDrilldown({ categoryId: category.categoryId, categoryNameKa: category.nameKa, month })}
-                                      >
-                                        {formatGel(value)}
-                                      </button>
-                                    )}
-                                  </td>
-                                )
-                              })}
-                            </tr>
+                            <MatrixCategoryRow
+                              key={category.categoryId}
+                              category={category}
+                              months={months}
+                              depth={0}
+                              openCategories={openCategories}
+                              onToggle={(id) => setOpenCategories((prev) => toggle(prev, id))}
+                              onDrill={(cat, month) => setDrilldown({ categoryId: cat.categoryId, categoryNameKa: cat.nameKa, month })}
+                            />
                           ))}
                         </Fragment>
                       )
@@ -346,7 +350,222 @@ export default function CashFlowPage() {
       />
 
       <MappingSheet open={mappingOpen} onClose={() => setMappingOpen(false)} categories={categories} />
+      <CategoriesSheet open={categoriesOpen} onClose={() => setCategoriesOpen(false)} categories={categories} />
     </main>
+  )
+}
+
+function CategoriesSheet({
+  open,
+  onClose,
+  categories,
+}: {
+  open: boolean
+  onClose: () => void
+  categories: CashFlowCategory[]
+}) {
+  const queryClient = useQueryClient()
+  const [mode, setMode] = useState<'TOP' | 'SUB'>('TOP')
+  const [sectionKey, setSectionKey] = useState<CashFlowSectionKey>('OPERATING')
+  const [direction, setDirection] = useState<'INFLOW' | 'OUTFLOW'>('OUTFLOW')
+  const [parentId, setParentId] = useState('')
+  const [nameKa, setNameKa] = useState('')
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ['cash-flow-categories'] })
+    queryClient.invalidateQueries({ queryKey: ['cash-flow-matrix'] })
+  }
+
+  const addMutation = useMutation({
+    mutationFn: () =>
+      mode === 'SUB'
+        ? createCashFlowCategory({ parentId, nameKa: nameKa.trim() })
+        : createCashFlowCategory({ section: sectionKey, direction, nameKa: nameKa.trim() }),
+    onSuccess: () => {
+      setNameKa('')
+      invalidate()
+    },
+  })
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteCashFlowCategory(id),
+    onSuccess: invalidate,
+  })
+
+  const addError = addMutation.error instanceof Error ? addMutation.error : null
+  const deleteError = deleteMutation.error instanceof Error ? deleteMutation.error : null
+  const topLevel = categories.filter((category) => !category.parentId)
+
+  return (
+    <Drawer open={open} title={env.cashFlowCategoriesTitle} onClose={onClose}>
+      <div className="space-y-3 rounded-xl border border-slate-200 p-3">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setMode('TOP')}
+            className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-black ${mode === 'TOP' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-600'}`}
+          >
+            {env.cashFlowAddCategoryLabel}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('SUB')}
+            className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-black ${mode === 'SUB' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-600'}`}
+          >
+            {env.cashFlowAddSubcategoryLabel}
+          </button>
+        </div>
+
+        {mode === 'TOP' ? (
+          <div className="grid grid-cols-2 gap-2">
+            <label className="grid gap-1 text-[11px] font-bold text-slate-600">
+              {env.cashFlowSectionLabel}
+              <select value={sectionKey} onChange={(e) => setSectionKey(e.target.value as CashFlowSectionKey)} className="h-9 rounded-lg border border-slate-200 px-2 text-xs">
+                {SECTION_OPTIONS.map((option) => (
+                  <option key={option.key} value={option.key}>{option.nameKa}</option>
+                ))}
+              </select>
+            </label>
+            <label className="grid gap-1 text-[11px] font-bold text-slate-600">
+              {env.cashFlowDirectionLabel}
+              <select value={direction} onChange={(e) => setDirection(e.target.value as 'INFLOW' | 'OUTFLOW')} className="h-9 rounded-lg border border-slate-200 px-2 text-xs">
+                <option value="INFLOW">{env.cashFlowInflowLabel}</option>
+                <option value="OUTFLOW">{env.cashFlowOutflowLabel}</option>
+              </select>
+            </label>
+          </div>
+        ) : (
+          <label className="grid gap-1 text-[11px] font-bold text-slate-600">
+            {env.cashFlowParentLabel}
+            <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="h-9 rounded-lg border border-slate-200 px-2 text-xs">
+              <option value="">{env.cashFlowSelectCategoryLabel}</option>
+              {topLevel.map((category) => (
+                <option key={category.id} value={category.id}>{category.directionNameKa} · {category.nameKa}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <label className="grid gap-1 text-[11px] font-bold text-slate-600">
+          {env.cashFlowCategoryNameLabel}
+          <input value={nameKa} onChange={(e) => setNameKa(e.target.value)} className="h-9 rounded-lg border border-slate-200 px-2 text-xs" />
+        </label>
+        {addError ? <p className="text-[11px] font-semibold text-red-600">{addError.message}</p> : null}
+        <button
+          type="button"
+          disabled={!nameKa.trim() || (mode === 'SUB' && !parentId) || addMutation.isPending}
+          onClick={() => addMutation.mutate()}
+          className="w-full rounded-lg bg-cyan-700 px-3 py-2 text-xs font-black text-white transition hover:bg-cyan-800 disabled:opacity-50"
+        >
+          {env.cashFlowAddLabel}
+        </button>
+      </div>
+
+      {deleteError ? <p className="mt-3 text-[11px] font-semibold text-red-600">{deleteError.message}</p> : null}
+      <div className="mt-4 space-y-1">
+        {topLevel.map((parent) => (
+          <div key={parent.id}>
+            <CategoryRow category={parent} onDelete={(id) => deleteMutation.mutate(id)} />
+            {categories.filter((c) => c.parentId === parent.id).map((child) => (
+              <div key={child.id} className="pl-5">
+                <CategoryRow category={child} onDelete={(id) => deleteMutation.mutate(id)} />
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </Drawer>
+  )
+}
+
+function CategoryRow({ category, onDelete }: { category: CashFlowCategory; onDelete: (id: string) => void }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-2.5 py-1.5">
+      <span className="truncate text-xs text-slate-800">
+        {category.nameKa}
+        {category.parentId ? null : <span className="ml-1 text-[10px] text-slate-400">{category.directionNameKa}</span>}
+      </span>
+      {category.builtin ? (
+        <span className="text-[10px] text-slate-300">•</span>
+      ) : (
+        <button type="button" onClick={() => onDelete(category.id)} className="rounded p-1 text-red-500 hover:bg-red-50" aria-label="delete">
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}
+
+function MatrixCategoryRow({
+  category,
+  months,
+  depth,
+  openCategories,
+  onToggle,
+  onDrill,
+}: {
+  category: CashFlowMatrixCategory
+  months: string[]
+  depth: number
+  openCategories: Set<string>
+  onToggle: (id: string) => void
+  onDrill: (category: CashFlowMatrixCategory, month: string | null) => void
+}) {
+  const hasChildren = category.children.length > 0
+  const open = openCategories.has(category.categoryId)
+  const pad = depth === 0 ? 'pl-12' : 'pl-20'
+  return (
+    <>
+      <tr className="text-slate-700 hover:bg-cyan-50/50">
+        <td className={`sticky left-0 z-10 bg-white px-3 py-2 ${pad}`}>
+          <span className="inline-flex items-center gap-1">
+            {hasChildren ? (
+              <button type="button" onClick={() => onToggle(category.categoryId)} className="text-slate-400 hover:text-slate-700">
+                {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </button>
+            ) : (
+              <span className="inline-block w-3.5" />
+            )}
+            <button
+              type="button"
+              className={`text-left hover:text-cyan-700 hover:underline ${hasChildren ? 'font-semibold' : ''}`}
+              onClick={() => onDrill(category, null)}
+            >
+              {category.nameKa}
+            </button>
+          </span>
+        </td>
+        <td className="px-3 py-2 text-right tabular-nums font-semibold">
+          <button type="button" className="hover:text-cyan-700 hover:underline" onClick={() => onDrill(category, null)}>
+            {cell(category.total)}
+          </button>
+        </td>
+        {months.map((month) => {
+          const value = category.monthly[month] ?? 0
+          return (
+            <td key={month} className="px-3 py-2 text-right tabular-nums">
+              {value === 0 ? (
+                '—'
+              ) : (
+                <button type="button" className="hover:text-cyan-700 hover:underline" onClick={() => onDrill(category, month)}>
+                  {formatGel(value)}
+                </button>
+              )}
+            </td>
+          )
+        })}
+      </tr>
+      {hasChildren && open && category.children.map((child) => (
+        <MatrixCategoryRow
+          key={child.categoryId}
+          category={child}
+          months={months}
+          depth={depth + 1}
+          openCategories={openCategories}
+          onToggle={onToggle}
+          onDrill={onDrill}
+        />
+      ))}
+    </>
   )
 }
 
@@ -411,13 +630,11 @@ function DrilldownPanel({
                     onChange={(event) => onSelectCategory(txn, event.target.value)}
                     className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs focus-visible:border-cyan-500 focus-visible:outline-none"
                   >
-                    {categories
-                      .filter((category) => category.direction === directionOf(txn))
-                      .map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.nameKa}
-                        </option>
-                      ))}
+                    {categoryOptionsForDirection(categories, directionOf(txn)).map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                 </td>
               </tr>

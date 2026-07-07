@@ -9,6 +9,8 @@ public record CashFlowCategoryDto(
     String direction,
     String directionNameKa,
     String nameKa,
+    String parentId,
+    boolean hasChildren,
     int order,
     boolean builtin
 ) {

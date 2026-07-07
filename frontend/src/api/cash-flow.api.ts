@@ -67,9 +67,10 @@ export async function getCashFlowCategories(): Promise<CashFlowCategory[]> {
 }
 
 export async function createCashFlowCategory(body: {
-  section: string
-  direction: CashFlowDirection
+  section?: string
+  direction?: CashFlowDirection
   nameKa: string
+  parentId?: string
   order?: number
 }): Promise<CashFlowCategory> {
   const res = await client.post<ApiResponse<CashFlowCategory>>(`${BASE}/categories`, body)

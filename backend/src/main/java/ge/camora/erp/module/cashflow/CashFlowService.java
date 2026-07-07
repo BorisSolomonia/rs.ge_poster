@@ -34,6 +34,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -115,21 +116,41 @@ public class CashFlowService {
             List<CashFlowMatrixDirectionDto> directions = new ArrayList<>();
             for (CashFlowDirection direction : List.of(CashFlowDirection.INFLOW, CashFlowDirection.OUTFLOW)) {
                 List<CashFlowMatrixCategoryDto> categoryRows = new ArrayList<>();
-                List<CashFlowCategory> leaves = context.categories().stream()
+                List<CashFlowCategory> topLevel = context.categories().stream()
                     .filter(category -> category.getSection() == section && category.getDirection() == direction)
+                    .filter(category -> category.getParentId() == null)
                     .toList();
-                for (CashFlowCategory leaf : leaves) {
-                    Map<String, BigDecimal> monthly = byCategory.get(leaf.getId());
-                    if (monthly == null || monthly.isEmpty()) {
-                        continue; // only show categories with activity in range
+                for (CashFlowCategory parent : topLevel) {
+                    // Sub-category rows with activity, then the parent = own + children roll-up.
+                    List<CashFlowMatrixCategoryDto> children = new ArrayList<>();
+                    for (CashFlowCategory child : context.categories()) {
+                        if (!parent.getId().equals(child.getParentId())) {
+                            continue;
+                        }
+                        Map<String, BigDecimal> childMonthly = byCategory.get(child.getId());
+                        if (childMonthly == null || childMonthly.isEmpty()) {
+                            continue;
+                        }
+                        children.add(new CashFlowMatrixCategoryDto(
+                            child.getId(), child.getNameKa(), totalOf(childMonthly), fillMonths(months, childMonthly),
+                            counts.getOrDefault(child.getId(), 0), List.of()));
                     }
+                    Map<String, BigDecimal> ownMonthly = byCategory.get(parent.getId());
+                    boolean hasOwn = ownMonthly != null && !ownMonthly.isEmpty();
+                    if (!hasOwn && children.isEmpty()) {
+                        continue; // no activity in this parent or any of its children
+                    }
+                    Map<String, BigDecimal> rollup = new LinkedHashMap<>();
+                    if (hasOwn) {
+                        ownMonthly.forEach((month, value) -> rollup.merge(month, value, BigDecimal::add));
+                    }
+                    for (CashFlowMatrixCategoryDto child : children) {
+                        child.monthly().forEach((month, value) -> rollup.merge(month, value, BigDecimal::add));
+                    }
+                    int rollupCount = counts.getOrDefault(parent.getId(), 0)
+                        + children.stream().mapToInt(CashFlowMatrixCategoryDto::transactionCount).sum();
                     categoryRows.add(new CashFlowMatrixCategoryDto(
-                        leaf.getId(),
-                        leaf.getNameKa(),
-                        totalOf(monthly),
-                        fillMonths(months, monthly),
-                        counts.getOrDefault(leaf.getId(), 0)
-                    ));
+                        parent.getId(), parent.getNameKa(), totalOf(rollup), fillMonths(months, rollup), rollupCount, children));
                 }
                 if (categoryRows.isEmpty()) {
                     continue;
@@ -171,11 +192,19 @@ public class CashFlowService {
         Map<String, CashFlowCategory> categories = context.categoriesById();
         List<SourcedTransaction> transactions = sourced(range, false);
 
+        // Drilling a parent includes its sub-categories so the list matches the
+        // parent's matrix total; drilling a leaf/sub-category matches just itself.
+        Set<String> targetIds = new java.util.HashSet<>();
+        targetIds.add(categoryId);
+        context.categories().stream()
+            .filter(category -> categoryId.equals(category.getParentId()))
+            .forEach(category -> targetIds.add(category.getId()));
+
         List<CashFlowTransactionDto> rows = new ArrayList<>();
         BigDecimal total = BigDecimal.ZERO;
         for (SourcedTransaction sourced : transactions) {
             Resolution resolution = resolve(sourced, context);
-            if (!resolution.categoryId().equals(categoryId)) {
+            if (!targetIds.contains(resolution.categoryId())) {
                 continue;
             }
             String monthKey = sourced.transaction().date().format(MONTH_KEY);
@@ -242,15 +271,23 @@ public class CashFlowService {
     // ── Category tree CRUD (thin pass-through with DTO mapping) ───────────────
 
     public List<CashFlowCategoryDto> categories() {
-        return categoryStore.list().stream().map(CashFlowService::toCategoryDto).toList();
+        List<CashFlowCategory> all = categoryStore.list();
+        Set<String> parentIds = all.stream()
+            .map(CashFlowCategory::getParentId)
+            .filter(java.util.Objects::nonNull)
+            .collect(Collectors.toSet());
+        return all.stream().map(category -> toCategoryDto(category, parentIds.contains(category.getId()))).toList();
     }
 
-    public CashFlowCategoryDto createCategory(CashFlowSection section, CashFlowDirection direction, String nameKa, Integer order) {
-        return toCategoryDto(categoryStore.create(section, direction, nameKa, order));
+    public CashFlowCategoryDto createCategory(CashFlowSection section, CashFlowDirection direction, String nameKa,
+                                              String parentId, Integer order) {
+        return toCategoryDto(categoryStore.create(section, direction, nameKa, parentId, order), false);
     }
 
     public CashFlowCategoryDto updateCategory(String id, CashFlowSection section, CashFlowDirection direction, String nameKa, Integer order) {
-        return toCategoryDto(categoryStore.update(id, section, direction, nameKa, order));
+        CashFlowCategory updated = categoryStore.update(id, section, direction, nameKa, order);
+        boolean hasChildren = categoryStore.list().stream().anyMatch(category -> id.equals(category.getParentId()));
+        return toCategoryDto(updated, hasChildren);
     }
 
     public void deleteCategory(String id) {
@@ -538,7 +575,7 @@ public class CashFlowService {
         return min;
     }
 
-    private static CashFlowCategoryDto toCategoryDto(CashFlowCategory category) {
+    private static CashFlowCategoryDto toCategoryDto(CashFlowCategory category, boolean hasChildren) {
         return new CashFlowCategoryDto(
             category.getId(),
             category.getCode(),
@@ -547,6 +584,8 @@ public class CashFlowService {
             category.getDirection().name(),
             category.getDirection().nameKa(),
             category.getNameKa(),
+            category.getParentId(),
+            hasChildren,
             category.getOrder(),
             category.isBuiltin()
         );

@@ -56,7 +56,7 @@ public final class CashFlowCategoryDefaults {
 
     private static CashFlowCategory builtin(String code, CashFlowSection section, CashFlowDirection direction,
                                             String nameKa, int order, LocalDateTime now) {
-        return new CashFlowCategory(code, code, section, direction, nameKa, order, true, now, now);
+        return new CashFlowCategory(code, code, section, direction, nameKa, null, order, true, now, now);
     }
 
     private CashFlowCategoryDefaults() {

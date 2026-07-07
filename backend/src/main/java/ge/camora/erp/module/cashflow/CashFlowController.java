@@ -89,8 +89,13 @@ public class CashFlowController {
 
     @PostMapping("/categories")
     public ResponseEntity<ApiResponse<CashFlowCategoryDto>> createCategory(@RequestBody CashFlowCategoryRequest request) {
+        boolean isSub = request.parentId() != null && !request.parentId().isBlank();
         return ResponseEntity.ok(ApiResponse.ok(cashFlowService.createCategory(
-            parseSection(request.section()), parseDirection(request.direction()), request.nameKa(), request.order())));
+            isSub || request.section() == null ? null : parseSection(request.section()),
+            isSub || request.direction() == null ? null : parseDirection(request.direction()),
+            request.nameKa(),
+            request.parentId(),
+            request.order())));
     }
 
     @PutMapping("/categories/{id}")

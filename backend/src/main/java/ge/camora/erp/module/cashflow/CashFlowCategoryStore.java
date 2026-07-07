@@ -78,22 +78,41 @@ public class CashFlowCategoryStore {
         return list().stream().filter(category -> category.getId().equals(id)).findFirst();
     }
 
-    public CashFlowCategory create(CashFlowSection section, CashFlowDirection direction, String nameKa, Integer order) {
-        if (section == null || direction == null) {
-            throw new IllegalArgumentException("Category section and direction are required");
-        }
+    public CashFlowCategory create(CashFlowSection section, CashFlowDirection direction, String nameKa,
+                                   String parentId, Integer order) {
         if (nameKa == null || nameKa.isBlank()) {
             throw new IllegalArgumentException("Category name is required");
         }
         lock.writeLock().lock();
         try {
             List<CashFlowCategory> categories = load();
+            CashFlowSection effectiveSection = section;
+            CashFlowDirection effectiveDirection = direction;
+            String effectiveParentId = null;
+
+            if (parentId != null && !parentId.isBlank()) {
+                CashFlowCategory parent = categories.stream()
+                    .filter(category -> category.getId().equals(parentId))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("Parent category not found: " + parentId));
+                if (parent.getParentId() != null) {
+                    throw new IllegalArgumentException("Sub-categories can be nested only one level deep");
+                }
+                // A sub-category always inherits its parent's section and direction so
+                // the direction-matching rule (credit->inflow, debit->outflow) holds.
+                effectiveSection = parent.getSection();
+                effectiveDirection = parent.getDirection();
+                effectiveParentId = parent.getId();
+            } else if (section == null || direction == null) {
+                throw new IllegalArgumentException("Top-level category requires section and direction");
+            }
+
             LocalDateTime now = LocalDateTime.now();
             int effectiveOrder = order != null ? order
                 : categories.stream().mapToInt(CashFlowCategory::getOrder).max().orElse(0) + 1;
+            String id = UUID.randomUUID().toString();
             CashFlowCategory created = new CashFlowCategory(
-                UUID.randomUUID().toString(), null, section, direction, nameKa.trim(), effectiveOrder, false, now, now);
-            created.setCode(created.getId());
+                id, id, effectiveSection, effectiveDirection, nameKa.trim(), effectiveParentId, effectiveOrder, false, now, now);
             categories.add(created);
             write(categories);
             return created;
@@ -140,6 +159,10 @@ public class CashFlowCategoryStore {
                 .orElseThrow(() -> new IllegalArgumentException("Cash-flow category not found: " + id));
             if (existing.isBuiltin()) {
                 throw new IllegalArgumentException("Built-in categories cannot be deleted");
+            }
+            boolean hasChildren = categories.stream().anyMatch(category -> id.equals(category.getParentId()));
+            if (hasChildren) {
+                throw new IllegalArgumentException("Delete the sub-categories first");
             }
             categories.removeIf(category -> category.getId().equals(id));
             write(categories);

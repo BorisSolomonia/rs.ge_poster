@@ -70,7 +70,7 @@ class CashFlowStoresTest {
     @Test
     void categoryCrudRoundTripsAndBlocksBuiltinDelete() {
         CashFlowCategoryStore store = categoryStore();
-        CashFlowCategory created = store.create(CashFlowSection.OPERATING, CashFlowDirection.OUTFLOW, "მარკეტინგი", null);
+        CashFlowCategory created = store.create(CashFlowSection.OPERATING, CashFlowDirection.OUTFLOW, "მარკეტინგი", null, null);
         assertThat(created.getId()).isNotBlank();
         assertThat(created.isBuiltin()).isFalse();
 
@@ -86,6 +86,29 @@ class CashFlowStoresTest {
 
         assertThatThrownBy(() -> store.delete(CashFlowCategoryDefaults.UNCATEGORIZED_INFLOW))
             .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void subCategoryInheritsParentAndEnforcesOneLevelAndBlocksParentDelete() {
+        CashFlowCategoryStore store = categoryStore();
+        CashFlowCategory parent = store.create(CashFlowSection.FINANCING, CashFlowDirection.OUTFLOW, "სესხები", null, null);
+        CashFlowCategory child = store.create(null, null, "პროცენტი", parent.getId(), null);
+
+        assertThat(child.getParentId()).isEqualTo(parent.getId());
+        assertThat(child.getSection()).isEqualTo(CashFlowSection.FINANCING);
+        assertThat(child.getDirection()).isEqualTo(CashFlowDirection.OUTFLOW);
+
+        // Nesting is one level deep only.
+        assertThatThrownBy(() -> store.create(null, null, "ქვე-ქვე", child.getId(), null))
+            .isInstanceOf(IllegalArgumentException.class);
+
+        // A parent that still has sub-categories cannot be deleted.
+        assertThatThrownBy(() -> store.delete(parent.getId()))
+            .isInstanceOf(IllegalArgumentException.class);
+
+        store.delete(child.getId());
+        store.delete(parent.getId()); // now allowed
+        assertThat(categoryStore().findById(parent.getId())).isEmpty();
     }
 
     @Test

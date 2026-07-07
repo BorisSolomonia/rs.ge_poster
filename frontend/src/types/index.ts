@@ -257,6 +257,7 @@ export interface CashFlowMatrixCategory {
   total: number
   monthly: Record<string, number>
   transactionCount: number
+  children: CashFlowMatrixCategory[]
 }
 
 export interface CashFlowMatrixDirection {
@@ -319,6 +320,8 @@ export interface CashFlowCategory {
   direction: CashFlowDirection
   directionNameKa: string
   nameKa: string
+  parentId: string | null
+  hasChildren: boolean
   order: number
   builtin: boolean
 }

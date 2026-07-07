@@ -15,6 +15,8 @@ public class CashFlowCategory {
     private CashFlowSection section;
     private CashFlowDirection direction;
     private String nameKa;
+    /** Null for a top-level category; otherwise the id of the parent it is a sub-category of. */
+    private String parentId;
     private int order;
     private boolean builtin;
     private LocalDateTime createdAt;
@@ -24,13 +26,14 @@ public class CashFlowCategory {
     }
 
     public CashFlowCategory(String id, String code, CashFlowSection section, CashFlowDirection direction,
-                            String nameKa, int order, boolean builtin,
+                            String nameKa, String parentId, int order, boolean builtin,
                             LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.code = code;
         this.section = section;
         this.direction = direction;
         this.nameKa = nameKa;
+        this.parentId = parentId;
         this.order = order;
         this.builtin = builtin;
         this.createdAt = createdAt;
@@ -75,6 +78,14 @@ public class CashFlowCategory {
 
     public void setNameKa(String nameKa) {
         this.nameKa = nameKa;
+    }
+
+    public String getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(String parentId) {
+        this.parentId = parentId;
     }
 
     public int getOrder() {
