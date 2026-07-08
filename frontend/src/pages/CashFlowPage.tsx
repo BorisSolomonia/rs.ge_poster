@@ -1,6 +1,16 @@
 import { Fragment, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, ChevronDown, ChevronRight, FolderTree, ListChecks, RefreshCcw, Trash2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowDownRight,
+  ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  FolderTree,
+  ListChecks,
+  RefreshCcw,
+  Trash2,
+} from 'lucide-react'
 import {
   Bar,
   CartesianGrid,
@@ -53,6 +63,32 @@ const SECTION_OPTIONS: { key: CashFlowSectionKey; nameKa: string }[] = [
   { key: 'INVESTING', nameKa: 'საინვესტიციო საქმიანობა' },
   { key: 'FINANCING', nameKa: 'საფინანსო საქმიანობა' },
 ]
+
+/**
+ * Income vs. expense are distinguished by redundant cues (not color alone, for
+ * accessibility): a colored left-accent stripe, a direction icon, and tinted
+ * amounts — emerald for inflows, rose for outflows.
+ */
+const DIRECTION_STYLES = {
+  INFLOW: {
+    icon: ArrowUpRight,
+    headBg: 'bg-emerald-50',
+    headText: 'text-emerald-900',
+    accent: 'border-emerald-500',
+    accentThin: 'border-emerald-300',
+    amount: 'text-emerald-700',
+  },
+  OUTFLOW: {
+    icon: ArrowDownRight,
+    headBg: 'bg-rose-50',
+    headText: 'text-rose-900',
+    accent: 'border-rose-400',
+    accentThin: 'border-rose-300',
+    amount: 'text-rose-700',
+  },
+} as const
+
+type DirectionKey = keyof typeof DIRECTION_STYLES
 
 const DEFAULT_FROM = '2025-01-01'
 
@@ -300,22 +336,25 @@ export default function CashFlowPage() {
                     {sectionOpen && section.directions.map((direction) => {
                       const dirKey = `${section.sectionKey}|${direction.direction}`
                       const dirOpen = openDirections.has(dirKey)
+                      const ds = DIRECTION_STYLES[direction.direction as DirectionKey]
+                      const DirIcon = ds.icon
                       return (
                         <Fragment key={dirKey}>
-                          <tr className="bg-white font-bold text-slate-800">
-                            <td className="sticky left-0 z-10 bg-white px-3 py-2 pl-6">
+                          <tr className={`font-bold ${ds.headBg} ${ds.headText}`}>
+                            <td className={`sticky left-0 z-10 ${ds.headBg} border-l-4 ${ds.accent} px-3 py-2 pl-5`}>
                               <button
                                 type="button"
                                 className="inline-flex items-center gap-2"
                                 onClick={() => setOpenDirections((prev) => toggle(prev, dirKey))}
                               >
                                 {dirOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                                <DirIcon className="h-4 w-4" aria-hidden="true" />
                                 {direction.nameKa}
                               </button>
                             </td>
-                            <td className="px-3 py-2 text-right tabular-nums">{cell(direction.total)}</td>
+                            <td className={`px-3 py-2 text-right tabular-nums ${ds.amount}`}>{cell(direction.total)}</td>
                             {months.map((month) => (
-                              <td key={month} className="px-3 py-2 text-right tabular-nums">{cell(direction.monthly[month] ?? 0)}</td>
+                              <td key={month} className={`px-3 py-2 text-right tabular-nums ${ds.amount}`}>{cell(direction.monthly[month] ?? 0)}</td>
                             ))}
                           </tr>
                           {dirOpen && direction.categories.map((category) => (
@@ -324,6 +363,7 @@ export default function CashFlowPage() {
                               category={category}
                               months={months}
                               depth={0}
+                              direction={direction.direction as DirectionKey}
                               openCategories={openCategories}
                               onToggle={(id) => setOpenCategories((prev) => toggle(prev, id))}
                               onDrill={(cat, month) => setDrilldown({ categoryId: cat.categoryId, categoryNameKa: cat.nameKa, month })}
@@ -623,6 +663,7 @@ function MatrixCategoryRow({
   category,
   months,
   depth,
+  direction,
   openCategories,
   onToggle,
   onDrill,
@@ -630,17 +671,19 @@ function MatrixCategoryRow({
   category: CashFlowMatrixCategory
   months: string[]
   depth: number
+  direction: DirectionKey
   openCategories: Set<string>
   onToggle: (id: string) => void
   onDrill: (category: CashFlowMatrixCategory, month: string | null) => void
 }) {
   const hasChildren = category.children.length > 0
   const open = openCategories.has(category.categoryId)
-  const pad = depth === 0 ? 'pl-12' : 'pl-20'
+  const pad = depth === 0 ? 'pl-11' : 'pl-16'
+  const ds = DIRECTION_STYLES[direction]
   return (
     <>
       <tr className="text-slate-700 hover:bg-cyan-50/50">
-        <td className={`sticky left-0 z-10 bg-white px-3 py-2 ${pad}`}>
+        <td className={`sticky left-0 z-10 bg-white border-l-2 ${ds.accentThin} px-3 py-2 ${pad}`}>
           <span className="inline-flex items-center gap-1">
             {hasChildren ? (
               <button type="button" onClick={() => onToggle(category.categoryId)} className="text-slate-400 hover:text-slate-700">
@@ -659,7 +702,7 @@ function MatrixCategoryRow({
           </span>
         </td>
         <td className="px-3 py-2 text-right tabular-nums font-semibold">
-          <button type="button" className="hover:text-cyan-700 hover:underline" onClick={() => onDrill(category, null)}>
+          <button type="button" className={`${ds.amount} hover:underline`} onClick={() => onDrill(category, null)}>
             {cell(category.total)}
           </button>
         </td>
@@ -668,9 +711,9 @@ function MatrixCategoryRow({
           return (
             <td key={month} className="px-3 py-2 text-right tabular-nums">
               {value === 0 ? (
-                '—'
+                <span className="text-slate-300">—</span>
               ) : (
-                <button type="button" className="hover:text-cyan-700 hover:underline" onClick={() => onDrill(category, month)}>
+                <button type="button" className={`${ds.amount} hover:underline`} onClick={() => onDrill(category, month)}>
                   {formatGel(value)}
                 </button>
               )}
@@ -684,6 +727,7 @@ function MatrixCategoryRow({
           category={child}
           months={months}
           depth={depth + 1}
+          direction={direction}
           openCategories={openCategories}
           onToggle={onToggle}
           onDrill={onDrill}
