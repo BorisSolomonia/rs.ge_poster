@@ -58,8 +58,6 @@ export default function SalesAnalysisPage() {
   const queryClient = useQueryClient()
   const defaults = getDefaultDateRange()
   const [salesFile, setSalesFile] = useState<File | null>(null)
-  const [tbcFile, setTbcFile] = useState<File | null>(null)
-  const [bogFile, setBogFile] = useState<File | null>(null)
   const [dateFrom, setDateFrom] = useState(defaults.from)
   const [dateTo, setDateTo] = useState(defaults.to)
   const [aggregation, setAggregation] = useState<SalesAggregation>('DAY')
@@ -72,23 +70,14 @@ export default function SalesAnalysisPage() {
   const [productSearch, setProductSearch] = useState('')
 
   const currentRunKey = useMemo(() => {
-    if (!salesFile || !tbcFile || !bogFile) return null
-    return [
-      salesFile.name,
-      salesFile.size,
-      tbcFile.name,
-      tbcFile.size,
-      bogFile.name,
-      bogFile.size,
-      dateFrom,
-      dateTo,
-    ].join(':')
-  }, [salesFile, tbcFile, bogFile, dateFrom, dateTo])
+    if (!salesFile) return null
+    return [salesFile.name, salesFile.size, dateFrom, dateTo].join(':')
+  }, [salesFile, dateFrom, dateTo])
 
   const needsRecalculation = Boolean(currentRunKey && currentRunKey !== lastRunKey)
 
   const mutation = useMutation({
-    mutationFn: () => runSalesAnalysis(salesFile!, tbcFile!, bogFile!, dateFrom, dateTo),
+    mutationFn: () => runSalesAnalysis(salesFile!, dateFrom, dateTo),
     onSuccess: () => {
       if (currentRunKey) setLastRunKey(currentRunKey)
     },
@@ -242,18 +231,17 @@ export default function SalesAnalysisPage() {
             {env.salesAnalysisManageProductsLabel}
           </button>
         </div>
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4">
           <FileDropzone label={env.salesAnalysisSalesLabel} accept={env.salesAnalysisAccept} file={salesFile} onChange={(file) => { setSalesFile(file); mutation.reset() }} />
-          <FileDropzone label={env.salesAnalysisTbcLabel} accept={env.salesAnalysisAccept} file={tbcFile} onChange={(file) => { setTbcFile(file); mutation.reset() }} />
-          <FileDropzone label={env.salesAnalysisBogLabel} accept={env.salesAnalysisAccept} file={bogFile} onChange={(file) => { setBogFile(file); mutation.reset() }} />
         </div>
+        <p className="mt-3 text-xs text-slate-500">{env.salesAnalysisBankSourceInfo}</p>
 
         <div className="mt-5 flex flex-wrap items-end gap-4">
           <DateField label={env.reconcileDateFromLabel} value={dateFrom} onChange={(value) => { setDateFrom(value); mutation.reset() }} />
           <DateField label={env.reconcileDateToLabel} value={dateTo} onChange={(value) => { setDateTo(value); mutation.reset() }} />
           <button
             onClick={() => mutation.mutate()}
-            disabled={!salesFile || !tbcFile || !bogFile || mutation.isPending}
+            disabled={!salesFile || mutation.isPending}
             className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Play className="h-4 w-4" />

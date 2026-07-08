@@ -6,15 +6,13 @@ const BASE = `${env.apiPrefix}/sales-analysis`
 
 export async function runSalesAnalysis(
   salesFile: File,
-  tbcFile: File,
-  bogFile: File,
   dateFrom: string,
   dateTo: string
 ): Promise<SalesAnalysisResult> {
+  // Bank income (TBC/BOG) is gathered from the cash-flow backend; only the Poster
+  // sales file is uploaded.
   const formData = new FormData()
   formData.append('salesFile', salesFile)
-  formData.append('tbcFile', tbcFile)
-  formData.append('bogFile', bogFile)
   formData.append('dateFrom', dateFrom)
   formData.append('dateTo', dateTo)
 

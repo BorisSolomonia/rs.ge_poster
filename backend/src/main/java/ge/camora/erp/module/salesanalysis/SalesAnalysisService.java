@@ -2,6 +2,7 @@ package ge.camora.erp.module.salesanalysis;
 
 import ge.camora.erp.config.CamoraProperties;
 import ge.camora.erp.model.config.SalesEvent;
+import ge.camora.erp.module.cashflow.CashFlowService;
 import ge.camora.erp.model.dto.SalesAggregation;
 import ge.camora.erp.model.dto.SalesAnalysisAggregationBlock;
 import ge.camora.erp.model.dto.SalesAnalysisMetric;
@@ -34,27 +35,25 @@ import java.util.stream.Collectors;
 @Service
 public class SalesAnalysisService {
 
-    private final SpreadsheetAmountParser spreadsheetAmountParser;
     private final SalesSpreadsheetParser salesSpreadsheetParser;
     private final ConfigStore configStore;
     private final CamoraProperties properties;
+    private final CashFlowService cashFlowService;
 
     public SalesAnalysisService(
-        SpreadsheetAmountParser spreadsheetAmountParser,
         SalesSpreadsheetParser salesSpreadsheetParser,
         ConfigStore configStore,
-        CamoraProperties properties
+        CamoraProperties properties,
+        CashFlowService cashFlowService
     ) {
-        this.spreadsheetAmountParser = spreadsheetAmountParser;
         this.salesSpreadsheetParser = salesSpreadsheetParser;
         this.configStore = configStore;
         this.properties = properties;
+        this.cashFlowService = cashFlowService;
     }
 
     public SalesAnalysisResult analyze(
         InputStream salesStream,
-        InputStream tbcStream,
-        InputStream bogStream,
         LocalDate dateFrom,
         LocalDate dateTo
     ) {
@@ -65,8 +64,11 @@ public class SalesAnalysisService {
             .toList();
 
         Map<LocalDate, BigDecimal> salesAll = aggregateSales(includedSalesRows);
-        Map<LocalDate, BigDecimal> tbcAll = spreadsheetAmountParser.parse(tbcStream, properties.getParsers().getTbc(), "TBC");
-        Map<LocalDate, BigDecimal> bogAll = spreadsheetAmountParser.parse(bogStream, properties.getParsers().getBog(), "BOG");
+        // Bank income is pulled from the cash-flow backend (categorized operating income
+        // per bank) instead of uploaded statements — same downstream logic, no duplication.
+        Map<String, Map<LocalDate, BigDecimal>> bankIncome = cashFlowService.operatingIncomeByBankAndDate(dateFrom, dateTo);
+        Map<LocalDate, BigDecimal> tbcAll = bankIncome.getOrDefault("TBC", Map.of());
+        Map<LocalDate, BigDecimal> bogAll = bankIncome.getOrDefault("BOG", Map.of());
         Map<LocalDate, String> eventsByDate = configStore.getSalesEvents().stream()
             .collect(Collectors.toMap(SalesEvent::getDate, SalesEvent::getName, (left, right) -> right, TreeMap::new));
         List<String> availableEvents = configStore.getSalesEvents().stream()

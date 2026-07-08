@@ -29,28 +29,23 @@ public class SalesAnalysisController {
     @PostMapping("/analyze")
     public ResponseEntity<ApiResponse<SalesAnalysisResult>> analyze(
         @RequestParam("salesFile") MultipartFile salesFile,
-        @RequestParam("tbcFile") MultipartFile tbcFile,
-        @RequestParam("bogFile") MultipartFile bogFile,
         @RequestParam("dateFrom") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateFrom,
         @RequestParam("dateTo") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate dateTo
     ) {
         validateDateRange(dateFrom, dateTo);
         validateFile(salesFile, "salesFile");
-        validateFile(tbcFile, "tbcFile");
-        validateFile(bogFile, "bogFile");
 
         try {
+            // Bank income (TBC/BOG) is gathered from the cash-flow backend, not uploaded.
             SalesAnalysisResult result = salesAnalysisService.analyze(
                 salesFile.getInputStream(),
-                tbcFile.getInputStream(),
-                bogFile.getInputStream(),
                 dateFrom,
                 dateTo
             );
             return ResponseEntity.ok(ApiResponse.ok(result));
         } catch (Exception e) {
             log.error("Sales analysis failed: {}", e.getMessage(), e);
-            throw new IllegalStateException("Failed to analyze sales and bank files: " + e.getMessage(), e);
+            throw new IllegalStateException("Failed to analyze sales: " + e.getMessage(), e);
         }
     }
 

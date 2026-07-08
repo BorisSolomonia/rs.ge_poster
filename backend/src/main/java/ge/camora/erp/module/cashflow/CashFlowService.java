@@ -330,6 +330,34 @@ public class CashFlowService {
         );
     }
 
+    /**
+     * Per-bank ("BOG"/"TBC") map of per-day categorized operating income: the sum of
+     * CREDIT transactions that resolve (via the cash-flow rules/overrides) to a real
+     * OPERATING · INFLOW category, excluding the UNCATEGORIZED_INFLOW sentinel. This
+     * lets other features (e.g. sales-analysis) get bank income without re-parsing
+     * uploaded statements — it reuses the same sync (sourced) and categorization
+     * (resolve) as the matrix. Uncategorized/non-operating inflows (loans, transfers)
+     * are excluded, so income reads 0 until the user categorizes it in cash flow.
+     */
+    public Map<String, Map<LocalDate, BigDecimal>> operatingIncomeByBankAndDate(LocalDate dateFrom, LocalDate dateTo) {
+        RangeKey range = normalizeRange(dateFrom, dateTo);
+        ResolutionContext context = loadContext();
+        Map<String, Map<LocalDate, BigDecimal>> byBank = new LinkedHashMap<>();
+        for (SourcedTransaction sourced : sourced(range, false)) {
+            Resolution resolution = resolve(sourced, context);
+            CashFlowCategory category = context.categoriesById().get(resolution.categoryId());
+            if (category == null
+                || category.getSection() != CashFlowSection.OPERATING
+                || category.getDirection() != CashFlowDirection.INFLOW
+                || CashFlowCategoryDefaults.UNCATEGORIZED_INFLOW.equals(category.getId())) {
+                continue;
+            }
+            byBank.computeIfAbsent(sourced.source(), ignored -> new LinkedHashMap<>())
+                .merge(sourced.transaction().date(), MoneyUtil.round(sourced.transaction().amount()), BigDecimal::add);
+        }
+        return byBank;
+    }
+
     // ── Internals ─────────────────────────────────────────────────────────────
 
     private List<SourcedTransaction> sourced(RangeKey range, boolean forceRefresh) {
