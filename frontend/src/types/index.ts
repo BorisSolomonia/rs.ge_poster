@@ -344,6 +344,53 @@ export interface CashFlowStatus {
   lastRefreshError: string
 }
 
+export type BudgetPeriodType = 'WEEK' | 'MONTH'
+export type BudgetBasis = 'SEASONAL_GROWTH' | 'TREND' | 'AVERAGE' | 'NONE'
+
+export interface BudgetForecastPeriod {
+  type: BudgetPeriodType
+  key: string
+  labelKa: string
+  start: string
+  end: string
+}
+
+export interface BudgetForecastCell {
+  periodKey: string
+  baseline: number
+  amount: number
+  overridden: boolean
+  basis: BudgetBasis
+}
+
+export interface BudgetForecastRow {
+  categoryId: string
+  categoryName: string
+  section: CashFlowSectionKey
+  direction: CashFlowDirection
+  parentId: string | null
+  cells: BudgetForecastCell[]
+}
+
+export interface BudgetForecastTotal {
+  periodKey: string
+  inflowBaseline: number
+  inflowAmount: number
+  outflowBaseline: number
+  outflowAmount: number
+  netBaseline: number
+  netAmount: number
+}
+
+export interface BudgetForecast {
+  asOf: string
+  periods: BudgetForecastPeriod[]
+  rows: BudgetForecastRow[]
+  totals: BudgetForecastTotal[]
+  historyUncategorized: boolean
+  generatedAt: string
+}
+
 export type BankDirection = 'CREDIT' | 'DEBIT' | 'BOTH'
 
 export interface BankTransactionMapping {

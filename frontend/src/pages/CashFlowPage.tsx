@@ -29,6 +29,7 @@ import {
 } from '../api/cash-flow.api'
 import Drawer from '../components/common/Drawer'
 import ChoiceDialog from '../components/common/ChoiceDialog'
+import BudgetForecast from '../components/cashflow/BudgetForecast'
 import { formatGel } from '../components/reconciliation/reconciliation.utils'
 import { env } from '../env'
 import type {
@@ -100,6 +101,7 @@ export default function CashFlowPage() {
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null)
   const [mappingOpen, setMappingOpen] = useState(false)
   const [categoriesOpen, setCategoriesOpen] = useState(false)
+  const [view, setView] = useState<'ACTUALS' | 'FORECAST'>('ACTUALS')
 
   const matrixQuery = useQuery({
     queryKey: ['cash-flow-matrix', dateFrom, dateTo],
@@ -236,6 +238,27 @@ export default function CashFlowPage() {
         </div>
       ) : null}
 
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => setView('ACTUALS')}
+          className={`rounded-lg px-4 py-2 text-xs font-black transition ${view === 'ACTUALS' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+        >
+          {env.cashFlowTabActualsLabel}
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('FORECAST')}
+          className={`rounded-lg px-4 py-2 text-xs font-black transition ${view === 'FORECAST' ? 'bg-slate-950 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+        >
+          {env.cashFlowTabForecastLabel}
+        </button>
+      </div>
+
+      {view === 'FORECAST' ? <BudgetForecast /> : null}
+
+      {view === 'ACTUALS' ? (
+        <>
       {matrix && matrix.sections.length > 0 ? <CashFlowCharts matrix={matrix} /> : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -369,6 +392,9 @@ export default function CashFlowPage() {
             : []
         }
       />
+
+        </>
+      ) : null}
 
       <MappingSheet open={mappingOpen} onClose={() => setMappingOpen(false)} categories={categories} />
       <CategoriesSheet open={categoriesOpen} onClose={() => setCategoriesOpen(false)} categories={categories} />

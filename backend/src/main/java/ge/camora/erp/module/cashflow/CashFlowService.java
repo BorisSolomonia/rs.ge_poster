@@ -358,6 +358,27 @@ public class CashFlowService {
         return byBank;
     }
 
+    /**
+     * Per-category, per-day signed totals of categorized bank activity over a range,
+     * built with the SAME sync (sourced) and categorization (resolve) as the matrix so
+     * the forecasting engine never re-implements or re-reads anything. The two
+     * UNCATEGORIZED sentinels are kept in the map (the caller decides whether to drop
+     * them); every other key is a real category id. Only aggregated numbers are
+     * returned — the raw transactions are discarded as we fold, so a wide (multi-year)
+     * forecast window does not hold tens of thousands of rows in the heap.
+     */
+    public Map<String, Map<LocalDate, BigDecimal>> categorizedDailySeries(LocalDate dateFrom, LocalDate dateTo) {
+        RangeKey range = normalizeRange(dateFrom, dateTo);
+        ResolutionContext context = loadContext();
+        Map<String, Map<LocalDate, BigDecimal>> byCategory = new LinkedHashMap<>();
+        for (SourcedTransaction sourced : sourced(range, false)) {
+            Resolution resolution = resolve(sourced, context);
+            byCategory.computeIfAbsent(resolution.categoryId(), ignored -> new LinkedHashMap<>())
+                .merge(sourced.transaction().date(), MoneyUtil.round(sourced.transaction().amount()), BigDecimal::add);
+        }
+        return byCategory;
+    }
+
     // ── Internals ─────────────────────────────────────────────────────────────
 
     private List<SourcedTransaction> sourced(RangeKey range, boolean forceRefresh) {

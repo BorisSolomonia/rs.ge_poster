@@ -2,6 +2,7 @@ import { client, unwrapData } from './client'
 import { env } from '../env'
 import type {
   ApiResponse,
+  BudgetForecast,
   CashFlowCategory,
   CashFlowDirection,
   CashFlowDrilldown,
@@ -107,5 +108,35 @@ export async function upsertCashFlowRule(body: {
 
 export async function deleteCashFlowRule(id: string): Promise<void> {
   const res = await client.delete<ApiResponse<void>>(`${BASE}/rules/${encodeURIComponent(id)}`)
+  unwrapData(res)
+}
+
+// ── Budget forecast ──────────────────────────────────────────────────────────
+
+export async function getBudgetForecast(asOf?: string): Promise<BudgetForecast> {
+  const res = await client.get<ApiResponse<BudgetForecast>>(`${BASE}/budget`, {
+    params: asOf ? { asOf } : {},
+  })
+  return unwrapData(res)
+}
+
+export async function setBudgetOverride(body: {
+  periodType: string
+  periodKey: string
+  categoryId: string
+  amount: number
+}): Promise<void> {
+  const res = await client.post<ApiResponse<void>>(`${BASE}/budget/override`, body)
+  unwrapData(res)
+}
+
+export async function clearBudgetOverride(
+  periodType: string,
+  periodKey: string,
+  categoryId: string,
+): Promise<void> {
+  const res = await client.delete<ApiResponse<void>>(`${BASE}/budget/override`, {
+    params: { periodType, periodKey, categoryId },
+  })
   unwrapData(res)
 }
