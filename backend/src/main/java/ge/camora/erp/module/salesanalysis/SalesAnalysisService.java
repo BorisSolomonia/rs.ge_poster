@@ -29,6 +29,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
 
@@ -67,8 +68,10 @@ public class SalesAnalysisService {
         // Bank income is pulled from the cash-flow backend (categorized operating income
         // per bank) instead of uploaded statements — same downstream logic, no duplication.
         Map<String, Map<LocalDate, BigDecimal>> bankIncome = cashFlowService.operatingIncomeByBankAndDate(dateFrom, dateTo);
-        Map<LocalDate, BigDecimal> tbcAll = bankIncome.getOrDefault("TBC", Map.of());
-        Map<LocalDate, BigDecimal> bogAll = bankIncome.getOrDefault("BOG", Map.of());
+        // Wrap in TreeMaps so per-bucket range sums can use subMap instead of copying and
+        // scanning the whole map on every bucket (day/week/month cursors query these repeatedly).
+        Map<LocalDate, BigDecimal> tbcAll = new TreeMap<>(bankIncome.getOrDefault("TBC", Map.of()));
+        Map<LocalDate, BigDecimal> bogAll = new TreeMap<>(bankIncome.getOrDefault("BOG", Map.of()));
         Map<LocalDate, String> eventsByDate = configStore.getSalesEvents().stream()
             .collect(Collectors.toMap(SalesEvent::getDate, SalesEvent::getName, (left, right) -> right, TreeMap::new));
         List<String> availableEvents = configStore.getSalesEvents().stream()
@@ -254,33 +257,40 @@ public class SalesAnalysisService {
             return List.of();
         }
 
-        Map<String, ProductAggregate> aggregatesByKey = new TreeMap<>();
+        // The buckets of a single block are contiguous and non-overlapping, so each row
+        // belongs to at most one bucket. Map each bucket's effective start to its index once,
+        // then a single pass over all rows accumulates per (product, bucket) totals — replacing
+        // the previous O(products x buckets x rows) re-filter with O(rows log buckets + products x buckets).
+        NavigableMap<LocalDate, Integer> bucketByStart = new TreeMap<>();
+        for (int index = 0; index < buckets.size(); index++) {
+            Bucket bucket = buckets.get(index);
+            if (bucket.effectiveEnd.isBefore(bucket.effectiveStart)) {
+                continue;
+            }
+            bucketByStart.put(bucket.effectiveStart, index);
+        }
+
+        Map<String, ProductBucketTotals> totalsByKey = new TreeMap<>();
         for (SalesRow row : salesRows) {
+            Map.Entry<LocalDate, Integer> candidate = bucketByStart.floorEntry(row.date());
+            if (candidate == null || row.date().isAfter(buckets.get(candidate.getValue()).effectiveEnd)) {
+                continue;
+            }
             String productKey = ConfigStore.normalizeSalesKey(row.productName());
-            ProductAggregate aggregate = aggregatesByKey.computeIfAbsent(productKey, ignored -> new ProductAggregate(row.productName()));
-            aggregate.addRow(row);
+            totalsByKey
+                .computeIfAbsent(productKey, ignored -> new ProductBucketTotals(buckets.size()))
+                .add(candidate.getValue(), row);
         }
 
         List<SalesAnalysisProductSeries> series = new ArrayList<>();
         for (SalesAnalysisProductOption option : availableProducts) {
-            ProductAggregate aggregate = aggregatesByKey.get(option.productKey());
-            List<SalesRow> productRows = aggregate == null ? List.of() : aggregate.rows();
+            ProductBucketTotals totals = totalsByKey.get(option.productKey());
             List<SalesAnalysisProductPoint> periods = new ArrayList<>(buckets.size());
-            for (Bucket bucket : buckets) {
-                BigDecimal grossRevenue = MoneyUtil.ZERO;
-                BigDecimal quantity = MoneyUtil.ZERO;
-                BigDecimal profit = MoneyUtil.ZERO;
-                for (SalesRow row : productRows) {
-                    if (row.date().isBefore(bucket.effectiveStart) || row.date().isAfter(bucket.effectiveEnd)) {
-                        continue;
-                    }
-                    grossRevenue = grossRevenue.add(row.grossRevenue());
-                    quantity = quantity.add(row.quantity());
-                    profit = profit.add(row.profit());
-                }
-                grossRevenue = MoneyUtil.round(grossRevenue);
-                quantity = MoneyUtil.round(quantity);
-                profit = MoneyUtil.round(profit);
+            for (int index = 0; index < buckets.size(); index++) {
+                Bucket bucket = buckets.get(index);
+                BigDecimal grossRevenue = MoneyUtil.round(totals == null ? MoneyUtil.ZERO : totals.grossRevenue(index));
+                BigDecimal quantity = MoneyUtil.round(totals == null ? MoneyUtil.ZERO : totals.quantity(index));
+                BigDecimal profit = MoneyUtil.round(totals == null ? MoneyUtil.ZERO : totals.profit(index));
                 periods.add(new SalesAnalysisProductPoint(
                     bucket.start.toString(),
                     bucket.start.toString(),
@@ -360,8 +370,14 @@ public class SalesAnalysisService {
 
     private BigDecimal sumRange(Map<LocalDate, BigDecimal> source, LocalDate from, LocalDate to) {
         BigDecimal total = MoneyUtil.ZERO;
-        for (Map.Entry<LocalDate, BigDecimal> entry : new TreeMap<>(source).entrySet()) {
-            if (entry.getKey().isBefore(from) || entry.getKey().isAfter(to)) {
+        // Iterate only the [from, to] slice (ascending, as before) when the map is navigable,
+        // avoiding a full copy-and-scan per bucket; fall back to a filtered scan otherwise.
+        boolean bounded = source instanceof NavigableMap;
+        Map<LocalDate, BigDecimal> inRange = bounded
+            ? ((NavigableMap<LocalDate, BigDecimal>) source).subMap(from, true, to, true)
+            : source;
+        for (Map.Entry<LocalDate, BigDecimal> entry : inRange.entrySet()) {
+            if (!bounded && (entry.getKey().isBefore(from) || entry.getKey().isAfter(to))) {
                 continue;
             }
             total = total.add(entry.getValue());
@@ -371,8 +387,12 @@ public class SalesAnalysisService {
 
     private List<String> collectEvents(Map<LocalDate, String> eventsByDate, LocalDate from, LocalDate to) {
         List<String> events = new ArrayList<>();
-        for (Map.Entry<LocalDate, String> entry : eventsByDate.entrySet()) {
-            if (entry.getKey().isBefore(from) || entry.getKey().isAfter(to)) {
+        boolean bounded = eventsByDate instanceof NavigableMap;
+        Map<LocalDate, String> inRange = bounded
+            ? ((NavigableMap<LocalDate, String>) eventsByDate).subMap(from, true, to, true)
+            : eventsByDate;
+        for (Map.Entry<LocalDate, String> entry : inRange.entrySet()) {
+            if (!bounded && (entry.getKey().isBefore(from) || entry.getKey().isAfter(to))) {
                 continue;
             }
             if (!events.contains(entry.getValue())) {
@@ -448,7 +468,6 @@ public class SalesAnalysisService {
 
     private static final class ProductAggregate {
         private final String displayName;
-        private final List<SalesRow> rows = new ArrayList<>();
         private BigDecimal grossRevenueTotal = MoneyUtil.ZERO;
 
         private ProductAggregate(String displayName) {
@@ -456,7 +475,6 @@ public class SalesAnalysisService {
         }
 
         private void addRow(SalesRow row) {
-            rows.add(row);
             grossRevenueTotal = grossRevenueTotal.add(row.grossRevenue());
         }
 
@@ -464,12 +482,48 @@ public class SalesAnalysisService {
             return displayName;
         }
 
-        private List<SalesRow> rows() {
-            return rows;
-        }
-
         private BigDecimal grossRevenueTotal() {
             return grossRevenueTotal;
+        }
+    }
+
+    /**
+     * Per-product running totals indexed by bucket position. Rows are accumulated in a single
+     * pass, so {@link #buildProductSeries} reads O(1) per (product, bucket) instead of
+     * re-scanning the product's rows for every bucket.
+     */
+    private static final class ProductBucketTotals {
+        private final BigDecimal[] grossRevenue;
+        private final BigDecimal[] quantity;
+        private final BigDecimal[] profit;
+
+        private ProductBucketTotals(int bucketCount) {
+            grossRevenue = new BigDecimal[bucketCount];
+            quantity = new BigDecimal[bucketCount];
+            profit = new BigDecimal[bucketCount];
+            for (int index = 0; index < bucketCount; index++) {
+                grossRevenue[index] = MoneyUtil.ZERO;
+                quantity[index] = MoneyUtil.ZERO;
+                profit[index] = MoneyUtil.ZERO;
+            }
+        }
+
+        private void add(int index, SalesRow row) {
+            grossRevenue[index] = grossRevenue[index].add(row.grossRevenue());
+            quantity[index] = quantity[index].add(row.quantity());
+            profit[index] = profit[index].add(row.profit());
+        }
+
+        private BigDecimal grossRevenue(int index) {
+            return grossRevenue[index];
+        }
+
+        private BigDecimal quantity(int index) {
+            return quantity[index];
+        }
+
+        private BigDecimal profit(int index) {
+            return profit[index];
         }
     }
 
