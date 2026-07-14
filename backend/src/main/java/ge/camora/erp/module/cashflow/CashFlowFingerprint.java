@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.regex.Pattern;
 
 /**
  * Stable per-transaction identity used to attach a one-off ("Apply to This Only")
@@ -20,6 +21,10 @@ import java.util.HexFormat;
  * hash changes and the override harmlessly falls back to the rule engine.
  */
 public final class CashFlowFingerprint {
+
+    // Precompiled once: normalizeTin runs per transaction per request (tens of
+    // thousands of calls) and Pattern.compile on the hot path dominated CPU under load.
+    private static final Pattern NON_DIGITS = Pattern.compile("[^\\d]");
 
     public static String of(String source, BankTransaction transaction) {
         String payload = String.join("|",
@@ -44,7 +49,7 @@ public final class CashFlowFingerprint {
         if (value == null) {
             return "";
         }
-        return value.replaceAll("[^\\d]", "");
+        return NON_DIGITS.matcher(value).replaceAll("");
     }
 
     private static String safe(String value) {

@@ -76,6 +76,28 @@ class ForecastServiceTest {
         assertThat(cell(service.forecast(AS_OF), "sales", TARGET_MONTH).overridden()).isFalse();
     }
 
+    @Test
+    void forecastCachesUntilAnOverrideBumpsTheVersion() {
+        Map<String, Map<LocalDate, BigDecimal>> daily = new LinkedHashMap<>();
+        daily.put("sales", series(entry(2025, 8, 15, 1000),
+            entry(2026, 4, 10, 100), entry(2026, 5, 10, 100), entry(2026, 6, 10, 100)));
+
+        FakeOverrideStore overrides = new FakeOverrideStore();
+        ForecastService service = new ForecastService(new FakeCashFlowService(daily), new FakeCategoryStore(), overrides);
+
+        BudgetForecastDto first = service.forecast(AS_OF);
+        // Same version ⇒ cache hit: a fresh (restamped) DTO reusing the cached row list.
+        BudgetForecastDto second = service.forecast(AS_OF);
+        assertThat(second).isNotSameAs(first);
+        assertThat(second.rows()).isSameAs(first.rows());
+
+        // Setting an override bumps the shared version, so the forecast recomputes.
+        service.setOverride("MONTH", TARGET_MONTH, "sales", new BigDecimal("900.00"));
+        BudgetForecastDto third = service.forecast(AS_OF);
+        assertThat(third.rows()).isNotSameAs(first.rows());
+        assertThat(cell(third, "sales", TARGET_MONTH).overridden()).isTrue();
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private static BudgetForecastCellDto cell(BudgetForecastDto forecast, String categoryId, String periodKey) {

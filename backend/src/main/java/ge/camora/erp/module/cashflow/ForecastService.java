@@ -6,6 +6,8 @@ import ge.camora.erp.model.dto.BudgetForecastPeriodDto;
 import ge.camora.erp.model.dto.BudgetForecastRowDto;
 import ge.camora.erp.model.dto.BudgetForecastTotalDto;
 import ge.camora.erp.util.MoneyUtil;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -20,6 +22,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Predictive budgeting engine. Builds a rolling week + month forecast per cash-flow
@@ -48,6 +51,14 @@ public class ForecastService {
     private final CashFlowCategoryStore categoryStore;
     private final ForecastOverrideStore overrideStore;
 
+    // Fully-built forecast DTO, keyed (asOf, version). It shares CashFlowService's
+    // version stamp so a rule/override/category change (which also bumps that stamp)
+    // rebuilds the forecast; the 60s TTL mirrors the underlying bank-data cache.
+    private final Cache<ForecastKey, BudgetForecastDto> forecastCache = Caffeine.newBuilder()
+        .maximumSize(256)
+        .expireAfterWrite(60, TimeUnit.SECONDS)
+        .build();
+
     public ForecastService(CashFlowService cashFlowService,
                            CashFlowCategoryStore categoryStore,
                            ForecastOverrideStore overrideStore) {
@@ -58,6 +69,14 @@ public class ForecastService {
 
     public BudgetForecastDto forecast(LocalDate asOf) {
         LocalDate today = asOf == null ? LocalDate.now() : asOf;
+        ForecastKey key = new ForecastKey(today, cashFlowService.currentVersion());
+        BudgetForecastDto built = forecastCache.get(key, ignored -> buildForecast(today));
+        // Restamp generatedAt so a cache hit still reports request time, as before.
+        return new BudgetForecastDto(built.asOf(), built.periods(), built.rows(), built.totals(),
+            built.historyUncategorized(), LocalDateTime.now());
+    }
+
+    private BudgetForecastDto buildForecast(LocalDate today) {
         LocalDate historyFrom = today.minusMonths(HISTORY_MONTHS).withDayOfMonth(1);
 
         Map<String, Map<LocalDate, BigDecimal>> daily = cashFlowService.categorizedDailySeries(historyFrom, today);
@@ -140,10 +159,12 @@ public class ForecastService {
             throw new IllegalArgumentException("Unknown cash-flow category: " + categoryId);
         }
         overrideStore.put(type, categoryId, periodKey, amount);
+        cashFlowService.bumpVersion();
     }
 
     public void clearOverride(String periodType, String periodKey, String categoryId) {
         overrideStore.remove(normalizeType(periodType), categoryId, periodKey);
+        cashFlowService.bumpVersion();
     }
 
     // ── Internals ─────────────────────────────────────────────────────────────
@@ -217,5 +238,8 @@ public class ForecastService {
             throw new IllegalArgumentException("periodType must be WEEK or MONTH");
         }
         return type;
+    }
+
+    private record ForecastKey(LocalDate asOf, long version) {
     }
 }

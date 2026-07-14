@@ -30,12 +30,15 @@ import java.time.format.DateTimeFormatter;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
@@ -72,8 +75,40 @@ public class CashFlowService {
         .expireAfterWrite(60, TimeUnit.SECONDS)
         .build();
 
+    // Monotonic stamp bumped on every mutation of rules / overrides / categories.
+    // It keys the resolution + matrix caches so a config change makes stale entries
+    // unreachable (no explicit invalidation walk needed). Shared with ForecastService.
+    private final AtomicLong version = new AtomicLong();
+
+    // Per-transaction resolution (category + SHA-256 fingerprint) is pure given a
+    // transaction and a config version, so it is cached across requests. Keyed by
+    // (source, transaction, version); a config bump rotates the version and orphans
+    // the old entries, which age out by size. Fingerprints are small, so the ceiling
+    // is generous. This removes the per-request re-hash + re-resolve of every row.
+    private final Cache<ResolutionKey, Resolution> resolutionCache = Caffeine.newBuilder()
+        .maximumSize(200_000)
+        .build();
+
+    // Fully-built matrix DTO, keyed (from, to, version). The 60s TTL mirrors
+    // sourceCache so freshness relative to bank data is unchanged; refresh()
+    // invalidates it so a forced re-sync is never shadowed by a cached matrix.
+    private final Cache<MatrixKey, CashFlowMatrixDto> matrixCache = Caffeine.newBuilder()
+        .maximumSize(256)
+        .expireAfterWrite(60, TimeUnit.SECONDS)
+        .build();
+
     private volatile LocalDateTime lastRefreshAt;
     private volatile String lastRefreshError = "";
+
+    /** Current config version; ForecastService keys its own result cache on this. */
+    long currentVersion() {
+        return version.get();
+    }
+
+    /** Bumped by every rules/overrides/categories mutation to invalidate the caches. */
+    void bumpVersion() {
+        version.incrementAndGet();
+    }
 
     public CashFlowService(TbcDbiClient tbcDbiClient,
                            BogBusinessOnlineClient bogBusinessOnlineClient,
@@ -95,6 +130,14 @@ public class CashFlowService {
 
     public CashFlowMatrixDto matrix(LocalDate dateFrom, LocalDate dateTo) {
         RangeKey range = normalizeRange(dateFrom, dateTo);
+        MatrixKey key = new MatrixKey(range.dateFrom(), range.dateTo(), version.get());
+        CashFlowMatrixDto built = matrixCache.get(key, ignored -> buildMatrix(range));
+        // Restamp generatedAt on every call so a cache hit still reports request time,
+        // exactly as the uncached build did (the heavy aggregation is what we cached).
+        return new CashFlowMatrixDto(built.from(), built.to(), built.months(), built.sections(), LocalDateTime.now());
+    }
+
+    private CashFlowMatrixDto buildMatrix(RangeKey range) {
         List<SourcedTransaction> transactions = sourced(range, false);
         List<String> months = monthColumns(range);
         ResolutionContext context = loadContext();
@@ -237,6 +280,7 @@ public class CashFlowService {
     public void categorizeSingle(String fingerprint, String categoryId) {
         requireCategory(categoryId);
         overrideStore.put(fingerprint, categoryId);
+        bumpVersion();
     }
 
     /**
@@ -266,6 +310,7 @@ public class CashFlowService {
         if (fingerprint != null && !fingerprint.isBlank()) {
             overrideStore.remove(fingerprint);
         }
+        bumpVersion();
     }
 
     // ── Category tree CRUD (thin pass-through with DTO mapping) ───────────────
@@ -281,17 +326,21 @@ public class CashFlowService {
 
     public CashFlowCategoryDto createCategory(CashFlowSection section, CashFlowDirection direction, String nameKa,
                                               String parentId, Integer order) {
-        return toCategoryDto(categoryStore.create(section, direction, nameKa, parentId, order), false);
+        CashFlowCategoryDto created = toCategoryDto(categoryStore.create(section, direction, nameKa, parentId, order), false);
+        bumpVersion();
+        return created;
     }
 
     public CashFlowCategoryDto updateCategory(String id, CashFlowSection section, CashFlowDirection direction, String nameKa, Integer order) {
         CashFlowCategory updated = categoryStore.update(id, section, direction, nameKa, order);
         boolean hasChildren = categoryStore.list().stream().anyMatch(category -> id.equals(category.getParentId()));
+        bumpVersion();
         return toCategoryDto(updated, hasChildren);
     }
 
     public void deleteCategory(String id) {
         categoryStore.delete(id);
+        bumpVersion();
     }
 
     // ── Rule CRUD (mapping sheet) ─────────────────────────────────────────────
@@ -305,11 +354,13 @@ public class CashFlowService {
                                       CashFlowDirection direction, String categoryId) {
         requireCategory(categoryId);
         TransactionCategoryRule rule = ruleStore.upsert(matchType, matchValue, direction, categoryId, "user");
+        bumpVersion();
         return toRuleDto(rule, categoriesById());
     }
 
     public void deleteRule(String id) {
         ruleStore.delete(id);
+        bumpVersion();
     }
 
     // ── Sync / status ─────────────────────────────────────────────────────────
@@ -317,6 +368,9 @@ public class CashFlowService {
     public CashFlowStatusDto refresh(LocalDate dateFrom, LocalDate dateTo) {
         RangeKey range = normalizeRange(dateFrom, dateTo);
         sourceCache.invalidate(range);
+        // A forced re-sync brings fresh bank data; drop cached matrices so the next
+        // read rebuilds against it rather than serving a pre-refresh snapshot.
+        matrixCache.invalidateAll();
         sourced(range, true);
         return status();
     }
@@ -438,13 +492,25 @@ public class CashFlowService {
     // can be tens of thousands in a wide range) was an allocation storm that
     // exhausted the heap.
     private ResolutionContext loadContext() {
+        // Read the version BEFORE the stores: a mutation bumps the version only after
+        // it has written, so any config we then read is stamped at that version or a
+        // newer one — never a newer config under an older stamp (which would let a
+        // stale cache entry win).
+        long stamp = version.get();
         List<CashFlowCategory> categories = categoryStore.list();
         Map<String, CashFlowCategory> byId = categories.stream()
             .collect(Collectors.toMap(CashFlowCategory::getId, category -> category, (left, ignored) -> left, LinkedHashMap::new));
-        return new ResolutionContext(byId, categories, ruleStore.list(), overrideStore.categoryByFingerprint());
+        List<TransactionCategoryRule> rules = ruleStore.list();
+        return new ResolutionContext(byId, categories, rules, overrideStore.categoryByFingerprint(),
+            RuleIndex.build(rules), stamp);
     }
 
     Resolution resolve(SourcedTransaction sourced, ResolutionContext context) {
+        ResolutionKey key = new ResolutionKey(sourced.source(), sourced.transaction(), context.version());
+        return resolutionCache.get(key, ignored -> resolveUncached(sourced, context));
+    }
+
+    private Resolution resolveUncached(SourcedTransaction sourced, ResolutionContext context) {
         BankTransaction txn = sourced.transaction();
         CashFlowDirection direction = directionOf(txn);
         String fingerprint = CashFlowFingerprint.of(sourced.source(), txn);
@@ -462,7 +528,7 @@ public class CashFlowService {
         }
 
         for (RuleCandidate candidate : ruleCandidates(txn)) {
-            Optional<TransactionCategoryRule> match = findRule(context.rules(), candidate.matchType(), candidate.value(), direction);
+            Optional<TransactionCategoryRule> match = context.ruleIndex().find(candidate.matchType(), candidate.value(), direction);
             if (match.isPresent() && matchesDirection(match.get().getCategoryId(), direction, categories)) {
                 return new Resolution(match.get().getCategoryId(), "RULE_" + candidate.matchType().name(), fingerprint, direction);
             }
@@ -493,22 +559,55 @@ public class CashFlowService {
         return candidates;
     }
 
-    private Optional<TransactionCategoryRule> findRule(List<TransactionCategoryRule> rules,
-                                                       CashFlowMatchType matchType, String normalizedValue,
-                                                       CashFlowDirection direction) {
-        TransactionCategoryRule agnostic = null;
-        for (TransactionCategoryRule rule : rules) {
-            if (rule.getMatchType() != matchType || !normalizedValue.equals(rule.getMatchValue())) {
-                continue;
-            }
-            if (rule.getDirection() == direction) {
-                return Optional.of(rule); // direction-specific wins
-            }
-            if (rule.getDirection() == null) {
-                agnostic = rule;
-            }
+    /**
+     * O(1) replacement for the former linear rule scan. Built once per request from
+     * the rule list; preserves the exact precedence a scan gave: a direction-specific
+     * rule wins over a direction-agnostic one for the same (matchType, normalizedValue),
+     * and the first rule seen for a slot wins (rule ids are unique per slot, so at most
+     * one exists anyway).
+     */
+    static final class RuleIndex {
+        private final Map<String, DirectionBucket> byKey;
+
+        private RuleIndex(Map<String, DirectionBucket> byKey) {
+            this.byKey = byKey;
         }
-        return Optional.ofNullable(agnostic);
+
+        static RuleIndex build(List<TransactionCategoryRule> rules) {
+            Map<String, DirectionBucket> byKey = new HashMap<>();
+            for (TransactionCategoryRule rule : rules) {
+                DirectionBucket bucket = byKey.computeIfAbsent(
+                    keyOf(rule.getMatchType(), rule.getMatchValue()), ignored -> new DirectionBucket());
+                if (rule.getDirection() == null) {
+                    if (bucket.agnostic == null) {
+                        bucket.agnostic = rule;
+                    }
+                } else {
+                    bucket.byDirection.putIfAbsent(rule.getDirection(), rule);
+                }
+            }
+            return new RuleIndex(byKey);
+        }
+
+        Optional<TransactionCategoryRule> find(CashFlowMatchType matchType, String normalizedValue,
+                                               CashFlowDirection direction) {
+            DirectionBucket bucket = byKey.get(keyOf(matchType, normalizedValue));
+            if (bucket == null) {
+                return Optional.empty();
+            }
+            TransactionCategoryRule specific = bucket.byDirection.get(direction);
+            return specific != null ? Optional.of(specific) : Optional.ofNullable(bucket.agnostic);
+        }
+
+        private static String keyOf(CashFlowMatchType matchType, String normalizedValue) {
+            return matchType.name() + ' ' + normalizedValue;
+        }
+
+        private static final class DirectionBucket {
+            private final Map<CashFlowDirection, TransactionCategoryRule> byDirection =
+                new EnumMap<>(CashFlowDirection.class);
+            private TransactionCategoryRule agnostic;
+        }
     }
 
     private CashFlowTransactionDto toTransactionDto(SourcedTransaction sourced, Resolution resolution,
@@ -668,7 +767,9 @@ public class CashFlowService {
         Map<String, CashFlowCategory> categoriesById,
         List<CashFlowCategory> categories,
         List<TransactionCategoryRule> rules,
-        Map<String, String> overridesByFingerprint
+        Map<String, String> overridesByFingerprint,
+        RuleIndex ruleIndex,
+        long version
     ) {
     }
 
@@ -676,5 +777,14 @@ public class CashFlowService {
     }
 
     private record RuleCandidate(CashFlowMatchType matchType, String value) {
+    }
+
+    // Identity under which a Resolution is memoized: same source + transaction +
+    // config version ⇒ identical category and fingerprint. BankTransaction is a
+    // record, so its value equality drives the cache lookup.
+    private record ResolutionKey(String source, BankTransaction transaction, long version) {
+    }
+
+    private record MatrixKey(LocalDate from, LocalDate to, long version) {
     }
 }

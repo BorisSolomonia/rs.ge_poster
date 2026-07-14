@@ -189,6 +189,56 @@ class CashFlowServiceTest {
         assertThat(categories).anyMatch(c -> c.sectionNameKa().equals("საოპერაციო საქმიანობა"));
     }
 
+    @Test
+    void matrixCacheHitsUntilAMutationBumpsTheVersion() {
+        bog.transactions = List.of(debit("100.00", "123456789", "Landlord"));
+
+        // First build: no rule yet, so the debit lands in the outflow sentinel.
+        CashFlowMatrixDto first = service.matrix(FROM, TO);
+        assertThat(cell(first, CashFlowCategoryDefaults.UNCATEGORIZED_OUTFLOW)).isEqualByComparingTo("100.00");
+        assertThat(hasCategory(first, "rent")).isFalse();
+
+        // Same version + same data ⇒ served from cache: a fresh DTO (restamped) that
+        // reuses the exact cached section list instance.
+        CashFlowMatrixDto cachedHit = service.matrix(FROM, TO);
+        assertThat(cachedHit).isNotSameAs(first);
+        assertThat(cachedHit.sections()).isSameAs(first.sections());
+
+        // A rule upsert through the service bumps the version, so the matrix recomputes
+        // and now files the debit under rent.
+        service.upsertRule(CashFlowMatchType.TAX_ID, "123456789", null, "rent");
+        CashFlowMatrixDto rebuilt = service.matrix(FROM, TO);
+        assertThat(rebuilt.sections()).isNotSameAs(first.sections());
+        assertThat(cell(rebuilt, "rent")).isEqualByComparingTo("100.00");
+        assertThat(hasCategory(rebuilt, CashFlowCategoryDefaults.UNCATEGORIZED_OUTFLOW)).isFalse();
+    }
+
+    @Test
+    void directionSpecificRuleBeatsAgnosticForSameIdentifier() {
+        // Both target OUTFLOW categories so either could file the debit; the index must
+        // preserve the scan's precedence and pick the OUTFLOW-specific rule over the agnostic.
+        ruleStore.upsert(CashFlowMatchType.TAX_ID, "123456789", null, "salaries", "user");
+        ruleStore.upsert(CashFlowMatchType.TAX_ID, "123456789", CashFlowDirection.OUTFLOW, "rent", "user");
+        bog.transactions = List.of(debit("400.00", "123456789", "Acme LLC"));
+
+        CashFlowMatrixDto matrix = service.matrix(FROM, TO);
+        assertThat(cell(matrix, "rent")).isEqualByComparingTo("400.00");
+        assertThat(hasCategory(matrix, "salaries")).isFalse();
+    }
+
+    @Test
+    void normalizeTinStripsEveryNonDigitAcrossTrickyInputs() {
+        // Locks the precompiled-Pattern path to the old replaceAll("[^\\d]","") semantics.
+        assertThat(CashFlowFingerprint.normalizeTin(null)).isEmpty();
+        assertThat(CashFlowFingerprint.normalizeTin("")).isEmpty();
+        assertThat(CashFlowFingerprint.normalizeTin("123456789")).isEqualTo("123456789");
+        assertThat(CashFlowFingerprint.normalizeTin(" 123-456 789 ")).isEqualTo("123456789");
+        assertThat(CashFlowFingerprint.normalizeTin("GE405123456")).isEqualTo("405123456");
+        assertThat(CashFlowFingerprint.normalizeTin("შპს 405123456")).isEqualTo("405123456");
+        assertThat(CashFlowFingerprint.normalizeTin("აბგ")).isEmpty();
+        assertThat(CashFlowFingerprint.normalizeTin("(12)34.56")).isEqualTo("123456");
+    }
+
     // helpers ------------------------------------------------------------------
 
     private static BigDecimal cell(CashFlowMatrixDto matrix, String categoryId) {
