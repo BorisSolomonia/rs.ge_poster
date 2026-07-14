@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react'
+import { Fragment, memo, useCallback, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertTriangle,
@@ -58,6 +58,12 @@ const SALES_COLOR = '#16a34a'
 const NET_COLOR = '#0f172a'
 const TOP_EXPENSES = 7
 
+// Hoisted so recharts receives stable references (inline object literals would be
+// new on every render, defeating memoization of the chart subtree).
+const CHART_MARGIN = { top: 8, right: 12, bottom: 4, left: 4 }
+const AXIS_TICK = { fontSize: 11 }
+const LEGEND_STYLE = { fontSize: 11 }
+
 const SECTION_OPTIONS: { key: CashFlowSectionKey; nameKa: string }[] = [
   { key: 'OPERATING', nameKa: 'საოპერაციო საქმიანობა' },
   { key: 'INVESTING', nameKa: 'საინვესტიციო საქმიანობა' },
@@ -100,6 +106,16 @@ function formatLocalDate(date: Date) {
 
 function today() {
   return formatLocalDate(new Date())
+}
+
+function toggle(set: Set<string>, key: string): Set<string> {
+  const next = new Set(set)
+  if (next.has(key)) {
+    next.delete(key)
+  } else {
+    next.add(key)
+  }
+  return next
 }
 
 function cell(value: number) {
@@ -186,15 +202,15 @@ export default function CashFlowPage() {
     (refreshMutation.error instanceof Error ? refreshMutation.error : null) ??
     (categorizeMutation.error instanceof Error ? categorizeMutation.error : null)
 
-  function toggle(set: Set<string>, key: string): Set<string> {
-    const next = new Set(set)
-    if (next.has(key)) {
-      next.delete(key)
-    } else {
-      next.add(key)
-    }
-    return next
-  }
+  const handleToggleCategory = useCallback(
+    (id: string) => setOpenCategories((prev) => toggle(prev, id)),
+    [],
+  )
+  const handleDrill = useCallback(
+    (category: CashFlowMatrixCategory, month: string | null) =>
+      setDrilldown({ categoryId: category.categoryId, categoryNameKa: category.nameKa, month }),
+    [],
+  )
 
   function onSelectCategory(txn: CashFlowTransaction, categoryId: string) {
     if (!categoryId || categoryId === txn.categoryId) {
@@ -295,7 +311,9 @@ export default function CashFlowPage() {
 
       {view === 'ACTUALS' ? (
         <>
-      {matrix && matrix.sections.length > 0 ? <CashFlowCharts matrix={matrix} /> : null}
+      {matrix && matrix.sections.length > 0 ? (
+        <CashFlowCharts matrix={matrix} />
+      ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
@@ -364,9 +382,10 @@ export default function CashFlowPage() {
                               months={months}
                               depth={0}
                               direction={direction.direction as DirectionKey}
+                              expanded={openCategories.has(category.categoryId)}
                               openCategories={openCategories}
-                              onToggle={(id) => setOpenCategories((prev) => toggle(prev, id))}
-                              onDrill={(cat, month) => setDrilldown({ categoryId: cat.categoryId, categoryNameKa: cat.nameKa, month })}
+                              onToggle={handleToggleCategory}
+                              onDrill={handleDrill}
                             />
                           ))}
                         </Fragment>
@@ -595,51 +614,62 @@ function compactGel(value: number) {
  * sales income as a line, and net cash (all inflows − all outflows) as a line.
  * All three requested series in one legible view over the monthly axis.
  */
-function CashFlowCharts({ matrix }: { matrix: CashFlowMatrix }) {
-  const months = matrix.months
-  if (months.length === 0) {
+const CashFlowCharts = memo(function CashFlowCharts({ matrix }: { matrix: CashFlowMatrix }) {
+  // The aggregation depends only on the matrix, not on row expand/collapse state,
+  // so it is memoized on the matrix reference (stable across toggles).
+  const chart = useMemo(() => {
+    const months = matrix.months
+    if (months.length === 0) {
+      return null
+    }
+
+    const outflowCategories = matrix.sections.flatMap((section) =>
+      section.directions.filter((direction) => direction.direction === 'OUTFLOW').flatMap((direction) => direction.categories))
+    const sortedExpenses = [...outflowCategories].sort((left, right) => right.total - left.total)
+    const topExpenses = sortedExpenses.slice(0, TOP_EXPENSES)
+    const otherExpenses = sortedExpenses.slice(TOP_EXPENSES)
+    const hasOther = otherExpenses.length > 0
+
+    const salesCategory = matrix.sections
+      .flatMap((section) => section.directions.filter((direction) => direction.direction === 'INFLOW').flatMap((direction) => direction.categories))
+      .find((category) => category.categoryId === 'sales')
+
+    const monthTotal = (month: string, dir: 'INFLOW' | 'OUTFLOW') =>
+      matrix.sections.reduce((sum, section) =>
+        sum + section.directions.filter((direction) => direction.direction === dir)
+          .reduce((acc, direction) => acc + (direction.monthly[month] ?? 0), 0), 0)
+
+    const data = months.map((month) => {
+      const row: Record<string, number | string> = { month }
+      topExpenses.forEach((category) => {
+        row[category.categoryId] = category.monthly[month] ?? 0
+      })
+      if (hasOther) {
+        row.__other = otherExpenses.reduce((sum, category) => sum + (category.monthly[month] ?? 0), 0)
+      }
+      row.__sales = salesCategory?.monthly[month] ?? 0
+      row.__net = monthTotal(month, 'INFLOW') - monthTotal(month, 'OUTFLOW')
+      return row
+    })
+
+    return { data, topExpenses, hasOther }
+  }, [matrix])
+
+  if (!chart) {
     return null
   }
-
-  const outflowCategories = matrix.sections.flatMap((section) =>
-    section.directions.filter((direction) => direction.direction === 'OUTFLOW').flatMap((direction) => direction.categories))
-  const sortedExpenses = [...outflowCategories].sort((left, right) => right.total - left.total)
-  const topExpenses = sortedExpenses.slice(0, TOP_EXPENSES)
-  const otherExpenses = sortedExpenses.slice(TOP_EXPENSES)
-  const hasOther = otherExpenses.length > 0
-
-  const salesCategory = matrix.sections
-    .flatMap((section) => section.directions.filter((direction) => direction.direction === 'INFLOW').flatMap((direction) => direction.categories))
-    .find((category) => category.categoryId === 'sales')
-
-  const monthTotal = (month: string, dir: 'INFLOW' | 'OUTFLOW') =>
-    matrix.sections.reduce((sum, section) =>
-      sum + section.directions.filter((direction) => direction.direction === dir)
-        .reduce((acc, direction) => acc + (direction.monthly[month] ?? 0), 0), 0)
-
-  const data = months.map((month) => {
-    const row: Record<string, number | string> = { month }
-    topExpenses.forEach((category) => {
-      row[category.categoryId] = category.monthly[month] ?? 0
-    })
-    if (hasOther) {
-      row.__other = otherExpenses.reduce((sum, category) => sum + (category.monthly[month] ?? 0), 0)
-    }
-    row.__sales = salesCategory?.monthly[month] ?? 0
-    row.__net = monthTotal(month, 'INFLOW') - monthTotal(month, 'OUTFLOW')
-    return row
-  })
+  const { data, topExpenses, hasOther } = chart
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="mb-3 text-base font-black text-slate-950">{env.cashFlowChartTitle}</h2>
       <ResponsiveContainer width="100%" height={340}>
-        <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+        <ComposedChart data={data} margin={CHART_MARGIN}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-          <XAxis dataKey="month" tick={{ fontSize: 11 }} />
-          <YAxis tick={{ fontSize: 11 }} tickFormatter={compactGel} width={54} />
+          <XAxis dataKey="month" tick={AXIS_TICK} />
+          <YAxis tick={AXIS_TICK} tickFormatter={compactGel} width={54} />
           <Tooltip formatter={(value: number, name: string) => [formatGel(value), name]} />
-          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Legend wrapperStyle={LEGEND_STYLE} />
           <ReferenceLine y={0} stroke="#94a3b8" />
           {topExpenses.map((category, index) => (
             <Bar
@@ -657,27 +687,54 @@ function CashFlowCharts({ matrix }: { matrix: CashFlowMatrix }) {
       </ResponsiveContainer>
     </section>
   )
-}
+})
 
-function MatrixCategoryRow({
-  category,
-  months,
-  depth,
-  direction,
-  openCategories,
-  onToggle,
-  onDrill,
-}: {
+type MatrixCategoryRowProps = {
   category: CashFlowMatrixCategory
   months: string[]
   depth: number
   direction: DirectionKey
+  expanded: boolean
   openCategories: Set<string>
   onToggle: (id: string) => void
   onDrill: (category: CashFlowMatrixCategory, month: string | null) => void
-}) {
+}
+
+/**
+ * Custom comparator so a single toggle doesn't re-render the whole matrix.
+ * `openCategories` is intentionally excluded from the comparison: it gets a new
+ * reference on every toggle, so comparing it would never let any row bail out. A
+ * closed row (or a leaf) renders no descendants, so the set can't affect its
+ * output and it can safely skip. An open row with children must re-render so a
+ * descendant's toggle propagates through the recursion below.
+ */
+function areMatrixRowPropsEqual(prev: MatrixCategoryRowProps, next: MatrixCategoryRowProps): boolean {
+  if (
+    prev.category !== next.category ||
+    prev.months !== next.months ||
+    prev.depth !== next.depth ||
+    prev.direction !== next.direction ||
+    prev.expanded !== next.expanded ||
+    prev.onToggle !== next.onToggle ||
+    prev.onDrill !== next.onDrill
+  ) {
+    return false
+  }
+  return !(next.expanded && next.category.children.length > 0)
+}
+
+const MatrixCategoryRow = memo(function MatrixCategoryRow({
+  category,
+  months,
+  depth,
+  direction,
+  expanded,
+  openCategories,
+  onToggle,
+  onDrill,
+}: MatrixCategoryRowProps) {
   const hasChildren = category.children.length > 0
-  const open = openCategories.has(category.categoryId)
+  const open = expanded
   const pad = depth === 0 ? 'pl-11' : 'pl-16'
   const ds = DIRECTION_STYLES[direction]
   return (
@@ -728,6 +785,7 @@ function MatrixCategoryRow({
           months={months}
           depth={depth + 1}
           direction={direction}
+          expanded={openCategories.has(child.categoryId)}
           openCategories={openCategories}
           onToggle={onToggle}
           onDrill={onDrill}
@@ -735,7 +793,7 @@ function MatrixCategoryRow({
       ))}
     </>
   )
-}
+}, areMatrixRowPropsEqual)
 
 function DrilldownPanel({
   title,
