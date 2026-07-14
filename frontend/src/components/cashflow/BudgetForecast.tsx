@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useCallback, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, RotateCcw } from 'lucide-react'
 import {
@@ -31,6 +31,13 @@ import type {
 const INCOME_COLOR = '#16a34a'
 const EXPENSE_COLOR = '#ef4444'
 const NET_COLOR = '#0f172a'
+
+// Hoisted so recharts receives stable references across the memoized chart's
+// (rare) re-renders instead of fresh object literals each time.
+const CHART_MARGIN = { top: 8, right: 12, bottom: 4, left: 4 }
+const X_AXIS_TICK = { fontSize: 10 }
+const Y_AXIS_TICK = { fontSize: 11 }
+const LEGEND_STYLE = { fontSize: 11 }
 
 const BASIS_LABEL: Record<BudgetBasis, string> = {
   SEASONAL_GROWTH: env.budgetBasisSeasonalLabel,
@@ -69,6 +76,30 @@ export default function BudgetForecast() {
     (setMutation.error instanceof Error ? setMutation.error : null) ??
     (clearMutation.error instanceof Error ? clearMutation.error : null)
 
+  // Hooks must run before the early returns below. Memoized on `forecast` so the
+  // lookup map keeps a stable reference across busy/edit re-renders, which lets
+  // the memoized chart and total rows that consume it bail out.
+  const totalsByKey = useMemo(
+    () => new Map((forecast?.totals ?? []).map((total) => [total.periodKey, total])),
+    [forecast],
+  )
+  // Stable so memoized rows/cells don't see a new handler reference each render.
+  // `mutate` is referentially stable in TanStack Query (the mutation object is
+  // not), so binding it to a local keeps the callbacks — and the deps array —
+  // stable across renders.
+  const { mutate: setOverride } = setMutation
+  const { mutate: clearOverride } = clearMutation
+  const applyOverride = useCallback(
+    (row: BudgetForecastRow, period: BudgetForecastPeriod, amount: number) =>
+      setOverride({ periodType: period.type, periodKey: period.key, categoryId: row.categoryId, amount }),
+    [setOverride],
+  )
+  const resetOverride = useCallback(
+    (row: BudgetForecastRow, period: BudgetForecastPeriod) =>
+      clearOverride({ periodType: period.type, periodKey: period.key, categoryId: row.categoryId }),
+    [clearOverride],
+  )
+
   if (forecastQuery.isLoading) {
     return <p className="rounded-2xl border border-slate-200 bg-white p-6 text-slate-500 shadow-sm">{env.budgetLoadingLabel}</p>
   }
@@ -87,12 +118,6 @@ export default function BudgetForecast() {
   const periods = forecast.periods
   const income = forecast.rows.filter((row) => row.direction === 'INFLOW')
   const expense = forecast.rows.filter((row) => row.direction === 'OUTFLOW')
-  const totalsByKey = new Map(forecast.totals.map((total) => [total.periodKey, total]))
-
-  const applyOverride = (row: BudgetForecastRow, period: BudgetForecastPeriod, amount: number) =>
-    setMutation.mutate({ periodType: period.type, periodKey: period.key, categoryId: row.categoryId, amount })
-  const resetOverride = (row: BudgetForecastRow, period: BudgetForecastPeriod) =>
-    clearMutation.mutate({ periodType: period.type, periodKey: period.key, categoryId: row.categoryId })
 
   const busy = setMutation.isPending || clearMutation.isPending
 
@@ -202,7 +227,7 @@ function GroupHeader({ label, span }: { label: string; span: number }) {
   )
 }
 
-function ForecastRow({
+const ForecastRow = memo(function ForecastRow({
   row,
   periods,
   busy,
@@ -215,7 +240,10 @@ function ForecastRow({
   onCommit: (row: BudgetForecastRow, period: BudgetForecastPeriod, amount: number) => void
   onReset: (row: BudgetForecastRow, period: BudgetForecastPeriod) => void
 }) {
-  const cellsByKey = new Map(row.cells.map((cell) => [cell.periodKey, cell]))
+  const cellsByKey = useMemo(
+    () => new Map(row.cells.map((cell) => [cell.periodKey, cell])),
+    [row.cells],
+  )
   return (
     <tr className="text-slate-700 hover:bg-cyan-50/40">
       <td className={`sticky left-0 z-10 bg-white px-3 py-1.5 ${row.parentId ? 'pl-8' : 'pl-4 font-semibold'}`}>
@@ -230,8 +258,10 @@ function ForecastRow({
               <EditableCell
                 cell={cell}
                 busy={busy}
-                onCommit={(amount) => onCommit(row, period, amount)}
-                onReset={() => onReset(row, period)}
+                row={row}
+                period={period}
+                onCommit={onCommit}
+                onReset={onReset}
               />
             ) : (
               <span className="text-slate-300">—</span>
@@ -241,18 +271,22 @@ function ForecastRow({
       })}
     </tr>
   )
-}
+})
 
-function EditableCell({
+const EditableCell = memo(function EditableCell({
   cell,
   busy,
+  row,
+  period,
   onCommit,
   onReset,
 }: {
   cell: BudgetForecastCell
   busy: boolean
-  onCommit: (amount: number) => void
-  onReset: () => void
+  row: BudgetForecastRow
+  period: BudgetForecastPeriod
+  onCommit: (row: BudgetForecastRow, period: BudgetForecastPeriod, amount: number) => void
+  onReset: (row: BudgetForecastRow, period: BudgetForecastPeriod) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -271,7 +305,7 @@ function EditableCell({
     if (Math.abs(parsed - cell.amount) < 0.005) {
       return // unchanged
     }
-    onCommit(parsed)
+    onCommit(row, period, parsed)
   }
 
   if (editing) {
@@ -306,7 +340,7 @@ function EditableCell({
       {cell.overridden ? (
         <button
           type="button"
-          onClick={onReset}
+          onClick={() => onReset(row, period)}
           disabled={busy}
           title={`${env.budgetResetLabel} (${formatGel(cell.baseline)})`}
           className="rounded p-0.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
@@ -326,7 +360,7 @@ function EditableCell({
       </button>
     </span>
   )
-}
+})
 
 function TotalRow({
   label,
@@ -362,33 +396,37 @@ function TotalRow({
   )
 }
 
-function ForecastChart({
+const ForecastChart = memo(function ForecastChart({
   periods,
   totalsByKey,
 }: {
   periods: BudgetForecastPeriod[]
   totalsByKey: Map<string, BudgetForecastTotal>
 }) {
-  const data = periods.map((period) => {
-    const total = totalsByKey.get(period.key)
-    return {
-      label: period.labelKa,
-      income: total?.inflowAmount ?? 0,
-      expense: total?.outflowAmount ?? 0,
-      net: total?.netAmount ?? 0,
-    }
-  })
+  const data = useMemo(
+    () =>
+      periods.map((period) => {
+        const total = totalsByKey.get(period.key)
+        return {
+          label: period.labelKa,
+          income: total?.inflowAmount ?? 0,
+          expense: total?.outflowAmount ?? 0,
+          net: total?.netAmount ?? 0,
+        }
+      }),
+    [periods, totalsByKey],
+  )
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="mb-3 text-base font-black text-slate-950">{env.budgetChartTitle}</h2>
       <ResponsiveContainer width="100%" height={300}>
-        <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+        <ComposedChart data={data} margin={CHART_MARGIN}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-          <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-          <YAxis tick={{ fontSize: 11 }} tickFormatter={compact} width={54} />
+          <XAxis dataKey="label" tick={X_AXIS_TICK} />
+          <YAxis tick={Y_AXIS_TICK} tickFormatter={compact} width={54} />
           <Tooltip formatter={(value: number, name: string) => [formatGel(value), name]} />
-          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Legend wrapperStyle={LEGEND_STYLE} />
           <ReferenceLine y={0} stroke="#94a3b8" />
           <Bar dataKey="income" name={env.budgetIncomeLabel} fill={INCOME_COLOR} />
           <Bar dataKey="expense" name={env.budgetExpenseLabel} fill={EXPENSE_COLOR} />
@@ -397,4 +435,4 @@ function ForecastChart({
       </ResponsiveContainer>
     </section>
   )
-}
+})
