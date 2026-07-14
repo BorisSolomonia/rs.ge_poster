@@ -26,8 +26,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -40,6 +42,7 @@ public class ConfigStore {
 
     private static final Logger log = LoggerFactory.getLogger(ConfigStore.class);
     private static final Pattern TAX_ID_PATTERN = Pattern.compile("\\((\\d+)\\)");
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     private final ObjectMapper objectMapper;
     private final CamoraProperties properties;
@@ -54,6 +57,17 @@ public class ConfigStore {
     private List<BankTransactionMapping> bankTransactionMappings = new ArrayList<>();
     private List<SupplierPaymentMapping> supplierPaymentMappings = new ArrayList<>();
     private List<SupplierCashPayment> supplierCashPayments = new ArrayList<>();
+
+    // Derived lookup indexes. The lists above stay the source of truth for
+    // persistence/serialization; these maps are rebuilt (clear + repopulate) from
+    // the lists in load() and after every mutation, always under the write lock.
+    // They exist solely to turn hot O(n) linear scans into O(1)/O(k) lookups.
+    private final Map<String, SupplierMapping> supplierMappingById = new HashMap<>();
+    private final Map<String, SupplierMapping> supplierMappingByPosterAlias = new HashMap<>();
+    private final Map<String, SupplierMapping> supplierMappingByRsgeRawValue = new HashMap<>();
+    private final Map<String, List<ProductMapping>> productMappingsBySupplierId = new HashMap<>();
+    private final Map<LocalDate, SalesEvent> salesEventByDate = new HashMap<>();
+    private final Map<String, SalesProductExclusion> salesProductByNormalizedName = new HashMap<>();
 
     public ConfigStore(ObjectMapper objectMapper, CamoraProperties properties) {
         this.objectMapper = objectMapper;
@@ -84,6 +98,7 @@ public class ConfigStore {
                                       new TypeReference<>() {});
         supplierCashPayments = loadJson(configDir.resolve(properties.getConfigFiles().getSupplierCashPayments()),
                                       new TypeReference<>() {});
+        rebuildAllIndexes();
         log.info("ConfigStore loaded: {} supplier mappings, {} product mappings, {} standalone",
                  supplierMappings.size(), productMappings.size(), standaloneSuppliers.size());
     }
@@ -102,18 +117,17 @@ public class ConfigStore {
     public Optional<SupplierMapping> findById(String id) {
         lock.readLock().lock();
         try {
-            return supplierMappings.stream().filter(m -> m.getId().equals(id)).findFirst();
+            return Optional.ofNullable(supplierMappingById.get(id));
         } finally {
             lock.readLock().unlock();
         }
     }
 
     public Optional<SupplierMapping> findSupplierMappingByPosterAlias(String alias) {
+        if (alias == null) return Optional.empty();
         lock.readLock().lock();
         try {
-            return supplierMappings.stream()
-                .filter(m -> m.getPosterAlias().equalsIgnoreCase(alias))
-                .findFirst();
+            return Optional.ofNullable(supplierMappingByPosterAlias.get(alias.toLowerCase(Locale.ROOT)));
         } finally {
             lock.readLock().unlock();
         }
@@ -122,9 +136,7 @@ public class ConfigStore {
     public Optional<SupplierMapping> findSupplierMappingByRsgeRawValue(String rawValue) {
         lock.readLock().lock();
         try {
-            return supplierMappings.stream()
-                .filter(m -> m.getRsgeRawValue().equals(rawValue))
-                .findFirst();
+            return Optional.ofNullable(supplierMappingByRsgeRawValue.get(rawValue));
         } finally {
             lock.readLock().unlock();
         }
@@ -200,6 +212,10 @@ public class ConfigStore {
         } catch (RuntimeException exception) {
             supplierMappings = previousSuppliers;
             productMappings = previousProducts;
+            // The restore above did not go back through a persist call, so the
+            // indexes must be rebuilt here to match the rolled-back lists.
+            rebuildSupplierMappingIndexes();
+            rebuildProductMappingIndex();
             throw exception;
         } finally {
             lock.writeLock().unlock();
@@ -235,8 +251,13 @@ public class ConfigStore {
     public List<ProductMapping> getProductMappings(String supplierMappingId) {
         lock.readLock().lock();
         try {
-            return productMappings.stream()
-                .filter(p -> p.getSupplierMappingId().equals(supplierMappingId))
+            List<ProductMapping> bucket = productMappingsBySupplierId.get(supplierMappingId);
+            if (bucket == null) {
+                return new ArrayList<>();
+            }
+            // The bucket is kept in list order, so a stable sort by descending
+            // priority reproduces the previous linear filter+sort exactly.
+            return bucket.stream()
                 .sorted((a, b) -> Integer.compare(b.getPriority(), a.getPriority()))
                 .collect(Collectors.toList());
         } finally {
@@ -434,8 +455,8 @@ public class ConfigStore {
         String normalizedName = normalizeSalesKey(displayName);
         lock.readLock().lock();
         try {
-            return salesProductExclusions.stream()
-                .anyMatch(entry -> entry.getNormalizedName().equals(normalizedName) && entry.isExcluded());
+            SalesProductExclusion entry = salesProductByNormalizedName.get(normalizedName);
+            return entry != null && entry.isExcluded();
         } finally {
             lock.readLock().unlock();
         }
@@ -455,7 +476,7 @@ public class ConfigStore {
     public Optional<SalesEvent> findSalesEventByDate(LocalDate date) {
         lock.readLock().lock();
         try {
-            return salesEvents.stream().filter(event -> event.getDate().equals(date)).findFirst();
+            return Optional.ofNullable(salesEventByDate.get(date));
         } finally {
             lock.readLock().unlock();
         }
@@ -747,12 +768,82 @@ public class ConfigStore {
         }
     }
 
+    // ─── DERIVED LOOKUP INDEXES ───────────────────────────────────────────────
+    // Rebuilt from the authoritative lists (full clear + repopulate) rather than
+    // maintained incrementally, so no mutation path can leave an index skewed.
+    // Cheap because the config data sets are small and this only runs on writes.
+    // All calls happen while the write lock is held (load() runs pre-startup).
+
+    private void rebuildAllIndexes() {
+        rebuildSupplierMappingIndexes();
+        rebuildProductMappingIndex();
+        rebuildSalesEventIndex();
+        rebuildSalesProductIndex();
+    }
+
+    private void rebuildSupplierMappingIndexes() {
+        supplierMappingById.clear();
+        supplierMappingByPosterAlias.clear();
+        supplierMappingByRsgeRawValue.clear();
+        // putIfAbsent keeps the first entry in list order, matching findFirst() on
+        // the previous linear scans when a key appears more than once (several
+        // rs.ge entities legitimately share one Poster alias).
+        for (SupplierMapping mapping : supplierMappings) {
+            if (mapping.getId() != null) {
+                supplierMappingById.putIfAbsent(mapping.getId(), mapping);
+            }
+            if (mapping.getPosterAlias() != null) {
+                supplierMappingByPosterAlias.putIfAbsent(mapping.getPosterAlias().toLowerCase(Locale.ROOT), mapping);
+            }
+            if (mapping.getRsgeRawValue() != null) {
+                supplierMappingByRsgeRawValue.putIfAbsent(mapping.getRsgeRawValue(), mapping);
+            }
+        }
+    }
+
+    private void rebuildProductMappingIndex() {
+        productMappingsBySupplierId.clear();
+        // Buckets preserve list order so getProductMappings() reproduces the old
+        // filter+stable-sort result exactly.
+        for (ProductMapping mapping : productMappings) {
+            productMappingsBySupplierId
+                .computeIfAbsent(mapping.getSupplierMappingId(), key -> new ArrayList<>())
+                .add(mapping);
+        }
+    }
+
+    private void rebuildSalesEventIndex() {
+        salesEventByDate.clear();
+        for (SalesEvent event : salesEvents) {
+            if (event.getDate() != null) {
+                salesEventByDate.putIfAbsent(event.getDate(), event);
+            }
+        }
+    }
+
+    private void rebuildSalesProductIndex() {
+        salesProductByNormalizedName.clear();
+        for (SalesProductExclusion entry : salesProductExclusions) {
+            if (entry.getNormalizedName() != null) {
+                salesProductByNormalizedName.putIfAbsent(entry.getNormalizedName(), entry);
+            }
+        }
+    }
+
     private void persistSupplierMappings() {
-        writeJson(configDir.resolve(properties.getConfigFiles().getSupplierMappings()), supplierMappings);
+        try {
+            writeJson(configDir.resolve(properties.getConfigFiles().getSupplierMappings()), supplierMappings);
+        } finally {
+            rebuildSupplierMappingIndexes();
+        }
     }
 
     private void persistProductMappings() {
-        writeJson(configDir.resolve(properties.getConfigFiles().getProductMappings()), productMappings);
+        try {
+            writeJson(configDir.resolve(properties.getConfigFiles().getProductMappings()), productMappings);
+        } finally {
+            rebuildProductMappingIndex();
+        }
     }
 
     private void persistStandaloneSuppliers() {
@@ -760,11 +851,19 @@ public class ConfigStore {
     }
 
     private void persistSalesProductExclusions() {
-        writeJson(configDir.resolve(properties.getConfigFiles().getSalesProductExclusions()), salesProductExclusions);
+        try {
+            writeJson(configDir.resolve(properties.getConfigFiles().getSalesProductExclusions()), salesProductExclusions);
+        } finally {
+            rebuildSalesProductIndex();
+        }
     }
 
     private void persistSalesEvents() {
-        writeJson(configDir.resolve(properties.getConfigFiles().getSalesEvents()), salesEvents);
+        try {
+            writeJson(configDir.resolve(properties.getConfigFiles().getSalesEvents()), salesEvents);
+        } finally {
+            rebuildSalesEventIndex();
+        }
     }
 
     private void persistBankTransactionMappings() {
@@ -890,13 +989,13 @@ public class ConfigStore {
         if (value == null) {
             return "";
         }
-        String normalized = value
+        String trimmed = value
             .replace('\u00A0', ' ')
             .replace("\u200B", "")
             .replace("\u200C", "")
             .replace("\u200D", "")
-            .trim()
-            .replaceAll("\\s+", " ");
+            .trim();
+        String normalized = WHITESPACE.matcher(trimmed).replaceAll(" ");
         return normalized.toLowerCase(Locale.ROOT);
     }
 
