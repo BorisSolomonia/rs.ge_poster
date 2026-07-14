@@ -27,5 +27,16 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            react: ['react', 'react-dom', 'react-router-dom'],
+            recharts: ['recharts'],
+            query: ['@tanstack/react-query', 'axios'],
+          },
+        },
+      },
+    },
   }
 })
